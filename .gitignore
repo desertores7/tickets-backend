@@ -1,0 +1,23 @@
+node_modules
+dist
+yarn.lock
+package-lock.json
+.env
+pnpm-workspace.yaml
+.vercel
+.wwebjs_auth/
+.wwebjs_auth
+.wwebjs_cache/
+.wwebjs_cache
+whatsapp-sessions/
+whatsapp-sessions
+*.zip
+puppeteer-cache/
+puppeteer-cache
+uploads/
+uploads/whatsapp-temp/
+multimedia/
+multimedia/user/
+
+# Por servidor: cada instancia tiene su propio docker-compose.yml; no sobrescribir con git pull
+docker-compose.yml

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>{{title}}</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+    body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+    a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; }
+    @media only screen and (max-width: 620px) {
+      .email-container { width: 100% !important; }
+      .stack-column { display: block !important; width: 100% !important; max-width: 100% !important; }
+      .header-tagline { text-align: left !important; padding-top: 8px !important; }
+      .feature-column { display: block !important; width: 50% !important; float: left !important; }
+      .hero-image-cell { display: none !important; }
+      .mobile-padding { padding-left: 20px !important; padding-right: 20px !important; }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #FDFBF7; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+
+  <!-- Preheader (hidden preview text) -->
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all; font-size: 1px; line-height: 1px; color: #FDFBF7;">
+    {{preheader}}
+  </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #FDFBF7;">
+    <tr>
+      <td align="center" style="padding: 32px 16px;">
+
+        <!-- Main white card -->
+        <table role="presentation" class="email-container" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width: 640px; width: 100%; background-color: #FFFFFF; border-radius: 16px 16px 0 0; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.06);">
+
+          <!-- Header -->
+          <tr>
+            <td class="mobile-padding" style="padding: 28px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td class="stack-column" valign="middle" style="vertical-align: middle;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" style="padding-right: 10px; vertical-align: middle;">
+                          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' fill='none' stroke='%234FB9A8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2C9.5 2 7.5 4 7 6.5C6.5 9 7 12 8 15C8.5 17 9 19 10 20.5C10.5 21.5 11 22 12 22C13 22 13.5 21.5 14 20.5C15 19 15.5 17 16 15C17 12 17.5 9 17 6.5C16.5 4 14.5 2 12 2Z'/%3E%3C/svg%3E" width="28" height="28" alt="" style="display: block;" />
+                        </td>
+                        <td valign="middle" style="vertical-align: middle;">
+                          <span style="font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; color: #1A1A1A; letter-spacing: -0.3px;">{{appName}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td class="stack-column header-tagline" align="right" valign="middle" style="vertical-align: middle; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: #707070; line-height: 1.4;">
+                    {{appTagline}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Teal divider -->
+          <tr>
+            <td class="mobile-padding" style="padding: 20px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="height: 2px; background-color: #4FB9A8; border-radius: 2px; font-size: 0; line-height: 0;">&nbsp;</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Hero / Title section -->
+          <tr>
+            <td class="mobile-padding" style="padding: 32px 40px 0 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td class="stack-column" valign="top" style="vertical-align: top; padding-right: 24px;">
+                    <h1 style="margin: 0 0 12px 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 28px; font-weight: 700; line-height: 1.25; color: #1A1A1A; letter-spacing: -0.5px;">
+                      {{title}}{{#if titleHighlight}} <span style="color: #4FB9A8;">{{titleHighlight}}</span>{{/if}}{{#if titleSuffix}}{{titleSuffix}}{{/if}}
+                    </h1>
+                    {{#if subtitle}}
+                    <p style="margin: 0 0 8px 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.7; color: #555555;">
+                      {{subtitle}}
+                    </p>
+                    {{/if}}
+                    {{#if greeting}}
+                    <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.7; color: #555555;">
+                      {{greeting}}
+                    </p>
+                    {{/if}}
+                  </td>
+                  {{#if showHeroImage}}
+                  <td class="stack-column hero-image-cell" width="200" valign="top" align="right" style="vertical-align: top;">
+                    <img src="{{heroImageUrl}}" width="180" alt="" style="display: block; border-radius: 12px; max-width: 180px;" />
+                  </td>
+                  {{/if}}
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main content -->
+          <tr>
+            <td class="mobile-padding" style="padding: 8px 40px 0 40px;">
+              {{{content}}}
+            </td>
+          </tr>
+
+          <!-- CTA Button -->
+          {{#if ctaUrl}}
+          <tr>
+            <td class="mobile-padding" style="padding: 0 40px 8px 40px;" align="center">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 20px auto;">
+                <tr>
+                  <td align="center" style="border-radius: 50px; background-color: #4FB9A8;">
+                    <a href="{{ctaUrl}}" target="_blank" style="display: inline-block; padding: 14px 40px; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; color: #FFFFFF; text-decoration: none; border-radius: 50px; letter-spacing: 0.2px;">
+                      {{ctaText}}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {{/if}}
+
+          <!-- Link fallback (below CTA button) -->
+          {{#if linkFallback}}
+          <tr>
+            <td class="mobile-padding" style="padding: 0 40px 8px 40px;">
+              {{{linkFallback}}}
+            </td>
+          </tr>
+          {{/if}}
+
+          <!-- Post-CTA content (e.g. expiry notes) -->
+          {{#if postCtaContent}}
+          <tr>
+            <td class="mobile-padding" style="padding: 0 40px 8px 40px;">
+              {{{postCtaContent}}}
+            </td>
+          </tr>
+          {{/if}}
+
+          <!-- Features grid -->
+          {{#if showFeatures}}
+          <tr>
+            <td class="mobile-padding" style="padding: 32px 40px 0 40px;">
+              <h2 style="margin: 0 0 24px 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; color: #1A1A1A; text-align: center;">
+                ¿Qué puedes hacer con {{appName}}?
+              </h2>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td class="feature-column" width="25%" align="center" valign="top" style="padding: 0 8px 16px 8px; vertical-align: top;">
+                    <div style="width: 44px; height: 44px; margin: 0 auto 10px auto; background-color: #E8F6F4; border-radius: 10px; text-align: center; line-height: 44px; font-size: 18px; color: #4FB9A8;">&#128197;</div>
+                    <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #555555; text-align: center;">Gestionar turnos de forma simple</p>
+                  </td>
+                  <td class="feature-column" width="25%" align="center" valign="top" style="padding: 0 8px 16px 8px; vertical-align: top;">
+                    <div style="width: 44px; height: 44px; margin: 0 auto 10px auto; background-color: #E8F6F4; border-radius: 10px; text-align: center; line-height: 44px; font-size: 18px; color: #4FB9A8;">&#128101;</div>
+                    <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #555555; text-align: center;">Organizar pacientes y tratamientos</p>
+                  </td>
+                  <td class="feature-column" width="25%" align="center" valign="top" style="padding: 0 8px 16px 8px; vertical-align: top;">
+                    <div style="width: 44px; height: 44px; margin: 0 auto 10px auto; background-color: #E8F6F4; border-radius: 10px; text-align: center; line-height: 44px; font-size: 18px; color: #4FB9A8;">&#9881;</div>
+                    <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #555555; text-align: center;">Llevar el control de tu consultorio</p>
+                  </td>
+                  <td class="feature-column" width="25%" align="center" valign="top" style="padding: 0 8px 16px 8px; vertical-align: top;">
+                    <div style="width: 44px; height: 44px; margin: 0 auto 10px auto; background-color: #E8F6F4; border-radius: 10px; text-align: center; line-height: 44px; font-size: 18px; color: #4FB9A8;">&#128200;</div>
+                    <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #555555; text-align: center;">Acceder a reportes y estadísticas</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {{/if}}
+
+          <!-- Support section -->
+          <tr>
+            <td class="mobile-padding" style="padding: 28px 40px 36px 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #F5FAF9; border-radius: 12px;">
+                <tr>
+                  <td style="padding: 20px 24px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                      <tr>
+                        <td width="36" valign="top" style="padding-right: 12px; vertical-align: top;">
+                          <div style="width: 32px; height: 32px; border-radius: 50%; background-color: #E8F6F4; text-align: center; line-height: 32px; font-size: 16px; color: #4FB9A8;">&#128172;</div>
+                        </td>
+                        <td valign="top" style="vertical-align: top;">
+                          <p style="margin: 0 0 4px 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 700; color: #1A1A1A;">
+                            ¿Necesitas ayuda?
+                          </p>
+                          <p style="margin: 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.6; color: #555555;">
+                            Estamos para ayudarte. Escríbenos a
+                            <a href="mailto:{{supportEmail}}" style="color: #4FB9A8; text-decoration: none; font-weight: 600;">{{supportEmail}}</a>
+                          </p>
+                        </td>
+                        <td class="stack-column" align="right" valign="middle" style="vertical-align: middle; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: #707070; line-height: 1.5; white-space: nowrap; padding-left: 16px;">
+                          Nuestro equipo de soporte<br />responderá a la brevedad.
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Closing message -->
+          <tr>
+            <td class="mobile-padding" style="padding: 0 40px 32px 40px; text-align: center;">
+              <p style="margin: 0 0 16px 0; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #707070; line-height: 1.6;">
+                ¡Estamos felices de acompañarte en este camino!
+              </p>
+              <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%234FB9A8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2C9.5 2 7.5 4 7 6.5C6.5 9 7 12 8 15C8.5 17 9 19 10 20.5C10.5 21.5 11 22 12 22C13 22 13.5 21.5 14 20.5C15 19 15.5 17 16 15C17 12 17.5 9 17 6.5C16.5 4 14.5 2 12 2Z'/%3E%3C/svg%3E" width="20" height="20" alt="" style="display: inline-block;" />
+            </td>
+          </tr>
+
+        </table>
+        <!-- Dark footer (attached to main card) -->
+        <table role="presentation" class="email-container" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width: 640px; width: 100%; margin-top: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
+          <tr>
+            <td style="background-color: #1A1A1A; border-radius: 0 0 16px 16px; padding: 32px 40px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td align="center" style="padding-bottom: 20px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" style="padding-right: 8px; vertical-align: middle;">
+                          <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='%234FB9A8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2C9.5 2 7.5 4 7 6.5C6.5 9 7 12 8 15C8.5 17 9 19 10 20.5C10.5 21.5 11 22 12 22C13 22 13.5 21.5 14 20.5C15 19 15.5 17 16 15C17 12 17.5 9 17 6.5C16.5 4 14.5 2 12 2Z'/%3E%3C/svg%3E" width="22" height="22" alt="" style="display: block;" />
+                        </td>
+                        <td valign="middle" style="vertical-align: middle;">
+                          <span style="font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 700; color: #FFFFFF;">{{appName}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.7; color: #A0A0A0; padding-bottom: 16px;">
+                    La plataforma de gestión integral para consultorios odontológicos.
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom: 20px;">
+                    <a href="{{frontendUrl}}" target="_blank" style="font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: #CCCCCC; text-decoration: none; margin: 0 12px;">Sitio web</a>
+                    <span style="color: #444444;">|</span>
+                    <a href="mailto:{{supportEmail}}" style="font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; color: #CCCCCC; text-decoration: none; margin: 0 12px;">Contacto</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="border-top: 1px solid #333333; padding-top: 16px; font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 11px; color: #707070;">
+                    &copy; {{year}} {{appName}}. Todos los derechos reservados.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

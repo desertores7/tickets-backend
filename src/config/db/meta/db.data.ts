@@ -1,0 +1,33 @@
+import { UserEntityData } from '../entities/user/user.entity';
+import { FileEntityData } from '../entities/user/file.entity';
+import { TEntitiesObj } from './db.types';
+import { UserRoleEntityData } from '../entities/user/user_role.entity';
+import { RoleEntityData } from '../entities/user/role.entity';
+import { UserTokenSessionEntityData } from '../entities/user/user_token_session.entity';
+import { FileTypeEntityData } from '../entities/user/file_type.entity';
+import { OrganizationEntityData } from '../entities/user/organization.entity';
+import { PasswordResetCodeEntityData } from '../entities/user/password-reset-code.entity';
+import { UserOrganizationEntityData } from '../entities/user/user_organization.entity';
+import { SystemParameterEntityData } from '../entities/system/system_parameter.entity';
+import { UserSessionEntityData } from '../entities/user/user_session.entity';
+import { EmailEntityData } from '../entities/user/email.entity';
+
+export const entitiesData = [
+  UserTokenSessionEntityData,
+  UserEntityData,
+  FileEntityData,
+  FileTypeEntityData,
+  RoleEntityData,
+  UserRoleEntityData,
+  UserOrganizationEntityData,
+  OrganizationEntityData,
+  PasswordResetCodeEntityData,
+  SystemParameterEntityData,
+  UserSessionEntityData,
+  EmailEntityData
+] as const;
+
+export const entitiesObj = entitiesData.reduce(
+  (acc, entityData) => ({ ...acc, [entityData.name]: entityData.entity }),
+  {} as TEntitiesObj
+);

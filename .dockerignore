@@ -1,0 +1,26 @@
+node_modules
+dist
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+# Excluir carpetas de sesiones de WhatsApp (se montan como volúmenes)
+.wwebjs_auth
+.wwebjs_auth/
+.wwebjs_cache
+.wwebjs_cache/
+whatsapp-sessions
+whatsapp-sessions/
+puppeteer-cache
+puppeteer-cache/
+uploads
+uploads/
+# Excluir archivos de entorno
+.env
+.env.*
+# Excluir logs
+*.log
+deploy.log
+# Excluir backups
+backups
+backups/
