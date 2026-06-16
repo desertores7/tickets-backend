@@ -58,19 +58,19 @@ export class MeUserResponse {
   @ApiProperty({ name: 'email' })
   email: string;
 
-  @ApiProperty({ name: 'username', nullable: true })
+  @ApiProperty({ name: 'username', type: String, nullable: true })
   username: string | null;
 
-  @ApiProperty({ name: 'phone', nullable: true })
+  @ApiProperty({ name: 'phone', type: String, nullable: true })
   phone: string | null;
 
-  @ApiProperty({ name: 'dni', nullable: true })
+  @ApiProperty({ name: 'dni', type: String, nullable: true })
   dni: string | null;
 
-  @ApiProperty({ name: 'gender', nullable: true })
+  @ApiProperty({ name: 'gender', type: String, nullable: true })
   gender: string | null;
 
-  @ApiProperty({ name: 'birthday', nullable: true })
+  @ApiProperty({ name: 'birthday', type: String, format: 'date-time', nullable: true })
   birthday: Date | null;
 
   @ApiProperty({ name: 'emailVerified' })
@@ -103,7 +103,7 @@ export class MeResponse {
   @ApiProperty({ name: 'user', type: MeUserResponse })
   user: MeUserResponse;
 
-  @ApiProperty({ name: 'role', type: MeRoleResponse, nullable: true })
+  @ApiProperty({ name: 'role', type: MeRoleResponse, nullable: true, required: false })
   role: MeRoleResponse | null;
 
   @ApiProperty({ name: 'organizations', type: [MeOrganizationResponse] })

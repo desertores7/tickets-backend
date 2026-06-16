@@ -75,6 +75,7 @@ export class UpdateUserRequest {
   @IsString()
   @ApiProperty({
     name: 'activeUser',
+    type: Number,
     description: 'Status of the user (same field as create user)',
     required: false,
     default: 0

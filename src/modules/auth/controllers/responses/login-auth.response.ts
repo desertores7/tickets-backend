@@ -16,7 +16,14 @@ export class UserResponse {
   @ApiProperty({ name: 'email' })
   email: string;
 
-  @ApiProperty({ name: 'imgProfile' })
+  @ApiProperty({
+    name: 'imgProfile',
+    type: 'object',
+    properties: {
+      url: { type: 'string' },
+      type: { type: 'string' }
+    }
+  })
   imgProfile: object;
 
   @ApiProperty({ name: 'roleUuid' })

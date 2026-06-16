@@ -6,7 +6,7 @@ import { AppModule } from './app.module';
 import { EnvService } from '@config/env/env.service';
 import { sendToDiscordFromEnv } from '@root/shared/services/discord-alert.service';
 import { buildAllowedOrigins, setupCors } from '@root/shared/cors/cors-origin.util';
-import { setupSwagger, SWAGGER_PATH } from '@root/shared/const/swagger';
+import { setupSwagger, SWAGGER_URL } from '@root/shared/const/swagger';
 
 process.on('unhandledRejection', (reason: unknown) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
@@ -55,7 +55,7 @@ async function bootstrap() {
         status: 'ok',
         message: 'API is running',
         health: '/api/health',
-        docs: SWAGGER_PATH
+        docs: SWAGGER_URL
       });
     });
 
@@ -67,7 +67,7 @@ async function bootstrap() {
 
     await app.listen(port);
     console.log(`Server is running on port ${port}`);
-    console.log(`Swagger: http://localhost:${port}${SWAGGER_PATH}`);
+    console.log(`Swagger: http://localhost:${port}${SWAGGER_URL}`);
   } catch (error: unknown) {
     const err = error instanceof Error ? error : new Error(String(error));
     console.error('Critical error during bootstrap:', err);

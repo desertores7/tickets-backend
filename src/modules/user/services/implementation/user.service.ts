@@ -213,27 +213,24 @@ export class UserService implements IUserService {
       const { access, refresh } = await this.authService.signTokens(user);
       await this.authService.createTokenSession(userUuid, access, refresh, queryRunner);
 
-      const operatorRole = await this.roleService.getRoleByName('Operador');
+      // const operatorRole = await this.roleService.getRoleByName('Operador');
 
-      if (!operatorRole) {
-        throw new BadRequestException('Default role "Operador" not found. Cannot create user without default role.');
-      }
+      // if (!operatorRole) {
+      //   throw new BadRequestException('Default role "Operador" not found. Cannot create user without default role.');
+      // }
 
-      // Determinar qué rol asignar: el proporcionado o "Vendedor" por defecto
-      let roleUuidToAssign: string = operatorRole.uuid; // Por defecto "Vendedor"
+      // let roleUuidToAssign: string = operatorRole.uuid;
 
       if (data.roleUuid) {
-        // Si se proporciona un roleUuid, verificar que existe usando RoleService
         try {
           const role = await this.roleService.getRoleId(data.roleUuid);
-          roleUuidToAssign = role.uuid;
         } catch (error) {
           throw new BadRequestException('Role does not exist');
         }
-      }
 
-      // Asignar el rol al usuario usando RoleService (siempre se asigna un rol, por defecto "Vendedor")
-      await this.roleService.assignRoleToUser(userUuid, roleUuidToAssign, userUuid, queryRunner, true);
+        // Asignar el rol al usuario usando RoleService (siempre se asigna un rol, por defecto "Vendedor")
+        await this.roleService.assignRoleToUser(userUuid, data.roleUuid, userUuid, queryRunner, true);
+      }
 
       // imgProfile: ya no se sube nada al bucket; se omite la subida
 
@@ -446,18 +443,18 @@ export class UserService implements IUserService {
     (TEntityResponse<'user', { files: true }, undefined> & { imgProfile: object; role: string; roleUuid: string })[]
   > {
     // Buscar el rol "Vendedor"
-    const operatorRole = await this.roleService.getRoleByName('Operador');
+    // const operatorRole = await this.roleService.getRoleByName('Operador');
 
-    if (!operatorRole) {
-      return [];
-    }
+    // if (!operatorRole) {
+    //   return [];
+    // }
 
     // Construir condiciones base para usuarios con rol "Vendedor" y activos
     const baseWhere: any = {
       isDeleted: IsNull(),
       active: 1,
       userRoles: {
-        roleUuid: operatorRole.uuid,
+        roleUuid: '3c987e4a-6432-11f1-aef5-c8e8d4beeaa8',
         isDeleted: IsNull()
       }
     };

@@ -1,24 +1,79 @@
 import { INestApplication } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
 
 export const SWAGGER_BEARER_NAME = 'access-token';
-export const SWAGGER_PATH = '/api/tickets/doc';
-export const SWAGGER_ASSETS_PATH = '/api/tickets/doc/assets';
-
-const SWAGGER_TAGS_ORDER = [
-  'Auth',
-  'Organizations',
-  'Users',
-  'Roles',
-  'User File',
-  'System Parameters'
-] as const;
+export const SWAGGER_PATH = 'api/tickets/doc';
+export const SWAGGER_URL = `/${SWAGGER_PATH}`;
 
 type SwaggerSetupOptions = {
   port?: number;
   baseUrl?: string;
 };
+
+/** Corrige schemas que Nest genera como `{ type: 'object' }` sin properties y rompen Swagger UI 5. */
+function patchOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
+  const schemas = document.components?.schemas;
+  if (!schemas) return document;
+
+  const stringNullableFields = new Set([
+    'username',
+    'phone',
+    'dni',
+    'gender',
+    'createdBy',
+    'updatedBy',
+    'description'
+  ]);
+  const dateNullableFields = new Set(['birthday', 'isDeleted', 'emailVerifiedAt']);
+
+  for (const schema of Object.values(schemas)) {
+    if (!schema || typeof schema !== 'object' || !('properties' in schema) || !schema.properties) {
+      continue;
+    }
+
+    for (const [name, property] of Object.entries(schema.properties)) {
+      if (!property || typeof property !== 'object') continue;
+
+      const prop = property as Record<string, unknown>;
+      const isBareObject = prop.type === 'object' && !prop.properties && !prop.$ref && !prop.allOf;
+
+      if (!isBareObject) continue;
+
+      if (name === 'imgProfile') {
+        prop.properties = {
+          url: { type: 'string' },
+          type: { type: 'string' }
+        };
+        delete prop.nullable;
+        continue;
+      }
+
+      if (name === 'activeUser' || name === 'active') {
+        prop.type = 'number';
+        continue;
+      }
+
+      if (name === 'role' && (prop.allOf || prop.nullable)) {
+        prop.nullable = true;
+        delete prop.type;
+        continue;
+      }
+
+      if (dateNullableFields.has(name)) {
+        prop.type = 'string';
+        prop.format = 'date-time';
+        continue;
+      }
+
+      if (stringNullableFields.has(name) || prop.nullable) {
+        prop.type = 'string';
+      }
+    }
+  }
+
+  return document;
+}
 
 export function setupSwagger(app: INestApplication, options: SwaggerSetupOptions = {}) {
   const { port = 3005, baseUrl } = options;
@@ -26,20 +81,20 @@ export function setupSwagger(app: INestApplication, options: SwaggerSetupOptions
   const configBuilder = new DocumentBuilder()
     .setTitle('Tickets API')
     .setDescription(
-      `API REST de la **ticketera** — plataforma para venta, gestión y administración de entradas.
+      `API REST de la ticketera — plataforma para venta, gestión y administración de entradas.
 
 ## Autenticación
 
-La mayoría de los endpoints requieren el header \`Authorization: Bearer <jwt>\`.
+La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
 
 ### Endpoints públicos
-- \`POST /auth/login\` — Inicio de sesión
-- \`POST /auth/validate-code-login\` — Validación de código 2FA
-- \`POST /auth/send-reset-password\` — Solicitar restablecimiento de contraseña
-- \`POST /auth/reset-password\` — Restablecer contraseña
-- \`POST /auth/register/client\` — Registro de cliente
-- \`POST /auth/validate-email\` — Verificación de email
-- \`POST /auth/register/resend-email-verification\` — Reenvío de verificación`
+- POST /auth/login
+- POST /auth/validate-code-login
+- POST /auth/send-reset-password
+- POST /auth/reset-password
+- POST /auth/register/client
+- POST /auth/validate-email
+- POST /auth/register/resend-email-verification`
     )
     .setVersion('1.0')
     .addTag('Auth', 'Autenticación, registro y sesiones de usuario')
@@ -53,9 +108,7 @@ La mayoría de los endpoints requieren el header \`Authorization: Bearer <jwt>\`
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Token JWT obtenido en /auth/login',
-        in: 'header'
+        description: 'Token JWT obtenido en /auth/login'
       },
       SWAGGER_BEARER_NAME
     );
@@ -67,38 +120,21 @@ La mayoría de los endpoints requieren el header \`Authorization: Bearer <jwt>\`
   }
 
   const config = configBuilder.build();
-  const document = SwaggerModule.createDocument(app, config);
-  (document as { security?: Record<string, unknown>[] }).security = [{ [SWAGGER_BEARER_NAME]: [] }];
+  const document = patchOpenApiDocument(SwaggerModule.createDocument(app, config));
 
   const expressApp = app.getHttpAdapter().getInstance();
   const expressLib = require('express');
-  const swaggerUiDistPath = require('swagger-ui-dist').absolutePath();
-
-  expressApp.use(SWAGGER_ASSETS_PATH, expressLib.static(swaggerUiDistPath));
   expressApp.use('/api/multimedia', expressLib.static(join(process.cwd(), 'multimedia')));
 
   SwaggerModule.setup(SWAGGER_PATH, app, document, {
+    useGlobalPrefix: false,
+    jsonDocumentUrl: 'api/tickets/doc-json',
     swaggerOptions: {
       defaultModelsExpandDepth: -1,
       persistAuthorization: true,
-      tagsSorter: (a: string, b: string) => {
-        const indexA = SWAGGER_TAGS_ORDER.indexOf(a as (typeof SWAGGER_TAGS_ORDER)[number]);
-        const indexB = SWAGGER_TAGS_ORDER.indexOf(b as (typeof SWAGGER_TAGS_ORDER)[number]);
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return a.localeCompare(b);
-      },
-      operationsSorter: (a: { get: (arg: string) => string }, b: { get: (arg: string) => string }) => {
-        const methodsOrder = ['get', 'post', 'put', 'patch', 'delete'];
-        return methodsOrder.indexOf(a.get('method')) - methodsOrder.indexOf(b.get('method'));
-      }
+      tagsSorter: 'alpha',
+      operationsSorter: 'alpha'
     },
-    customSiteTitle: 'Tickets API — Documentación',
-    customCssUrl: 'https://unpkg.com/swagger-ui-dist@5/swagger-ui.css',
-    customJs: [
-      `${SWAGGER_ASSETS_PATH}/swagger-ui-bundle.js`,
-      `${SWAGGER_ASSETS_PATH}/swagger-ui-standalone-preset.js`
-    ]
+    customSiteTitle: 'Tickets API - Documentacion'
   });
 }

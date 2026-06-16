@@ -38,7 +38,7 @@ export class AuthService implements IAuthService {
     private readonly imageCompressionService: ImageCompressionService
   ) {}
 
-  private readonly defaultRoleNames = ['Operador', 'Usuario', 'usuario', 'user', 'patient', 'clinic_admin'];
+  private readonly defaultRoleNames = ['Usuario', 'usuario', 'user', 'patient', 'clinic_admin'];
   private readonly roleUserUuid = '3c987e4a-6432-11f1-aef5-c8e8d4beeaa8';
   private readonly superAdminRoleUuid = '58f10bc6-a38c-4876-9d38-c11351e376b8';
 
