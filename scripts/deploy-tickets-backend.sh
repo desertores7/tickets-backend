@@ -7,14 +7,14 @@
 #   COMPOSE_SERVICE  Nombre del servicio en compose (default: ticketera-api)
 #
 # Uso manual en el servidor:
-#   export DEPLOY_PATH=/ruta/al/proyecto
-#   bash ticketera-api/scripts/deploy-tickets-backend.sh
+#   export DEPLOY_PATH=/docker/gemdam
+#   bash ticketera-api/tickets-backend/scripts/deploy-tickets-backend.sh
 
 set -euo pipefail
 
 DEPLOY_PATH="${DEPLOY_PATH:?Define DEPLOY_PATH (directorio que contiene docker-compose.yml)}"
 COMPOSE_SERVICE="${COMPOSE_SERVICE:-ticketera-api}"
-TICKETS_DIR="${DEPLOY_PATH}/ticketera-api"
+TICKETS_DIR="${DEPLOY_PATH}/ticketera-api/tickets-backend"
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.yml"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
