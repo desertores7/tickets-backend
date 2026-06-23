@@ -17,6 +17,9 @@ import { OrderService } from './orders/services/implementation/order.service';
 import { RoleGuard } from '@root/shared/auth/guards/role.guard';
 import { InternalTokenGuard } from '@root/shared/auth/guards/internal-token.guard';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
+import { MercadoPagoService } from './payments/services/implementation/mercadopago.service';
+import { PaymentService } from './payments/services/implementation/payment.service';
+import { CheckInService } from './check-in/services/implementation/checkin.service';
 
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { ImageCompressionService } from '@root/shared/services/image-compression
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },
+    { provide: 'IPaymentService', useClass: PaymentService },
+    { provide: 'ICheckInService', useClass: CheckInService },
+    MercadoPagoService,
     StockService,
     EmailService,
     ImageCompressionService,
@@ -55,6 +61,9 @@ import { ImageCompressionService } from '@root/shared/services/image-compression
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },
+    { provide: 'IPaymentService', useClass: PaymentService },
+    { provide: 'ICheckInService', useClass: CheckInService },
+    MercadoPagoService,
     StockService,
     EmailService,
     ImageCompressionService,

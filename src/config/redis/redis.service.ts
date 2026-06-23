@@ -173,4 +173,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     const result = await this.redis.eval(LUA_MARK_IDEMPOTENCY, 1, key, String(ttlSeconds));
     return result === 1;
   }
+
+  async deleteKey(key: string): Promise<void> {
+    await this.redis.del(key);
+  }
 }

@@ -109,6 +109,8 @@ El body va como formulario (email, password) y la respuesta incluye el JWT sin p
     .addTag('System Parameters', 'Parámetros de configuración del sistema')
     .addTag('Events', 'Eventos, tipos de entrada y publicación')
     .addTag('Orders', 'Creación, consulta y cancelación de órdenes de compra')
+    .addTag('Payments', 'Inicialización de pago, webhooks y consulta de pagos')
+    .addTag('Check-In', 'Validación de tickets en el acceso al evento')
     .addBearerAuth(
       {
         type: 'http',

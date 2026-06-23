@@ -4,7 +4,7 @@ import { Job } from 'bullmq';
 import { QUEUE_NAMES, ReleaseExpiredStockJobData } from '@config/redis/bull-jobs.types';
 import { IOrderService } from '../services/contracts/iorder.service';
 
-@Processor(QUEUE_NAMES.PAYMENTS)
+@Processor(QUEUE_NAMES.ORDERS)
 export class ReleaseExpiredStockProcessor extends WorkerHost {
   private readonly logger = new Logger(ReleaseExpiredStockProcessor.name);
 

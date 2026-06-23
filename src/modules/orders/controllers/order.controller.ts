@@ -13,21 +13,25 @@ import { GetUserOrdersResponse, OrderSummaryResponse } from './dtos/get-user-ord
 export class OrderController {
   constructor(@Inject('IOrderService') private readonly _orderService: IOrderService) {}
 
+  // ---------------------------------------------------------------------------
+  // POST /api/v1/orders
+  // ---------------------------------------------------------------------------
+
   @UserAuth(CreateOrderRequest, null)
-  @ApiResponse({
-    status: 201,
-    type: GetOrderResponse,
-    description: 'Order created. Expires in 10 minutes if payment is not confirmed.'
-  })
   @ApiOperation({
     summary: 'Create order',
     description:
-      'Validates the event and ticket types, reserves stock in Redis, persists the order and its items in a single transaction, and enqueues a delayed job to release stock if the order expires unpaid.\n\n' +
-      '**Errors:**\n' +
-      '- `404` — Event or ticket type not found\n' +
-      '- `409` — Not enough stock for one of the requested ticket types\n' +
-      '- `422` — Event not published / sale period closed / quantity out of allowed range'
+      'Validates the event and requested ticket types, reserves stock atomically in Redis, ' +
+      'persists the order and its line items in a single MySQL transaction, and enqueues a ' +
+      'delayed `release-expired-stock` job that fires after 10 minutes if the order remains unpaid.\n\n' +
+      'Stock reservation uses a Lua script to prevent overselling under concurrent load.'
   })
+  @ApiResponse({ status: 201, type: GetOrderResponse, description: 'Order created. Expires in 10 minutes if payment is not completed.' })
+  @ApiResponse({ status: 400, description: 'Validation error — missing or malformed fields in request body.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 404, description: 'Event not found, or one of the requested ticket types does not belong to that event.' })
+  @ApiResponse({ status: 409, description: 'Insufficient stock for one or more of the requested ticket types.' })
+  @ApiResponse({ status: 422, description: 'Event is not published / active, sale period has not started or has ended, or quantity is outside the allowed range for a ticket type.' })
   @HttpCode(201)
   @Post()
   async createOrder(@Body() body: CreateOrderRequest, @User() userId: string): Promise<GetOrderResponse> {
@@ -41,11 +45,20 @@ export class OrderController {
     return new GetOrderResponse(order);
   }
 
+  // ---------------------------------------------------------------------------
+  // GET /api/v1/orders
+  // ---------------------------------------------------------------------------
+
   @UserAuth(null, GetUserOrdersResponse)
   @ApiOperation({
     summary: 'List my orders',
-    description: 'Returns a paginated list of all orders belonging to the authenticated user, newest first.'
+    description:
+      'Returns a paginated list of all orders belonging to the authenticated user, sorted by ' +
+      'creation date descending. Each item includes a summary with status, total and item count.'
   })
+  @ApiResponse({ status: 200, type: GetUserOrdersResponse, description: 'Paginated list of orders.' })
+  @ApiResponse({ status: 400, description: 'Invalid pagination parameters.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
   @HttpCode(200)
   @Get()
@@ -57,15 +70,21 @@ export class OrderController {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // GET /api/v1/orders/:orderId
+  // ---------------------------------------------------------------------------
+
   @UserAuth(null, GetOrderResponse)
   @ApiOperation({
     summary: 'Get order by ID',
     description:
-      'Returns full order details including line items and tickets. Only the owner of the order can access it.\n\n' +
-      '**Errors:**\n' +
-      '- `404` — Order not found or does not belong to the authenticated user'
+      'Returns full order details including all line items and their individual tickets. ' +
+      'Only the owner of the order can access it.'
   })
-  @ApiParam({ name: 'orderId', description: 'Order UUID', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, type: GetOrderResponse, description: 'Order details with items and tickets.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 404, description: 'Order not found or does not belong to the authenticated user.' })
   @HttpCode(200)
   @Get(':orderId')
   async getOrderById(@Param('orderId') orderId: string, @User() userId: string): Promise<GetOrderResponse> {
@@ -73,17 +92,22 @@ export class OrderController {
     return new GetOrderResponse(order);
   }
 
+  // ---------------------------------------------------------------------------
+  // DELETE /api/v1/orders/:orderId
+  // ---------------------------------------------------------------------------
+
   @UserAuth(null, null)
-  @ApiResponse({ status: 200, description: 'Order cancelled and reserved stock released.' })
   @ApiOperation({
     summary: 'Cancel order',
     description:
-      'Cancels an order that is still in `pending_payment` status and immediately releases the reserved stock back to the pool.\n\n' +
-      '**Errors:**\n' +
-      '- `404` — Order not found or does not belong to the authenticated user\n' +
-      '- `422` — Order is not in `pending_payment` status'
+      'Cancels an order that is still in `pending_payment` status and immediately releases ' +
+      'the reserved stock back to the Redis pool so other buyers can purchase those tickets.'
   })
-  @ApiParam({ name: 'orderId', description: 'Order UUID', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, description: 'Order cancelled and reserved stock released.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 404, description: 'Order not found or does not belong to the authenticated user.' })
+  @ApiResponse({ status: 422, description: 'Order is not in `pending_payment` status and cannot be cancelled.' })
   @HttpCode(200)
   @Delete(':orderId')
   async cancelOrder(@Param('orderId') orderId: string, @User() userId: string): Promise<void> {

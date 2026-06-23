@@ -54,10 +54,11 @@ export class MercadoPagoService {
   async initializePreference(order: OrderForMP, user: User): Promise<MPPreferenceResult> {
     const preference = new Preference(this.client);
 
-    const backUrlSuccess = this.envService.get('MP_BACK_URL_SUCCESS');
-    const backUrlFailure = this.envService.get('MP_BACK_URL_FAILURE');
-    const backUrlPending = this.envService.get('MP_BACK_URL_PENDING');
-    const notificationUrl = this.envService.get('MP_NOTIFICATION_URL');
+    const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
+    const backUrlSuccess = `${appUrl}/payment/success`;
+    const backUrlFailure = `${appUrl}/payment/failure`;
+    const backUrlPending = `${appUrl}/payment/pending`;
+    const notificationUrl = `${appUrl}/api/v1/payments/webhook/mercadopago`;
 
     try {
       const result = await preference.create({

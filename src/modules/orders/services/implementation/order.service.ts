@@ -44,7 +44,7 @@ export class OrderService implements IOrderService {
     private readonly stockService: StockService,
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
-    @InjectQueue(QUEUE_NAMES.PAYMENTS) private readonly paymentsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.ORDERS) private readonly ordersQueue: Queue,
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
   ) {}
@@ -194,7 +194,7 @@ export class OrderService implements IOrderService {
         quantity: item.quantity,
         expiredAt: expiresAt.toISOString()
       };
-      await this.paymentsQueue.add('release-expired-stock', jobData, {
+      await this.ordersQueue.add('release-expired-stock', jobData, {
         delay: ORDER_EXPIRY_MS
       });
     }

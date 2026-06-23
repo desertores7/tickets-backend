@@ -64,10 +64,8 @@ export const envSchema = z.object({
   REDIS_PASSWORD: z.string().optional(),
 
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
-  MP_BACK_URL_SUCCESS: z.string().optional(),
-  MP_BACK_URL_FAILURE: z.string().optional(),
-  MP_BACK_URL_PENDING: z.string().optional(),
-  MP_NOTIFICATION_URL: z.string().optional()
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
+  APP_URL: z.string().url().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

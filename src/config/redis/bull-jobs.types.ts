@@ -2,6 +2,7 @@ export const QUEUE_NAMES = {
   TICKETS: 'tickets',
   NOTIFICATIONS: 'notifications',
   PAYMENTS: 'payments',
+  ORDERS: 'orders',
   WAITING_ROOM: 'waiting-room'
 } as const;
 

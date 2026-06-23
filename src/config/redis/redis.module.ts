@@ -48,6 +48,10 @@ const DEFAULT_JOB_OPTIONS = {
         }
       },
       {
+        name: QUEUE_NAMES.ORDERS,
+        defaultJobOptions: DEFAULT_JOB_OPTIONS
+      },
+      {
         name: QUEUE_NAMES.WAITING_ROOM,
         defaultJobOptions: {
           ...DEFAULT_JOB_OPTIONS,

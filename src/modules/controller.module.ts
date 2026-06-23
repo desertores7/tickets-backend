@@ -11,6 +11,8 @@ import { OrganizationController } from './organization/controllers/organization.
 import { SystemParameterController } from './system-parameter/controllers/system-parameter.controller';
 import { EventController } from './event/controllers/event.controller';
 import { OrderController } from './orders/controllers/order.controller';
+import { PaymentController } from './payments/controllers/payment.controller';
+import { CheckInController } from './check-in/controllers/checkin.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -22,7 +24,9 @@ import { OrderController } from './orders/controllers/order.controller';
     RoleController,
     SystemParameterController,
     EventController,
-    OrderController
+    OrderController,
+    PaymentController,
+    CheckInController
   ]
 })
 export class ControllerModule {}

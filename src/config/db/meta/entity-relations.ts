@@ -323,5 +323,11 @@ export const entityRelations = {
     user: 'user',
     event: 'event',
     ticketType: 'ticket_type'
+  },
+
+  check_in_log: {
+    ticket: 'ticket',
+    event: 'event',
+    scanner: 'user'
   }
 } as const;
