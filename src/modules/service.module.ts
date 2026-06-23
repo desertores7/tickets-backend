@@ -11,6 +11,9 @@ import { EmailService } from '@root/shared/auth/services/email.service';
 import { OrganizationService } from './organization/services/implementation/organization.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
+import { EventService } from './event/services/implementation/event.service';
+import { StockService } from './orders/services/implementation/stock.service';
+import { OrderService } from './orders/services/implementation/order.service';
 import { RoleGuard } from '@root/shared/auth/guards/role.guard';
 import { InternalTokenGuard } from '@root/shared/auth/guards/internal-token.guard';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
@@ -32,7 +35,10 @@ import { ImageCompressionService } from '@root/shared/services/image-compression
     { provide: 'IUserFileService', useClass: UserFileService },
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
-    { provide: 'ISystemParameterService', useClass: SystemParameterService }, 
+    { provide: 'ISystemParameterService', useClass: SystemParameterService },
+    { provide: 'IEventService', useClass: EventService },
+    { provide: 'IOrderService', useClass: OrderService },
+    StockService,
     EmailService,
     ImageCompressionService,
     AuthService,
@@ -47,6 +53,9 @@ import { ImageCompressionService } from '@root/shared/services/image-compression
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
+    { provide: 'IEventService', useClass: EventService },
+    { provide: 'IOrderService', useClass: OrderService },
+    StockService,
     EmailService,
     ImageCompressionService,
     AuthService,

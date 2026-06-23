@@ -6,7 +6,6 @@ RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-# Sin --ignore-scripts: mysql2 necesita su postinstall para bindings nativos
 RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./
@@ -17,9 +16,6 @@ RUN pnpm run build
 
 # ── Production dependencies ────────────────────────────────────────────────────
 FROM node:22-alpine AS prod-deps
-
-# Herramientas mínimas por si mysql2 debe compilar bindings en musl (Alpine)
-RUN apk add --no-cache python3 make g++
 
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 

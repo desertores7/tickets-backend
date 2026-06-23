@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 config();
 
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { EnvService } from '@config/env/env.service';
 import { sendToDiscordFromEnv } from '@root/shared/services/discord-alert.service';
@@ -42,6 +43,8 @@ async function bootstrap() {
       frontendUrl: envService.get('FRONTEND_URL'),
       baseUrl: envService.get('BASE_URL')
     });
+
+    app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
     setupCors(app, allowedOrigins);
     app.getHttpAdapter().getInstance().set('trust proxy', 1);

@@ -14,12 +14,8 @@ export class DatabaseConnectionManager {
         reconnect: true,
         keepAliveInitialDelay: 0,
         enableKeepAlive: true,
-        // Nota: wait_timeout/interactive_timeout del servidor MySQL cierran conexiones inactivas.
-        // DatabaseKeepaliveService ejecuta SELECT 1 cada 4 min para mantener la conexión activa.
-        // Si el servidor tiene wait_timeout < 300s, considera aumentarlo: SET GLOBAL wait_timeout=28800;
-        // Reintentar conexiones automáticamente
-        acquireTimeout: 60000, // 60 segundos
-        timeout: 60000 // 60 segundos
+        acquireTimeout: 60000,
+        timeout: 60000
       }
     };
   }

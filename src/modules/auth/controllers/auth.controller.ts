@@ -30,6 +30,7 @@ import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
 import { ValidateEmailResponse } from './responses/validate-email.response';
 import { ResendEmailVerificationRequest } from './requests/resend-email-verification.request';
+import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })
@@ -85,9 +86,11 @@ export class AuthController {
   @ApiHeader({
     name: 'x-dev-login-bypass',
     required: false,
-    description: 'Solo local/dev. true = omite código de verificación.'
+    description:
+      'Solo con ENV=local|dev o NODE_ENV=development. Envía true para omitir el código y recibir el JWT directamente.',
+    schema: { type: 'string', enum: ['true', 'false'], default: 'true' }
   })
-  @Swagger(LoginAuthRequest, LoginCodePendingResponse)
+  @Swagger(LoginAuthRequest, LoginCodePendingResponse, CONTENT_TYPE.FORM_URLENCODED)
   @ApiResponse({
     status: 200,
     type: LoginAuthResponse,
@@ -113,7 +116,7 @@ export class AuthController {
     summary: 'Validate login code',
     description: 'Validate email and code to complete login and return tokens plus user data.'
   })
-  @Swagger(ValidateCodeLoginRequest, LoginAuthResponse)
+  @Swagger(ValidateCodeLoginRequest, LoginAuthResponse, CONTENT_TYPE.FORM_URLENCODED)
   @HttpCode(200)
   @Post('validate-code-login')
   async validateCodeLogin(@Body() request: ValidateCodeLoginRequest): Promise<LoginAuthResponse> {

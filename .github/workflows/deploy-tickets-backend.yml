@@ -1,0 +1,36 @@
+# Despliega únicamente ticketera-api en el servidor (compose multi-servicio).
+# No reconstruye otros servicios del mismo docker-compose.yml.
+
+name: Deploy ticketera-api
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ticketera-api
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: SSH → build ticketera-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: git pull + deploy ticketera-api
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+            export COMPOSE_SERVICE='ticketera-api'
+            # 1) git pull en ticketera-api  2) docker compose build/up solo ticketera-api
+            bash "${DEPLOY_PATH}/ticketera-api/scripts/deploy-tickets-backend.sh"

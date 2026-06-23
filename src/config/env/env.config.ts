@@ -56,7 +56,18 @@ export const envSchema = z.object({
   BASE_URL: z.string().url().optional(),
   FRONTEND_URL: z.string().url().optional().default('http://localhost:3000'),
 
-  DISCORD_WEBHOOK_ALERTS: z.string().url().optional()
+  DISCORD_WEBHOOK_ALERTS: z.string().url().optional(),
+
+  REDIS_URL: z.string().optional(),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_PASSWORD: z.string().optional(),
+
+  MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
+  MP_BACK_URL_SUCCESS: z.string().optional(),
+  MP_BACK_URL_FAILURE: z.string().optional(),
+  MP_BACK_URL_PENDING: z.string().optional(),
+  MP_NOTIFICATION_URL: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -9,6 +9,8 @@ import { AuthController } from './auth/controllers/auth.controller';
 import { UserFileController } from './user-file/controllers/user-file.controller';
 import { OrganizationController } from './organization/controllers/organization.controller';
 import { SystemParameterController } from './system-parameter/controllers/system-parameter.controller';
+import { EventController } from './event/controllers/event.controller';
+import { OrderController } from './orders/controllers/order.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -18,7 +20,9 @@ import { SystemParameterController } from './system-parameter/controllers/system
     UserFileController,
     OrganizationController,
     RoleController,
-    SystemParameterController
+    SystemParameterController,
+    EventController,
+    OrderController
   ]
 })
 export class ControllerModule {}

@@ -209,15 +209,7 @@ export const entityRelations = {
   },
 
   payment: {
-    organization: 'organization',
-
-    patient: 'patient',
-
-    paymentMethod: 'payment_method',
-
-    budget: 'budget',
-
-    patientTreatment: 'patient_treatment'
+    order: 'orders'
   },
 
   payment_method: {
@@ -302,5 +294,34 @@ export const entityRelations = {
 
   user_token_session: {
     user: 'user'
+  },
+
+  event: {
+    organization: 'organization',
+    ticketTypes: 'ticket_type'
+  },
+
+  ticket_type: {
+    event: 'event'
+  },
+
+  orders: {
+    user: 'user',
+    event: 'event',
+    items: 'order_item',
+    payment: 'payment'
+  },
+
+  order_item: {
+    order: 'orders',
+    ticketType: 'ticket_type',
+    tickets: 'ticket'
+  },
+
+  ticket: {
+    orderItem: 'order_item',
+    user: 'user',
+    event: 'event',
+    ticketType: 'ticket_type'
   }
 } as const;

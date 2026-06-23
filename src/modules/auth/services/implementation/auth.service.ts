@@ -69,6 +69,12 @@ export class AuthService implements IAuthService {
     return bcryptjs.compare(raw, hash);
   }
 
+  private isLocalEnvironment(): boolean {
+    const env = String(this.config.get<string>('ENV') || '').toLowerCase();
+    const nodeEnv = String(this.config.get<string>('NODE_ENV') || '').toLowerCase();
+    return env === 'local' || env === 'dev' || nodeEnv === 'development';
+  }
+
   private generateLoginCode(length = 6): string {
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const numbers = '0123456789';
@@ -118,7 +124,7 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedException('Usuario o contraseña incorrectos');
     }
 
-    if (!user.emailVerified) {
+    if (!user.emailVerified && !this.isLocalEnvironment()) {
       throw new UnauthorizedException('Email no verificado. Verifique su bandeja de entrada.');
     }
 

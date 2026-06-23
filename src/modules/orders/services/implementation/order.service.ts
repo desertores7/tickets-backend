@@ -1,0 +1,513 @@
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException
+} from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { DataSource } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
+import { DBRepository } from '@config/db/db.repository';
+import { RedisService } from '@config/redis/redis.service';
+import {
+  GenerateQrJobData,
+  QUEUE_NAMES,
+  ReleaseExpiredStockJobData,
+  SendTicketEmailJobData
+} from '@config/redis/bull-jobs.types';
+import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import { StockService } from './stock.service';
+import { IOrderService, PaginatedResult } from '../contracts/iorder.service';
+import {
+  ICreateOrder,
+  IOrderItem,
+  IOrderTicket,
+  Order,
+  OrderStatus,
+  PaymentConfirmationData,
+  TicketStatus
+} from '../core/order';
+
+const ORDER_EXPIRY_MS = 10 * 60 * 1000;
+const IDEMPOTENCY_TTL_SECONDS = 86400;
+
+@Injectable()
+export class OrderService implements IOrderService {
+  private readonly logger = new Logger(OrderService.name);
+
+  constructor(
+    @Inject(DBRepository) private readonly dbRepository: DBRepository,
+    private readonly stockService: StockService,
+    private readonly redisService: RedisService,
+    private readonly dataSource: DataSource,
+    @InjectQueue(QUEUE_NAMES.PAYMENTS) private readonly paymentsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
+  ) {}
+
+  // ---------------------------------------------------------------------------
+  // Public methods
+  // ---------------------------------------------------------------------------
+
+  async createOrder(userId: string, dto: ICreateOrder): Promise<Order> {
+    // 1. Validate event
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: dto.eventUuid }
+    });
+
+    if (!event) {
+      throw new NotFoundException('Evento no encontrado');
+    }
+
+    if (!event.isPublished || !event.isActive) {
+      throw new UnprocessableEntityException('El evento no está disponible para la venta');
+    }
+
+    const now = new Date();
+
+    if (event.saleStartDate && now < event.saleStartDate) {
+      throw new UnprocessableEntityException('El período de venta aún no ha comenzado');
+    }
+
+    if (event.saleEndDate && now > event.saleEndDate) {
+      throw new UnprocessableEntityException('El período de venta ha finalizado');
+    }
+
+    // 2. Validate each ticket type
+    const ticketTypes = await Promise.all(
+      dto.items.map(item =>
+        this.dbRepository.findOne({
+          entity: 'ticket_type',
+          where: { uuid: item.ticketTypeUuid }
+        })
+      )
+    );
+
+    for (let i = 0; i < dto.items.length; i++) {
+      const item = dto.items[i];
+      const ticketType = ticketTypes[i];
+
+      if (!ticketType || ticketType.eventUuid !== dto.eventUuid) {
+        throw new NotFoundException(
+          `Tipo de entrada no encontrado: ${item.ticketTypeUuid}`
+        );
+      }
+
+      if (!ticketType.isActive) {
+        throw new UnprocessableEntityException(
+          `El tipo de entrada "${ticketType.name}" no está disponible`
+        );
+      }
+
+      if (item.quantity < ticketType.minPerOrder) {
+        throw new UnprocessableEntityException(
+          `La cantidad mínima por orden para "${ticketType.name}" es ${ticketType.minPerOrder}`
+        );
+      }
+
+      if (item.quantity > ticketType.maxPerOrder) {
+        throw new UnprocessableEntityException(
+          `La cantidad máxima por orden para "${ticketType.name}" es ${ticketType.maxPerOrder}`
+        );
+      }
+    }
+
+    // 3. Calculate totals
+    let subtotal = 0;
+    for (let i = 0; i < dto.items.length; i++) {
+      subtotal += dto.items[i].quantity * Number(ticketTypes[i]!.price);
+    }
+    subtotal = Math.round(subtotal * 100) / 100;
+    const serviceFee = Math.round(subtotal * 0.1 * 100) / 100;
+    const total = Math.round((subtotal + serviceFee) * 100) / 100;
+
+    // 4. Reserve stock — rollback and throw if any item fails
+    const stockItems = dto.items.map(item => ({
+      ticketTypeId: item.ticketTypeUuid,
+      quantity: item.quantity
+    }));
+
+    const reserveResult = await this.stockService.reserveStock(stockItems);
+
+    if (!reserveResult.success) {
+      throw new ConflictException(
+        `Sin stock disponible para la entrada: ${reserveResult.failedItem}`
+      );
+    }
+
+    // 5 & 6. Create order and items inside a single transaction
+    const expiresAt = new Date(Date.now() + ORDER_EXPIRY_MS);
+    const orderNumber = this.generateOrderNumber();
+    const currency = ticketTypes[0]!.currency;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let savedOrder: any;
+
+    try {
+      savedOrder = await queryRunner.manager.save('orders', {
+        orderNumber,
+        userUuid: userId,
+        eventUuid: dto.eventUuid,
+        status: OrderStatus.PENDING_PAYMENT,
+        subtotal,
+        serviceFee,
+        total,
+        currency,
+        expiresAt,
+        metadata: null
+      });
+
+      const orderItemsData = dto.items.map((item, i) => ({
+        orderUuid: savedOrder.uuid,
+        ticketTypeUuid: item.ticketTypeUuid,
+        quantity: item.quantity,
+        unitPrice: Number(ticketTypes[i]!.price),
+        subtotal: Math.round(item.quantity * Number(ticketTypes[i]!.price) * 100) / 100
+      }));
+
+      await queryRunner.manager.save('order_item', orderItemsData);
+
+      // 7. Commit
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      await this.stockService.releaseStock(stockItems);
+      this.logger.error('createOrder transaction failed', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // 8. Enqueue release-expired-stock job (one per ticket type) with 10-min delay
+    for (const item of stockItems) {
+      const jobData: ReleaseExpiredStockJobData = {
+        reservationId: savedOrder.uuid,
+        ticketTypeId: item.ticketTypeId,
+        quantity: item.quantity,
+        expiredAt: expiresAt.toISOString()
+      };
+      await this.paymentsQueue.add('release-expired-stock', jobData, {
+        delay: ORDER_EXPIRY_MS
+      });
+    }
+
+    // 9. Return the created order
+    return this.fetchOrderInternal(savedOrder.uuid);
+  }
+
+  async getOrderById(orderId: string, userId: string): Promise<Order> {
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId, userUuid: userId },
+      relations: { items: { tickets: true } }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden no encontrada');
+    }
+
+    return this.mapToOrder(order);
+  }
+
+  async getUserOrders(
+    userId: string,
+    pagination: IPaginationParams
+  ): Promise<PaginatedResult<Order>> {
+    const { items, count } = await this.dbRepository.findManyAndCount({
+      entity: 'orders',
+      where: { userUuid: userId },
+      relations: { items: { tickets: true } },
+      other: {
+        skip: (pagination.page - 1) * pagination.limit,
+        take: pagination.limit,
+        order: { createdAt: 'DESC' }
+      }
+    });
+
+    return {
+      items: items.map(o => this.mapToOrder(o)),
+      meta: new PaginationMetaResponse({
+        total: count,
+        page: pagination.page,
+        limit: pagination.limit
+      })
+    };
+  }
+
+  async cancelOrder(orderId: string, userId: string): Promise<void> {
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId, userUuid: userId },
+      relations: { items: true }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden no encontrada');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new UnprocessableEntityException(
+        'Solo se pueden cancelar órdenes pendientes de pago'
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.manager.save('orders', {
+        ...this.stripRelations(order),
+        status: OrderStatus.CANCELLED
+      });
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('cancelOrder transaction failed', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    const stockItems = (order.items as any[]).map(item => ({
+      ticketTypeId: item.ticketTypeUuid,
+      quantity: item.quantity
+    }));
+
+    await this.stockService.releaseStock(stockItems);
+  }
+
+  async confirmPayment(orderId: string, paymentData: PaymentConfirmationData): Promise<Order> {
+    // 1. Idempotency check — returns false if this paymentId was already processed
+    const isFirstCall = await this.redisService.markIdempotency(
+      `payment:${paymentData.paymentId}`,
+      IDEMPOTENCY_TTL_SECONDS
+    );
+
+    if (!isFirstCall) {
+      return this.fetchOrderInternal(orderId);
+    }
+
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId },
+      relations: { items: true, user: true, event: true }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden no encontrada');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new UnprocessableEntityException('La orden no está pendiente de pago');
+    }
+
+    // 2. Open QueryRunner and BEGIN
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    const createdTickets: any[] = [];
+
+    try {
+      // 3. Update order to paid
+      await queryRunner.manager.save('orders', {
+        ...this.stripRelations(order),
+        status: OrderStatus.PAID,
+        paymentProvider: paymentData.paymentProvider,
+        paymentId: paymentData.paymentId,
+        paymentMethod: paymentData.paymentMethod,
+        paidAt: paymentData.paidAt
+      });
+
+      // 4. Confirm stock (deduct availableQuantity) within the same transaction
+      const stockItems = (order.items as any[]).map(item => ({
+        ticketTypeId: item.ticketTypeUuid,
+        quantity: item.quantity
+      }));
+      await this.stockService.confirmStock(stockItems, queryRunner);
+
+      // 5. Generate individual tickets within the same transaction
+      for (const item of order.items as any[]) {
+        for (let i = 0; i < item.quantity; i++) {
+          const ticket = await queryRunner.manager.save('ticket', {
+            orderItemUuid: item.uuid,
+            userUuid: order.userUuid,
+            eventUuid: order.eventUuid,
+            ticketTypeUuid: item.ticketTypeUuid,
+            ticketNumber: this.generateTicketNumber(),
+            status: TicketStatus.ACTIVE,
+            qrCode: null,
+            qrUrl: null,
+            pdfUrl: null,
+            checkedInAt: null,
+            checkedInBy: null
+          });
+          createdTickets.push({ ...ticket, ticketTypeUuid: item.ticketTypeUuid });
+        }
+      }
+
+      // 6. Commit and release in finally
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('confirmPayment transaction failed', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // 7. Enqueue generate-qr job per ticket
+    for (const ticket of createdTickets) {
+      const jobData: GenerateQrJobData = {
+        ticketId: ticket.uuid,
+        orderId: order.uuid,
+        userId: order.userUuid,
+        eventId: order.eventUuid,
+        ticketTypeId: ticket.ticketTypeUuid
+      };
+      await this.ticketsQueue.add('generate-qr', jobData);
+    }
+
+    // 8. Enqueue send-ticket-email notification
+    const user = order.user as any;
+    const event = order.event as any;
+    const emailJobData: SendTicketEmailJobData = {
+      ticketId: createdTickets[0]?.uuid ?? '',
+      orderId: order.uuid,
+      email: user.email,
+      userName: `${user.firstName} ${user.lastName}`,
+      eventName: event.name,
+      eventDate: (event.startDate as Date).toISOString(),
+      venueName: event.venueName,
+      seatInfo: null,
+      qrCodeUrl: ''
+    };
+    await this.notificationsQueue.add('send-ticket-email', emailJobData);
+
+    return this.fetchOrderInternal(orderId);
+  }
+
+  async expireOrder(orderId: string): Promise<void> {
+    // 1. Verify order is still pending_payment
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId },
+      relations: { items: true }
+    });
+
+    if (!order || order.status !== OrderStatus.PENDING_PAYMENT) {
+      return;
+    }
+
+    // 2. Update status to expired
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.manager.save('orders', {
+        ...this.stripRelations(order),
+        status: OrderStatus.EXPIRED
+      });
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('expireOrder transaction failed', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // 3. Release reserved stock in Redis
+    const stockItems = (order.items as any[]).map(item => ({
+      ticketTypeId: item.ticketTypeUuid,
+      quantity: item.quantity
+    }));
+
+    await this.stockService.releaseStock(stockItems);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  private async fetchOrderInternal(orderId: string): Promise<Order> {
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId },
+      relations: { items: { tickets: true } }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden no encontrada');
+    }
+
+    return this.mapToOrder(order);
+  }
+
+  private stripRelations(entity: any): any {
+    const { user, event, items, tickets, orderItem, ticketType, order, ...fields } = entity;
+    return fields;
+  }
+
+  private generateOrderNumber(): string {
+    const suffix = uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase();
+    return `ORD-${Date.now()}-${suffix}`;
+  }
+
+  private generateTicketNumber(): string {
+    const suffix = uuidv4().replace(/-/g, '').substring(0, 8).toUpperCase();
+    return `TKT-${Date.now()}-${suffix}`;
+  }
+
+  private mapToOrder(entity: any): Order {
+    const order = new Order();
+    order.uuid = entity.uuid;
+    order.orderNumber = entity.orderNumber;
+    order.userUuid = entity.userUuid;
+    order.eventUuid = entity.eventUuid;
+    order.status = entity.status;
+    order.subtotal = Number(entity.subtotal);
+    order.serviceFee = Number(entity.serviceFee);
+    order.total = Number(entity.total);
+    order.currency = entity.currency;
+    order.paymentProvider = entity.paymentProvider ?? null;
+    order.paymentId = entity.paymentId ?? null;
+    order.paymentMethod = entity.paymentMethod ?? null;
+    order.paidAt = entity.paidAt ?? null;
+    order.expiresAt = entity.expiresAt;
+    order.metadata = entity.metadata ?? null;
+    order.createdAt = entity.createdAt;
+    order.updatedAt = entity.updatedAt;
+    order.items = ((entity.items as any[]) ?? []).map(
+      (item: any): IOrderItem => ({
+        uuid: item.uuid,
+        ticketTypeUuid: item.ticketTypeUuid,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        subtotal: Number(item.subtotal),
+        tickets: ((item.tickets as any[]) ?? []).map(
+          (ticket: any): IOrderTicket => ({
+            uuid: ticket.uuid,
+            ticketNumber: ticket.ticketNumber,
+            qrCode: ticket.qrCode ?? null,
+            qrUrl: ticket.qrUrl ?? null,
+            pdfUrl: ticket.pdfUrl ?? null,
+            status: ticket.status,
+            checkedInAt: ticket.checkedInAt ?? null
+          })
+        )
+      })
+    );
+    return order;
+  }
+}

@@ -11,6 +11,12 @@ import { UserOrganizationEntityData } from '../entities/user/user_organization.e
 import { SystemParameterEntityData } from '../entities/system/system_parameter.entity';
 import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
+import { EventEntityData } from '../entities/tickets/event.entity';
+import { TicketTypeEntityData } from '../entities/tickets/ticket_type.entity';
+import { OrderEntityData } from '../entities/tickets/order.entity';
+import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
+import { TicketEntityData } from '../entities/tickets/ticket.entity';
+import { PaymentEntityData } from '../entities/tickets/payment.entity';
 
 export const entitiesData = [
   UserTokenSessionEntityData,
@@ -24,7 +30,13 @@ export const entitiesData = [
   PasswordResetCodeEntityData,
   SystemParameterEntityData,
   UserSessionEntityData,
-  EmailEntityData
+  EmailEntityData,
+  EventEntityData,
+  TicketTypeEntityData,
+  OrderEntityData,
+  OrderItemEntityData,
+  TicketEntityData,
+  PaymentEntityData
 ] as const;
 
 export const entitiesObj = entitiesData.reduce(
