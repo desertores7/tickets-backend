@@ -87,13 +87,8 @@ export function setupSwagger(app: INestApplication, options: SwaggerSetupOptions
 
 La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
 
-### Login sin código (solo local/dev)
-En POST /auth/login, envía el header x-dev-login-bypass: true con ENV=local o ENV=dev (o NODE_ENV=development).
-El body va como formulario (email, password) y la respuesta incluye el JWT sin pasar por el código por email.
-
 ### Endpoints públicos
 - POST /auth/login
-- POST /auth/validate-code-login
 - POST /auth/send-reset-password
 - POST /auth/reset-password
 - POST /auth/register/client

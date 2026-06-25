@@ -1,17 +1,6 @@
 import { Swagger } from '@root/shared/decorators/swagger.decorator';
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  HttpCode,
-  Inject,
-  Patch,
-  Post,
-  UploadedFile,
-  UseInterceptors
-} from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Inject, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
@@ -22,9 +11,6 @@ import { LoginAuthRequest } from './requests/login-auth.request';
 import { UpdateMeRequest } from './requests/update-me.request';
 import { ResetPasswordRequest } from './requests/reset-password.request';
 import { SendResetPasswordRequest } from './requests/send-password.request';
-import { LoginCodePendingResponse } from './responses/login-code-pending.response';
-import { ValidateCodeLoginRequest } from './requests/validate-code-login.request';
-import { ConfigService } from '@nestjs/config';
 import { RegisterAuthRequest } from './requests/register-auth.request';
 import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
@@ -35,16 +21,7 @@ import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-  constructor(
-    @Inject('IAuthService') public authService: IAuthService,
-    private readonly configService: ConfigService
-  ) {}
-
-  private isLocalEnvironment(): boolean {
-    const env = String(this.configService.get<string>('ENV') || '').toLowerCase();
-    const nodeEnv = String(this.configService.get<string>('NODE_ENV') || '').toLowerCase();
-    return env === 'local' || env === 'dev' || nodeEnv === 'development';
-  }
+  constructor(@Inject('IAuthService') public authService: IAuthService) {}
 
   private toLoginAuthResponse(result: TUserLoginAuthResponse): LoginAuthResponse {
     return new LoginAuthResponse(result);
@@ -79,48 +56,14 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Login (send access code)',
-    description:
-      'Validate credentials and send a login code by email. In local/dev only, use header x-dev-login-bypass=true to skip the code step.'
+    summary: 'Login',
+    description: 'Validate credentials and return JWT access and refresh tokens plus user data.'
   })
-  @ApiHeader({
-    name: 'x-dev-login-bypass',
-    required: false,
-    description:
-      'Solo con ENV=local|dev o NODE_ENV=development. Envía true para omitir el código y recibir el JWT directamente.',
-    schema: { type: 'string', enum: ['true', 'false'], default: 'true' }
-  })
-  @Swagger(LoginAuthRequest, LoginCodePendingResponse, CONTENT_TYPE.FORM_URLENCODED)
-  @ApiResponse({
-    status: 200,
-    type: LoginAuthResponse,
-    description: 'Local/dev con header x-dev-login-bypass=true. Misma respuesta que POST /auth/validate-code-login.'
-  })
+  @Swagger(LoginAuthRequest, LoginAuthResponse, CONTENT_TYPE.FORM_URLENCODED)
   @HttpCode(200)
   @Post('login')
-  async loginAuth(
-    @Body() request: LoginAuthRequest,
-    @Headers('x-dev-login-bypass') devBypassHeader?: string
-  ): Promise<LoginCodePendingResponse | LoginAuthResponse> {
-    const devBypassRequested = String(devBypassHeader || '').toLowerCase() === 'true';
-    if (devBypassRequested && this.isLocalEnvironment()) {
-      const result = await this.authService.userLoginAuth(request.email, request.password);
-      return this.toLoginAuthResponse(result);
-    }
-
-    await this.authService.startLoginCodeAuth(request.email, request.password);
-    return new LoginCodePendingResponse();
-  }
-
-  @ApiOperation({
-    summary: 'Validate login code',
-    description: 'Validate email and code to complete login and return tokens plus user data.'
-  })
-  @Swagger(ValidateCodeLoginRequest, LoginAuthResponse, CONTENT_TYPE.FORM_URLENCODED)
-  @HttpCode(200)
-  @Post('validate-code-login')
-  async validateCodeLogin(@Body() request: ValidateCodeLoginRequest): Promise<LoginAuthResponse> {
-    const result = await this.authService.validateLoginCodeAuth(request.email, request.code);
+  async loginAuth(@Body() request: LoginAuthRequest): Promise<LoginAuthResponse> {
+    const result = await this.authService.userLoginAuth(request.email, request.password);
     return this.toLoginAuthResponse(result);
   }
 

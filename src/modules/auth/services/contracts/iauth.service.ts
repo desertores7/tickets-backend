@@ -39,8 +39,6 @@ export interface IUpdateMeData {
 }
 
 export interface IAuthService {
-  startLoginCodeAuth(email: string, password: string): Promise<void>;
-  validateLoginCodeAuth(emailOrUsername: string, code: string): Promise<TUserLoginAuthResponse>;
   userLoginAuth(email: string, password: string): Promise<TUserLoginAuthResponse>;
   registerAuth(request: RegisterAuthRequest): Promise<{ email: string; uuid: string }>;
   resendEmailVerification(email: string): Promise<void>;

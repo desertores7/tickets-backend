@@ -57,7 +57,7 @@ export function isOriginAllowed(origin: string | undefined, allowedOrigins: stri
 
 const CORS_METHODS = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
 const CORS_HEADERS =
-  'Content-Type, Authorization, Accept, X-Requested-With, X-Internal-Token, x-dev-login-bypass, ngrok-skip-browser-warning, Origin, Access-Control-Request-Method, Access-Control-Request-Headers';
+  'Content-Type, Authorization, Accept, X-Requested-With, X-Internal-Token, ngrok-skip-browser-warning, Origin, Access-Control-Request-Method, Access-Control-Request-Headers';
 
 export function applyCorsHeaders(req: Request, res: Response, allowedOrigins: string[]): boolean {
   const origin = req.headers.origin as string | undefined;
