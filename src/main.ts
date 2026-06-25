@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config();
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { EnvService } from '@config/env/env.service';
 import { sendToDiscordFromEnv } from '@root/shared/services/discord-alert.service';
@@ -50,6 +50,7 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
     app.setGlobalPrefix('api');
+    app.enableVersioning({ type: VersioningType.URI });
 
     const httpAdapter = app.getHttpAdapter();
     const expressInstance = httpAdapter.getInstance();
