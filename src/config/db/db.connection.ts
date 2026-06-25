@@ -15,7 +15,7 @@ export class DatabaseConnectionManager {
         keepAliveInitialDelay: 0,
         enableKeepAlive: true,
         acquireTimeout: 60000,
-        timeout: 60000
+        connectTimeout: 60000
       }
     };
   }
