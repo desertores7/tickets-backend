@@ -116,6 +116,8 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
       SWAGGER_BEARER_NAME
     );
 
+  configBuilder.addServer('/', 'Servidor actual');
+
   configBuilder.addServer(`http://localhost:${port}`, 'Local');
 
   if (baseUrl) {
