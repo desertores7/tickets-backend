@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { EnvService } from '@config/env/env.service';
 import { RedisService } from './redis.service';
 import { QUEUE_NAMES } from './bull-jobs.types';
+import { resolveRedisConnection, toBullMqConnection } from './redis.connection';
 
 const DEFAULT_JOB_OPTIONS = {
   attempts: 3,
@@ -19,17 +20,9 @@ const DEFAULT_JOB_OPTIONS = {
   imports: [
     BullModule.forRootAsync({
       inject: [EnvService],
-      useFactory: (env: EnvService) => {
-        const url = env.get('REDIS_URL');
-        const connection = url
-          ? { url }
-          : {
-              host: env.get('REDIS_HOST'),
-              port: env.get('REDIS_PORT'),
-              password: env.get('REDIS_PASSWORD') ?? undefined
-            };
-        return { connection };
-      }
+      useFactory: (env: EnvService) => ({
+        connection: toBullMqConnection(resolveRedisConnection(env))
+      })
     }),
     BullModule.registerQueue(
       {

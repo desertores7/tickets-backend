@@ -59,6 +59,8 @@ export const envSchema = z.object({
   DISCORD_WEBHOOK_ALERTS: z.string().url().optional(),
 
   REDIS_URL: z.string().optional(),
+  /** IP o hostname de Redis (tiene prioridad sobre REDIS_HOST si ambos están definidos) */
+  REDIS_IP: z.string().optional(),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),

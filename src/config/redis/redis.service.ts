@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { EnvService } from '@config/env/env.service';
 import Redis, { RedisOptions } from 'ioredis';
+import { resolveRedisConnection, toIoredisOptions } from './redis.connection';
 
 // Lua script: decrement stock atomically; returns new value or -1 if insufficient
 const LUA_RESERVE_STOCK = `
@@ -78,16 +79,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly envService: EnvService) {}
 
   onModuleInit() {
-    const url = this.envService.get('REDIS_URL');
+    const connection = resolveRedisConnection(this.envService);
+    const ioredisOptions = toIoredisOptions(connection);
 
-    this.redis = url
-      ? new Redis(url, BASE_OPTIONS)
-      : new Redis({
-          ...BASE_OPTIONS,
-          host: this.envService.get('REDIS_HOST'),
-          port: this.envService.get('REDIS_PORT'),
-          password: this.envService.get('REDIS_PASSWORD') ?? undefined
-        });
+    this.logger.log(`Connecting to Redis at ${connection.label}`);
+
+    this.redis =
+      typeof ioredisOptions === 'string'
+        ? new Redis(ioredisOptions, BASE_OPTIONS)
+        : new Redis({ ...BASE_OPTIONS, ...ioredisOptions });
 
     this.redis.on('connect', () => this.logger.log('Redis connected'));
     this.redis.on('ready', () => this.logger.log('Redis ready'));

@@ -32,7 +32,7 @@ RUN apk add --no-cache openssl ca-certificates tzdata
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=8012
+ENV PORT=3006
 ENV TZ=America/Argentina/Buenos_Aires
 
 COPY package.json ./
@@ -45,9 +45,9 @@ RUN mkdir -p certs uploads \
 
 USER node
 
-EXPOSE 8012
+EXPOSE 3006
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD node -e "const p=process.env.PORT||8012;require('http').get('http://127.0.0.1:'+p+'/api/health',r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+  CMD node -e "const p=process.env.PORT||3006;require('http').get('http://127.0.0.1:'+p+'/api/health',r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/main.js"]
