@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { EnvService } from '@config/env/env.service';
@@ -91,6 +91,7 @@ export class PaymentController {
   async mercadopagoWebhook(
     @Headers('x-signature') xSignature: string | undefined,
     @Headers('x-request-id') xRequestId: string | undefined,
+    @Query('data.id') dataIdQuery: string | undefined,
     @Body() body: MercadoPagoWebhookRequest,
     @Res({ passthrough: true }) res: Response
   ): Promise<void> {
@@ -104,10 +105,13 @@ export class PaymentController {
         return;
       }
 
-      const dataId = body?.data?.id ?? '';
+      // MP signs using data.id from query params (?data.id=...), not the JSON body.
+      const dataId = dataIdQuery?.trim() || undefined;
       const valid = this.verifySignature(xSignature, xRequestId, dataId, secret);
       if (!valid) {
-        this.logger.warn(`MP webhook signature invalid — discarded (requestId=${xRequestId})`);
+        this.logger.warn(
+          `MP webhook signature invalid — discarded (requestId=${xRequestId}, dataId=${dataId ?? 'missing'})`
+        );
         return;
       }
     }
@@ -153,28 +157,40 @@ export class PaymentController {
 
   /**
    * Validates x-signature against MercadoPago's HMAC-SHA256 scheme.
-   * Signed template: id:{data.id};request-id:{x-request-id};ts:{ts}
+   * Manifest: id:{data.id};request-id:{x-request-id};ts:{ts};
+   * - data.id comes from URL query param `data.id` (not the JSON body).
+   * - Omit manifest segments when the corresponding value is missing.
    */
-  private verifySignature(xSignature: string, requestId: string, dataId: string, secret: string): boolean {
+  private verifySignature(
+    xSignature: string,
+    requestId: string,
+    dataId: string | undefined,
+    secret: string
+  ): boolean {
     try {
       const parts: Record<string, string> = {};
       for (const part of xSignature.split(',')) {
         const idx = part.indexOf('=');
-        if (idx !== -1) parts[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+        if (idx === -1) continue;
+        const key = part.slice(0, idx).trim().toLowerCase();
+        const value = part.slice(idx + 1).trim();
+        if (key && value) parts[key] = value;
       }
 
       const ts = parts['ts'];
       const v1 = parts['v1'];
-      if (!ts || !v1) return false;
+      if (!ts || !v1 || !/^\d+$/.test(ts)) return false;
 
-      const template = `id:${dataId};request-id:${requestId};ts:${ts}`;
-      const computed = crypto.createHmac('sha256', secret).update(template).digest('hex');
+      const manifestParts: string[] = [];
+      if (dataId) manifestParts.push(`id:${dataId}`);
+      if (requestId) manifestParts.push(`request-id:${requestId}`);
+      manifestParts.push(`ts:${ts}`);
+      const manifest = `${manifestParts.join(';')};`;
 
-      const computedBuf = Buffer.from(computed, 'hex');
-      const receivedBuf = Buffer.from(v1, 'hex');
-      if (computedBuf.length !== receivedBuf.length) return false;
+      const computed = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
 
-      return crypto.timingSafeEqual(computedBuf, receivedBuf);
+      if (computed.length !== v1.length) return false;
+      return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(v1));
     } catch {
       return false;
     }
