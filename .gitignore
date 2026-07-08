@@ -18,6 +18,8 @@ uploads/
 uploads/whatsapp-temp/
 multimedia/
 multimedia/user/
+storage/*
+!storage/.gitkeep
 
 # Por servidor: cada instancia tiene su propio docker-compose.yml; no sobrescribir con git pull
 docker-compose.yml

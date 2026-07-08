@@ -10,11 +10,11 @@ export class SendTicketEmailProcessor extends WorkerHost {
   async process(job: Job<SendTicketEmailJobData>): Promise<void> {
     if (job.name !== 'send-ticket-email') return;
 
-    const { email, userName, eventName, eventDate, venueName, orderId } = job.data;
+    const { email, orderId, eventName, ticketNumber, qrUrl, pdfUrl } = job.data;
 
     // Stub — real email implementation will use EmailService once the template is ready
     this.logger.log(
-      `[stub] Ticket email for order=${orderId} → to=${email} user="${userName}" event="${eventName}" date=${eventDate} venue="${venueName}"`
+      `[stub] Ticket email → to=${email} order=${orderId} event="${eventName}" ticket=${ticketNumber} qr=${qrUrl} pdf=${pdfUrl}`
     );
   }
 }

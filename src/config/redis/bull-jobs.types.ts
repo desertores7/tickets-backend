@@ -17,15 +17,13 @@ export interface GenerateQrJobData {
 }
 
 export interface SendTicketEmailJobData {
-  ticketId: string;
+  userId: string;
   orderId: string;
   email: string;
-  userName: string;
   eventName: string;
-  eventDate: string;
-  venueName: string;
-  seatInfo: string | null;
-  qrCodeUrl: string;
+  ticketNumber: string;
+  qrUrl: string;
+  pdfUrl: string;
 }
 
 export interface ProcessWebhookJobData {

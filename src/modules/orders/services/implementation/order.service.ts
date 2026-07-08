@@ -15,8 +15,7 @@ import { RedisService } from '@config/redis/redis.service';
 import {
   GenerateQrJobData,
   QUEUE_NAMES,
-  ReleaseExpiredStockJobData,
-  SendTicketEmailJobData
+  ReleaseExpiredStockJobData
 } from '@config/redis/bull-jobs.types';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
@@ -365,7 +364,7 @@ export class OrderService implements IOrderService {
       await queryRunner.release();
     }
 
-    // 7. Enqueue generate-qr job per ticket
+    // 7. Enqueue generate-qr job per ticket (processor sends the email once QR + PDF are ready)
     for (const ticket of createdTickets) {
       const jobData: GenerateQrJobData = {
         ticketId: ticket.uuid,
@@ -376,22 +375,6 @@ export class OrderService implements IOrderService {
       };
       await this.ticketsQueue.add('generate-qr', jobData);
     }
-
-    // 8. Enqueue send-ticket-email notification
-    const user = order.user as any;
-    const event = order.event as any;
-    const emailJobData: SendTicketEmailJobData = {
-      ticketId: createdTickets[0]?.uuid ?? '',
-      orderId: order.uuid,
-      email: user.email,
-      userName: `${user.firstName} ${user.lastName}`,
-      eventName: event.name,
-      eventDate: (event.startDate as Date).toISOString(),
-      venueName: event.venueName,
-      seatInfo: null,
-      qrCodeUrl: ''
-    };
-    await this.notificationsQueue.add('send-ticket-email', emailJobData);
 
     return this.fetchOrderInternal(orderId);
   }

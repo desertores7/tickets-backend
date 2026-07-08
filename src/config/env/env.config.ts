@@ -67,7 +67,11 @@ export const envSchema = z.object({
 
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
-  APP_URL: z.string().url().optional()
+  APP_URL: z.string().url().optional(),
+
+  STORAGE_PATH: z.string().default('./storage'),
+
+  QR_SECRET: z.string().default('change-this-to-a-random-secret-32chars')
 });
 
 export type Env = z.infer<typeof envSchema>;

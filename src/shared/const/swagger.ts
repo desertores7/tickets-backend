@@ -106,6 +106,8 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Orders', 'Creación, consulta y cancelación de órdenes de compra')
     .addTag('Payments', 'Inicialización de pago, webhooks y consulta de pagos')
     .addTag('Check-In', 'Validación de tickets en el acceso al evento')
+    .addTag('Tickets', 'Consulta de tickets del usuario autenticado')
+    .addTag('Admin — Tickets', 'Administración y regeneración de tickets (rol Administrador)')
     .addBearerAuth(
       {
         type: 'http',

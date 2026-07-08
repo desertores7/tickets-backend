@@ -5,6 +5,7 @@ import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
 import { CheckInResult } from '@config/db/entities/tickets/check_in_log.entity';
 import { TicketStatus } from '@config/db/entities/tickets/ticket.entity';
+import { QrSigningService } from '@modules/qr-generation/services/qr-signing.service';
 import { ICheckInService } from '../contracts/icheckin.service';
 import { CheckInResultData, CheckInTicket, CheckInResultEnum } from '../core/checkin';
 
@@ -17,7 +18,8 @@ export class CheckInService implements ICheckInService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly redisService: RedisService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly qrSigningService: QrSigningService
   ) {}
 
   async validateQr(
@@ -26,34 +28,47 @@ export class CheckInService implements ICheckInService {
     scannedBy: string,
     deviceInfo?: Record<string, unknown>
   ): Promise<CheckInResultData> {
-    // 1. Buscar ticket por qrCode
+    // 1. Verificar firma criptográfica — bloquea tokens falsos antes de tocar MySQL
+    const verification = this.qrSigningService.verifyQrToken(qrCode);
+
+    if (!verification.valid) {
+      this.logger.warn(
+        `Check-in rechazado: firma inválida (reason=${verification.reason} scannedBy=${scannedBy} eventId=${eventId})`
+      );
+      await this.writeLog({ ticketUuid: null, eventUuid: eventId, scannedBy, result: CheckInResult.INVALID, deviceInfo });
+      return { success: false, message: 'QR inválido o falsificado', result: CheckInResultEnum.INVALID };
+    }
+
+    const { ticketId } = verification.payload;
+
+    // 2. Buscar ticket directamente por UUID (más eficiente que buscar por qrCode)
     const ticket = await this.dbRepository.findOne({
       entity: 'ticket',
-      where: { qrCode }
+      where: { uuid: ticketId }
     });
 
     if (!ticket) {
-      this.logger.warn(`Check-in fallido: QR no encontrado (scannedBy=${scannedBy}, eventId=${eventId})`);
+      this.logger.warn(`Check-in fallido: ticket no encontrado uuid=${ticketId} scannedBy=${scannedBy}`);
       await this.writeLog({ ticketUuid: null, eventUuid: eventId, scannedBy, result: CheckInResult.INVALID, deviceInfo });
       return { success: false, message: 'QR inválido o no registrado', result: CheckInResultEnum.INVALID };
     }
 
-    // 2. Verificar que el ticket corresponde al evento correcto
+    // 3. Verificar que el ticket corresponde al evento correcto
     if (ticket.eventUuid !== eventId) {
       this.logger.warn(`Check-in fallido: ticket ${ticket.uuid} no pertenece al evento ${eventId}`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.WRONG_EVENT, deviceInfo });
       return { success: false, message: 'Esta entrada no corresponde a este evento', result: CheckInResultEnum.WRONG_EVENT };
     }
 
-    // 3. Verificar que el ticket no fue usado ya (check DB)
+    // 4. Verificar que el ticket no fue usado ya (check DB)
     if (ticket.status === TicketStatus.USED) {
       this.logger.log(`Check-in fallido: ticket ${ticket.uuid} ya utilizado (DB)`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 4. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
-    const lockKey = `checkin:${qrCode}`;
+    // 5. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
+    const lockKey = `checkin:${ticket.uuid}`;
     const acquired = await this.redisService.markIdempotency(lockKey, CHECKIN_LOCK_TTL);
 
     if (!acquired) {
@@ -62,7 +77,7 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 5. Actualizar ticket + crear log en transacción
+    // 6. Actualizar ticket + crear log en transacción
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();

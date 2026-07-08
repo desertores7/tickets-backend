@@ -20,6 +20,7 @@ import { ImageCompressionService } from '@root/shared/services/image-compression
 import { MercadoPagoService } from './payments/services/implementation/mercadopago.service';
 import { PaymentService } from './payments/services/implementation/payment.service';
 import { CheckInService } from './check-in/services/implementation/checkin.service';
+import { QrGenerationModule } from './qr-generation/qr-generation.module';
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { CheckInService } from './check-in/services/implementation/checkin.servi
       secret: 'temp-secret',
       signOptions: { expiresIn: '1d' }
     }),
-    DBModule
+    DBModule,
+    QrGenerationModule
   ],
   providers: [
     { provide: 'IAuthService', useClass: AuthService },
@@ -70,7 +72,8 @@ import { CheckInService } from './check-in/services/implementation/checkin.servi
     AuthService,
     RoleGuard,
     InternalTokenGuard,
-    UserPermissionService
+    UserPermissionService,
+    QrGenerationModule
   ]
 })
 export class ServiceModule {}

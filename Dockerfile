@@ -40,7 +40,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
 # Certificados ARCA y archivos subidos se montan en runtime (--env-file + volúmenes)
-RUN mkdir -p certs uploads \
+RUN mkdir -p certs uploads storage/tickets/qr storage/tickets/pdf \
     && chown -R node:node /app
 
 USER node
