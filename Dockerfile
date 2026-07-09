@@ -38,6 +38,7 @@ ENV TZ=America/Argentina/Buenos_Aires
 COPY package.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY public ./public
 
 # Certificados ARCA y archivos subidos se montan en runtime (--env-file + volúmenes)
 RUN mkdir -p certs uploads storage/tickets/qr storage/tickets/pdf \

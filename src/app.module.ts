@@ -34,6 +34,14 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
             index: false,
             fallthrough: false
           }
+        },
+        {
+          rootPath: join(process.cwd(), 'public', 'scanner'),
+          serveRoot: '/scanner',
+          serveStaticOptions: {
+            index: ['index.html'],
+            fallthrough: false
+          }
         }
       ]
     }),

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>Validador de Entradas</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    display: flex; flex-direction: column;
+  }
+  .screen { display: none; flex-direction: column; height: 100%; padding: 24px; }
+  .screen.active { display: flex; }
+
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 28px; }
+
+  input, select, button {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-size: 16px; margin-bottom: 14px;
+    outline: none; appearance: none;
+  }
+  input:focus, select:focus { border-color: #38bdf8; }
+  button {
+    background: #0284c7; border: none; font-weight: 600; cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:active { opacity: .7; }
+  button.secondary { background: #334155; }
+  button:disabled { opacity: .45; }
+  .error-msg { color: #f87171; font-size: 14px; margin-bottom: 12px; min-height: 18px; }
+
+  /* ── Scanner ── */
+  #screen-scanner { padding: 0; position: relative; }
+  #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; }
+  #video { width: 100%; height: 100%; object-fit: cover; }
+  #frame {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(65vw, 280px); height: min(65vw, 280px);
+    border: 3px solid rgba(56, 189, 248, .9); border-radius: 20px;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,.45);
+    pointer-events: none;
+  }
+  #scanner-top {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+    padding: 14px 16px; display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(rgba(15,23,42,.9), transparent);
+  }
+  #scanner-top .event-name { font-size: 14px; font-weight: 600; max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #scanner-top button { width: auto; padding: 8px 14px; margin: 0; font-size: 13px; }
+  #counter {
+    position: absolute; bottom: 18px; left: 0; right: 0; text-align: center;
+    font-size: 13px; color: #cbd5e1; z-index: 5; text-shadow: 0 1px 3px #000;
+  }
+
+  /* ── Result overlay ── */
+  #result {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px; text-align: center;
+  }
+  #result.show { display: flex; }
+  #result.success { background: #14532d; }
+  #result.already_used { background: #7f1d1d; }
+  #result.wrong_event { background: #7c2d12; }
+  #result.invalid { background: #334155; }
+  #result .icon { font-size: 90px; line-height: 1; margin-bottom: 18px; }
+  #result .title { font-size: 30px; font-weight: 800; margin-bottom: 10px; }
+  #result .detail { font-size: 16px; color: rgba(255,255,255,.85); margin-bottom: 6px; }
+  #result .ticket-num { font-family: 'Courier New', monospace; font-size: 15px; font-weight: 700; margin-top: 10px; }
+  #result .hint { position: absolute; bottom: 30px; font-size: 13px; color: rgba(255,255,255,.6); }
+
+  .spinner {
+    width: 44px; height: 44px; border: 4px solid #334155; border-top-color: #38bdf8;
+    border-radius: 50%; animation: spin .8s linear infinite; margin: 40px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div class="screen active" id="screen-login">
+  <div style="margin:auto; width:100%; max-width:380px;">
+    <h1>🎫 Validador de Entradas</h1>
+    <p class="subtitle">Ingresá con tu cuenta de staff</p>
+    <div class="error-msg" id="login-error"></div>
+    <input type="email" id="email" placeholder="Email" autocomplete="username" />
+    <input type="password" id="password" placeholder="Contraseña" autocomplete="current-password" />
+    <button id="btn-login">Ingresar</button>
+  </div>
+</div>
+
+<!-- ── EVENT SELECT ── -->
+<div class="screen" id="screen-event">
+  <div style="margin:auto; width:100%; max-width:380px;">
+    <h1>Seleccionar evento</h1>
+    <p class="subtitle" id="event-hello"></p>
+    <div class="error-msg" id="event-error"></div>
+    <select id="event-select"></select>
+    <button id="btn-start">Comenzar a escanear</button>
+    <button class="secondary" id="btn-logout">Cerrar sesión</button>
+  </div>
+</div>
+
+<!-- ── SCANNER ── -->
+<div class="screen" id="screen-scanner">
+  <div id="video-wrap">
+    <video id="video" playsinline muted></video>
+    <div id="frame"></div>
+    <div id="scanner-top">
+      <span class="event-name" id="scanner-event-name"></span>
+      <div style="display:flex; gap:8px;">
+        <button class="secondary" id="btn-torch" style="display:none;">🔦</button>
+        <button class="secondary" id="btn-back">Salir</button>
+      </div>
+    </div>
+    <div id="counter">Apuntá la cámara al código QR</div>
+  </div>
+</div>
+
+<!-- ── RESULT OVERLAY ── -->
+<div id="result">
+  <div class="icon" id="result-icon"></div>
+  <div class="title" id="result-title"></div>
+  <div class="detail" id="result-detail"></div>
+  <div class="ticket-num" id="result-ticket"></div>
+  <div class="hint">Tocá la pantalla para seguir escaneando</div>
+</div>
+
+<script>
+(() => {
+  const API = '/api/v1';
+  const $ = id => document.getElementById(id);
+
+  let token = sessionStorage.getItem('scanner_token') || null;
+  let userName = sessionStorage.getItem('scanner_user') || '';
+  let eventId = null;
+  let eventName = '';
+  let stream = null;
+  let videoTrack = null;
+  let scanning = false;
+  let validating = false;
+  let okCount = 0;
+  const recentCodes = new Map(); // qrCode → timestamp (anti doble-lectura)
+
+  const RESULT_META = {
+    success:      { icon: '✅', title: 'ENTRADA VÁLIDA' },
+    already_used: { icon: '⛔', title: 'YA UTILIZADA' },
+    wrong_event:  { icon: '⚠️', title: 'OTRO EVENTO' },
+    invalid:      { icon: '❌', title: 'QR INVÁLIDO' }
+  };
+
+  function show(screenId) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    $(screenId).classList.add('active');
+  }
+
+  // ── LOGIN ──────────────────────────────────────────────────────────────
+  $('btn-login').addEventListener('click', async () => {
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    if (!email || !password) { $('login-error').textContent = 'Completá email y contraseña'; return; }
+
+    $('btn-login').disabled = true;
+    $('login-error').textContent = '';
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ email, password })
+      });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Credenciales incorrectas' : `Error ${res.status}`);
+      const data = await res.json();
+      token = data.access_token;
+      userName = data.user?.firstName || email;
+      sessionStorage.setItem('scanner_token', token);
+      sessionStorage.setItem('scanner_user', userName);
+      await loadEvents();
+    } catch (e) {
+      $('login-error').textContent = e.message || 'Error de conexión';
+    } finally {
+      $('btn-login').disabled = false;
+    }
+  });
+
+  // ── EVENTS ─────────────────────────────────────────────────────────────
+  async function loadEvents() {
+    $('event-hello').textContent = `Hola, ${userName} 👋`;
+    $('event-error').textContent = '';
+    const res = await fetch(`${API}/events?limit=100`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) { logout(); return; }
+    if (!res.ok) { $('event-error').textContent = `No se pudieron cargar los eventos (${res.status})`; show('screen-event'); return; }
+    const data = await res.json();
+    const items = data.items || [];
+    const sel = $('event-select');
+    sel.innerHTML = '';
+    if (items.length === 0) {
+      sel.innerHTML = '<option value="">— No hay eventos disponibles —</option>';
+    } else {
+      for (const ev of items) {
+        const opt = document.createElement('option');
+        opt.value = ev.uuid;
+        const d = new Date(ev.startDate);
+        opt.textContent = `${ev.name} — ${d.toLocaleDateString('es-AR')} (${ev.venueName})`;
+        sel.appendChild(opt);
+      }
+    }
+    show('screen-event');
+  }
+
+  function logout() {
+    sessionStorage.clear();
+    token = null;
+    stopCamera();
+    show('screen-login');
+  }
+  $('btn-logout').addEventListener('click', logout);
+
+  // ── SCANNER ────────────────────────────────────────────────────────────
+  $('btn-start').addEventListener('click', async () => {
+    eventId = $('event-select').value;
+    eventName = $('event-select').selectedOptions[0]?.textContent || '';
+    if (!eventId) { $('event-error').textContent = 'Seleccioná un evento'; return; }
+    $('scanner-event-name').textContent = eventName;
+    okCount = 0;
+    show('screen-scanner');
+    await startCamera();
+  });
+
+  $('btn-back').addEventListener('click', () => { stopCamera(); show('screen-event'); });
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      const video = $('video');
+      video.srcObject = stream;
+      await video.play();
+      videoTrack = stream.getVideoTracks()[0];
+
+      // Linterna si el dispositivo la soporta
+      const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+      if (caps.torch) {
+        $('btn-torch').style.display = 'block';
+        let torchOn = false;
+        $('btn-torch').onclick = () => {
+          torchOn = !torchOn;
+          videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] }).catch(() => {});
+        };
+      }
+
+      scanning = true;
+      requestAnimationFrame(scanLoop);
+    } catch (e) {
+      alert('No se pudo acceder a la cámara. Verificá los permisos del navegador.\n\n' + e.message);
+      show('screen-event');
+    }
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; videoTrack = null; }
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  function scanLoop() {
+    if (!scanning) return;
+    const video = $('video');
+    if (video.readyState === video.HAVE_ENOUGH_DATA && !validating) {
+      // Analizar solo la zona central (donde está el marco) para mejor rendimiento
+      const size = Math.min(video.videoWidth, video.videoHeight) * 0.7;
+      const sx = (video.videoWidth - size) / 2;
+      const sy = (video.videoHeight - size) / 2;
+      canvas.width = 480; canvas.height = 480;
+      ctx.drawImage(video, sx, sy, size, size, 0, 0, 480, 480);
+      const img = ctx.getImageData(0, 0, 480, 480);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) handleScan(code.data.trim());
+    }
+    requestAnimationFrame(scanLoop);
+  }
+
+  async function handleScan(qrCode) {
+    if (!qrCode || validating) return;
+    // Anti doble-lectura: ignorar el mismo código por 5 segundos
+    const now = Date.now();
+    const last = recentCodes.get(qrCode);
+    if (last && now - last < 5000) return;
+    recentCodes.set(qrCode, now);
+    if (recentCodes.size > 200) recentCodes.clear();
+
+    validating = true;
+    if (navigator.vibrate) navigator.vibrate(60);
+
+    try {
+      const res = await fetch(`${API}/check-in/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          qrCode,
+          eventId,
+          deviceInfo: { userAgent: navigator.userAgent, scannedFrom: 'web-scanner' }
+        })
+      });
+
+      if (res.status === 401) { logout(); return; }
+      if (res.status === 403) { showResult('invalid', 'Tu usuario no tiene rol de validador', ''); return; }
+
+      const data = await res.json();
+      if (data.result === 'success') okCount++;
+      $('counter').textContent = `✅ ${okCount} ingresos validados`;
+      showResult(data.result || 'invalid', data.message || '', data.ticket?.ticketNumber || '');
+    } catch {
+      showResult('invalid', 'Error de conexión — reintentá', '');
+    }
+  }
+
+  function showResult(result, message, ticketNumber) {
+    const meta = RESULT_META[result] || RESULT_META.invalid;
+    const el = $('result');
+    el.className = `show ${result in RESULT_META ? result : 'invalid'}`;
+    $('result-icon').textContent = meta.icon;
+    $('result-title').textContent = meta.title;
+    $('result-detail').textContent = message;
+    $('result-ticket').textContent = ticketNumber;
+
+    if (navigator.vibrate) navigator.vibrate(result === 'success' ? [80] : [90, 60, 90]);
+
+    // Éxito: se cierra solo rápido. Rechazo: requiere tap (el validador debe verlo).
+    if (result === 'success') {
+      setTimeout(hideResult, 1800);
+    }
+  }
+
+  function hideResult() {
+    $('result').className = '';
+    validating = false;
+  }
+  $('result').addEventListener('click', hideResult);
+
+  // ── INIT: sesión previa ────────────────────────────────────────────────
+  if (token) loadEvents().catch(logout);
+})();
+</script>
+</body>
+</html>
