@@ -302,10 +302,16 @@
     validating = true;
     if (navigator.vibrate) navigator.vibrate(60);
 
+    // Timeout de 10s: con señal mala el validador ve el error rápido
+    // en lugar de quedar con el scanner congelado hasta el timeout del browser.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
       const res = await fetch(`${API}/check-in/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        signal: controller.signal,
         body: JSON.stringify({
           qrCode,
           eventId,
@@ -320,8 +326,15 @@
       if (data.result === 'success') okCount++;
       $('counter').textContent = `✅ ${okCount} ingresos validados`;
       showResult(data.result || 'invalid', data.message || '', data.ticket?.ticketNumber || '');
-    } catch {
-      showResult('invalid', 'Error de conexión — reintentá', '');
+    } catch (e) {
+      // Permitir re-escanear el mismo código de inmediato tras un fallo de red
+      recentCodes.delete(qrCode);
+      const msg = e.name === 'AbortError'
+        ? 'Sin respuesta del servidor (señal baja) — volvé a escanear'
+        : 'Error de conexión — volvé a escanear';
+      showResult('invalid', msg, '');
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
