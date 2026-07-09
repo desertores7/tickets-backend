@@ -19,7 +19,7 @@ export class CheckInController {
   @ApiOperation({
     summary: 'Validate ticket QR code',
     description:
-      'Validates a ticket QR code for event entry. Requires the `validador` or `admin` role.\n\n' +
+      'Validates a ticket QR code for event entry. Requires the `Validador` or `Administrador` role.\n\n' +
       'Optimised for low latency (<200 ms). A Redis lock prevents two validators from ' +
       'simultaneously accepting the same QR code — the first request acquires the lock and ' +
       'marks the ticket as `used` in a MySQL transaction; concurrent duplicates are returned ' +
@@ -41,7 +41,7 @@ export class CheckInController {
   })
   @ApiResponse({ status: 400, description: 'Validation error — missing or malformed `qrCode` / `eventId`.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
-  @ApiResponse({ status: 403, description: 'Authenticated user does not have the `validador` or `admin` role.' })
+  @ApiResponse({ status: 403, description: 'Authenticated user does not have the `Validador` or `Administrador` role.' })
   @HttpCode(200)
   @Post('validate')
   async validateQr(
