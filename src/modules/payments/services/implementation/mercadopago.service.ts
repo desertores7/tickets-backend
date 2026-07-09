@@ -55,9 +55,11 @@ export class MercadoPagoService {
     const preference = new Preference(this.client);
 
     const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
-    const backUrlSuccess = `${appUrl}/payment/success`;
-    const backUrlFailure = `${appUrl}/payment/failure`;
-    const backUrlPending = `${appUrl}/payment/pending`;
+    // back_urls son páginas que ve el comprador → frontend. notification_url es el webhook → backend.
+    const frontendUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
+    const backUrlSuccess = `${frontendUrl}/payment/success`;
+    const backUrlFailure = `${frontendUrl}/payment/failure`;
+    const backUrlPending = `${frontendUrl}/payment/pending`;
     const notificationUrl = `${appUrl}/api/v1/payments/webhook/mercadopago`;
 
     try {
@@ -112,7 +114,11 @@ export class MercadoPagoService {
       return null;
     }
 
-    const mpPaymentId = payload.data.id;
+    const mpPaymentId = payload.data?.id;
+    if (!mpPaymentId) {
+      this.logger.warn('MP payment webhook without data.id — ignored');
+      return null;
+    }
 
     try {
       const mpClient = new MPPaymentClient(this.client);

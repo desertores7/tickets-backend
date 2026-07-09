@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { Body, Controller, Get, Headers, HttpCode, Inject, Logger, Param, Post, Query, Res } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { EnvService } from '@config/env/env.service';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
@@ -85,39 +85,66 @@ export class PaymentController {
     required: false,
     description: 'Unique request ID included by MercadoPago; used as part of the signature template.'
   })
+  @ApiQuery({ name: 'data.id', required: false, description: 'Payment ID (formato webhook moderno).' })
+  @ApiQuery({ name: 'type', required: false, description: 'Tipo de evento (formato webhook moderno).' })
+  @ApiQuery({ name: 'id', required: false, description: 'Resource ID (formato IPN legacy).' })
+  @ApiQuery({ name: 'topic', required: false, description: 'Tipo de evento (formato IPN legacy).' })
   @ApiResponse({ status: 200, description: 'Notification received and enqueued for asynchronous processing.' })
   @HttpCode(200)
   @Post('webhook/mercadopago')
   async mercadopagoWebhook(
     @Headers('x-signature') xSignature: string | undefined,
     @Headers('x-request-id') xRequestId: string | undefined,
-    @Query('data.id') dataIdQuery: string | undefined,
+    @Query() query: Record<string, string>,
     @Body() body: MercadoPagoWebhookRequest,
     @Res({ passthrough: true }) res: Response
   ): Promise<void> {
     res.status(200);
 
+    // MP envía varios formatos: webhook moderno (?data.id=...&type=payment con firma)
+    // e IPN legacy (?id=...&topic=payment|merchant_order, sin firma). Normalizamos todo.
+    const eventType = (query['type'] ?? query['topic'] ?? body?.type ?? body?.topic ?? '').toString();
+    const paymentId = (query['data.id'] ?? body?.data?.id ?? (eventType === 'payment' ? query['id'] : '') ?? '')
+      .toString()
+      .trim();
+
+    if (eventType !== 'payment') {
+      this.logger.log(`MP notification ignored (type=${eventType || 'unknown'}) — only payment events are processed`);
+      return;
+    }
+
+    if (!paymentId) {
+      this.logger.warn('MP payment notification without payment id — discarded');
+      return;
+    }
+
     const secret = this.envService.get('MERCADOPAGO_WEBHOOK_SECRET');
 
-    if (secret) {
-      if (!xSignature || !xRequestId) {
-        this.logger.warn('MP webhook received without required signature headers — discarded');
-        return;
-      }
-
+    if (secret && xSignature) {
       // MP signs using data.id from query params (?data.id=...), not the JSON body.
-      const dataId = dataIdQuery?.trim() || undefined;
-      const valid = this.verifySignature(xSignature, xRequestId, dataId, secret);
+      const dataId = query['data.id']?.trim() || undefined;
+      const valid = this.verifySignature(xSignature, xRequestId ?? '', dataId, secret);
       if (!valid) {
         this.logger.warn(
-          `MP webhook signature invalid — discarded (requestId=${xRequestId}, dataId=${dataId ?? 'missing'})`
+          `MP webhook signature invalid — discarded (requestId=${xRequestId ?? 'missing'}, dataId=${dataId ?? 'missing'})`
         );
         return;
       }
+    } else if (secret && !xSignature) {
+      // IPN legacy no incluye x-signature. Es seguro procesarla igual: el estado del pago
+      // se obtiene siempre re-consultando la API de MP con nuestro access token, nunca
+      // se confía en el contenido de la notificación.
+      this.logger.warn(`MP notification without x-signature accepted (IPN legacy, paymentId=${paymentId})`);
     }
 
+    const normalizedPayload: MercadoPagoWebhookRequest = {
+      ...body,
+      type: 'payment',
+      data: { id: paymentId }
+    };
+
     try {
-      await this.paymentService.processWebhook('mercadopago', body);
+      await this.paymentService.processWebhook('mercadopago', normalizedPayload);
     } catch (err) {
       // Swallow to ensure 200 is returned so MP does not retry indefinitely.
       // BullMQ handles retries at the job level.
