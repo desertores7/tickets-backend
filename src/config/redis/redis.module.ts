@@ -51,6 +51,14 @@ const DEFAULT_JOB_OPTIONS = {
           attempts: 2,
           removeOnComplete: { count: 50 }
         }
+      },
+      {
+        name: QUEUE_NAMES.MAINTENANCE,
+        defaultJobOptions: {
+          ...DEFAULT_JOB_OPTIONS,
+          attempts: 1,
+          removeOnComplete: { count: 30 }
+        }
       }
     )
   ],

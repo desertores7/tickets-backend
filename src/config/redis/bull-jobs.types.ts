@@ -3,7 +3,8 @@ export const QUEUE_NAMES = {
   NOTIFICATIONS: 'notifications',
   PAYMENTS: 'payments',
   ORDERS: 'orders',
-  WAITING_ROOM: 'waiting-room'
+  WAITING_ROOM: 'waiting-room',
+  MAINTENANCE: 'maintenance'
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -45,4 +46,9 @@ export interface ProcessWaitingRoomJobData {
   eventId: string;
   batchSize: number;
   admissionTtlSeconds: number;
+}
+
+export interface CleanupExpiredAssetsJobData {
+  /** Días de gracia después de event.endDate antes de borrar los archivos QR/PDF */
+  graceDays: number;
 }
