@@ -20,6 +20,7 @@ import {
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { StockService } from './stock.service';
+import { FeeSummaryService } from './fee-summary.service';
 import { IOrderService, PaginatedResult } from '../contracts/iorder.service';
 import {
   ICreateOrder,
@@ -41,6 +42,7 @@ export class OrderService implements IOrderService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly stockService: StockService,
+    private readonly feeSummaryService: FeeSummaryService,
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
     @InjectQueue(QUEUE_NAMES.ORDERS) private readonly ordersQueue: Queue,
@@ -354,7 +356,21 @@ export class OrderService implements IOrderService {
         }
       }
 
-      // 6. Commit and release in finally
+      // 6. Register fee summary (atomic upsert) within the same transaction.
+      // If this fails, the whole transaction rolls back — the order never stays
+      // in `paid` with an inconsistent fee summary.
+      const ticketCount = (order.items as any[]).reduce((sum, item) => sum + item.quantity, 0);
+      await this.feeSummaryService.registerPaidOrder({
+        eventId: order.eventUuid,
+        ticketCount,
+        ticketAmount: Number(order.subtotal),
+        serviceFeeAmount: Number(order.serviceFee),
+        grossAmount: Number(order.total),
+        currency: order.currency,
+        queryRunner
+      });
+
+      // 7. Commit and release in finally
       await queryRunner.commitTransaction();
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -364,7 +380,7 @@ export class OrderService implements IOrderService {
       await queryRunner.release();
     }
 
-    // 7. Enqueue generate-qr job per ticket (processor sends the email once QR + PDF are ready)
+    // 8. Enqueue generate-qr job per ticket (processor sends the email once QR + PDF are ready)
     for (const ticket of createdTickets) {
       const jobData: GenerateQrJobData = {
         ticketId: ticket.uuid,

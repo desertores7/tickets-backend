@@ -14,6 +14,7 @@ import { SystemParameterService } from './system-parameter/services/implementati
 import { EventService } from './event/services/implementation/event.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
+import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
 import { RoleGuard } from '@root/shared/auth/guards/role.guard';
 import { InternalTokenGuard } from '@root/shared/auth/guards/internal-token.guard';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
@@ -47,6 +48,7 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
     { provide: 'ICheckInService', useClass: CheckInService },
     MercadoPagoService,
     StockService,
+    FeeSummaryService,
     EmailService,
     ImageCompressionService,
     AuthService,
@@ -67,6 +69,7 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
     { provide: 'ICheckInService', useClass: CheckInService },
     MercadoPagoService,
     StockService,
+    FeeSummaryService,
     EmailService,
     ImageCompressionService,
     AuthService,

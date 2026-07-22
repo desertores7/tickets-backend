@@ -53,6 +53,11 @@ export class PaymentService implements IPaymentService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: order.eventUuid }
+    });
+
     const ticketTypes = await Promise.all(
       (order.items as any[]).map((item: any) =>
         this.dbRepository.findOne({
@@ -90,7 +95,8 @@ export class PaymentService implements IPaymentService {
       metadata: order.metadata,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
-      items: enrichedItems
+      items: enrichedItems,
+      eventName: event?.name ?? 'Evento'
     };
 
     const userForMP = {

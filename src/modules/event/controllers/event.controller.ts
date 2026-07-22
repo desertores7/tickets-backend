@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
@@ -16,6 +16,7 @@ import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
+import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 
 @ApiTags('Events')
 @Controller({ path: 'events', version: '1' })
@@ -57,6 +58,26 @@ export class EventController {
   async getEventById(@Param('eventUuid') eventUuid: string): Promise<GetIdEventResponse> {
     const event = await this._eventService.getEventById(eventUuid);
     return new GetIdEventResponse(event);
+  }
+
+  @UserAuth(null, GetFeeSummaryResponse)
+  @ApiOperation({
+    summary: 'Get event fee summary',
+    description:
+      'Returns the accumulated fee summary for an event (paid orders, tickets sold, gross/ticket/service-fee amounts). ' +
+      'Only the organizer that owns the event or an admin can access it. ' +
+      'If the event has no paid sales yet, all numeric fields are returned as 0 (not 404).'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, type: GetFeeSummaryResponse, description: 'Fee summary for the event (zeros if no paid sales yet).' })
+  @ApiResponse({ status: 400, description: 'Event not found or inactive.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
+  @HttpCode(200)
+  @Get(':eventUuid/fee-summary')
+  async getFeeSummary(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<GetFeeSummaryResponse> {
+    const summary = await this._eventService.getFeeSummary(eventUuid, loggedUser);
+    return new GetFeeSummaryResponse(summary);
   }
 
   @UserAuth(UpdateEventRequest, null)

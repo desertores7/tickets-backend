@@ -18,6 +18,7 @@ import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
 import { TicketEntityData } from '../entities/tickets/ticket.entity';
 import { PaymentEntityData } from '../entities/tickets/payment.entity';
 import { CheckInLogEntityData } from '../entities/tickets/check_in_log.entity';
+import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary.entity';
 
 export const entitiesData = [
   UserTokenSessionEntityData,
@@ -38,7 +39,8 @@ export const entitiesData = [
   OrderItemEntityData,
   TicketEntityData,
   PaymentEntityData,
-  CheckInLogEntityData
+  CheckInLogEntityData,
+  EventFeeSummaryEntityData
 ] as const;
 
 export const entitiesObj = entitiesData.reduce(

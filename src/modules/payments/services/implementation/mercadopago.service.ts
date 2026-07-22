@@ -7,7 +7,7 @@ import { IOrderItem, Order } from '@modules/orders/services/core/order';
 import { User } from '@modules/user/services/core/user';
 
 export type MPOrderItem = IOrderItem & { title: string };
-export type OrderForMP = Omit<Order, 'items'> & { items: MPOrderItem[] };
+export type OrderForMP = Omit<Order, 'items'> & { items: MPOrderItem[]; eventName: string };
 
 export interface MPPreferenceResult {
   checkoutUrl: string;
@@ -62,16 +62,45 @@ export class MercadoPagoService {
     const backUrlPending = `${frontendUrl}/payment/pending`;
     const notificationUrl = `${appUrl}/api/v1/payments/webhook/mercadopago`;
 
+    // Trabajar en centavos (enteros) evita errores de punto flotante al sumar.
+    const toCents = (value: number) => Math.round(Number(value) * 100);
+
+    // 1. Un ítem por order_item con el precio BASE de la entrada (sin fee).
+    const ticketItems = order.items.map(item => ({
+      id: item.ticketTypeUuid,
+      title: `${order.eventName} - ${item.title}`,
+      description: 'Entrada',
+      quantity: item.quantity,
+      unit_price: Number(item.unitPrice),
+      currency_id: order.currency
+    }));
+
+    // 2. Ítem de costo de servicio. Se calcula como la diferencia entre el total
+    // de la orden y la suma de las entradas base, de modo que el fee absorba
+    // cualquier resto de centavos y Σ(unit_price * quantity) === order.total exacto
+    // (MercadoPago valida que el total de la preferencia cierre con los ítems).
+    const itemsBaseCents = order.items.reduce(
+      (sum, item) => sum + toCents(item.unitPrice) * item.quantity,
+      0
+    );
+    const serviceFeeCents = toCents(order.total) - itemsBaseCents;
+
+    const items = [...ticketItems];
+    if (serviceFeeCents > 0) {
+      items.push({
+        id: 'service-fee',
+        title: 'Costo de servicio',
+        description: 'Cargo por uso de la plataforma',
+        quantity: 1,
+        unit_price: serviceFeeCents / 100,
+        currency_id: order.currency
+      });
+    }
+
     try {
       const result = await preference.create({
         body: {
-          items: order.items.map(item => ({
-            id: item.uuid,
-            title: item.title,
-            quantity: item.quantity,
-            unit_price: Number(item.unitPrice),
-            currency_id: order.currency
-          })),
+          items,
           payer: {
             name: user.firstName,
             surname: user.lastName,

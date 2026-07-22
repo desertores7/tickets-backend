@@ -329,5 +329,9 @@ export const entityRelations = {
     ticket: 'ticket',
     event: 'event',
     scanner: 'user'
+  },
+
+  event_fee_summary: {
+    event: 'event'
   }
 } as const;

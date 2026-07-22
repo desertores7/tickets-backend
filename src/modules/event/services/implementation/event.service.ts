@@ -9,6 +9,8 @@ import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.r
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
+import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
+import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import {
   IEventService,
   TEventFilters,
@@ -23,7 +25,8 @@ export class EventService implements IEventService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly redisService: RedisService,
-    private readonly userPermission: UserPermissionService
+    private readonly userPermission: UserPermissionService,
+    private readonly feeSummaryService: FeeSummaryService
   ) {}
 
   async getEvents(
@@ -238,6 +241,14 @@ export class EventService implements IEventService {
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid }
     }) as Promise<TTicketTypeResponse>;
+  }
+
+  async getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null> {
+    // Autoriza: solo el organizador dueño del evento o un admin. Lanza si no.
+    await this.assertOwnership(eventUuid, loggedUser);
+    // Puede ser null si el evento todavía no tiene ventas pagadas — el caller
+    // (DTO) mapea null a ceros en lugar de 404.
+    return this.feeSummaryService.getSummaryByEvent(eventUuid);
   }
 
   private async assertOwnership(eventUuid: string, loggedUser: string): Promise<TEventResponse> {
