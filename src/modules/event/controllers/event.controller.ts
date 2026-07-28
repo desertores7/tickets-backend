@@ -1,5 +1,20 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseFilePipeBuilder,
+  Patch,
+  Post,
+  UploadedFile,
+  UseInterceptors
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
@@ -9,6 +24,12 @@ import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IEventService } from '../services/contracts/ievent.service';
 import { eventFilters } from './const/event.filters';
+import {
+  BANNER_VARIANT_NAMES,
+  BannerImages,
+  BannerVariant,
+  isBannerVariant
+} from './const/banner-variant.const';
 import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
@@ -106,6 +127,78 @@ export class EventController {
   @Post(':eventUuid/publish')
   async publishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.publishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Upload event banner (per platform)',
+    description:
+      'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
+      '**Variants and target sizes:**\n' +
+      '- `desktop` — 1920x640 (3:1), hero web. Also syncs the legacy `bannerUrl` field.\n' +
+      '- `mobile` — 1080x1350 (4:5), portrait for phones.\n' +
+      '- `thumbnail` — 800x450 (16:9), cards and listings.\n\n' +
+      'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
+      'cropped centred to the target aspect ratio. Files are stored per event in ' +
+      '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
+      'Only members of the owning organization or an admin can upload.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { banner: { type: 'string', format: 'binary' } },
+      required: ['banner']
+    }
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'variant', enum: BANNER_VARIANT_NAMES, description: 'Platform variant.' })
+  @ApiResponse({ status: 200, description: 'Banner uploaded. Returns the variant URL and the full `bannerImages` map.' })
+  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 5MB).' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
+  @UseInterceptors(FileInterceptor('banner'))
+  @HttpCode(200)
+  @Post(':eventUuid/banner/:variant')
+  async uploadBanner(
+    @Param('eventUuid') eventUuid: string,
+    @Param('variant') variant: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 5 * 1024 * 1024 })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }> {
+    if (!isBannerVariant(variant)) {
+      throw new BadRequestException(`Variante inválida. Valores permitidos: ${BANNER_VARIANT_NAMES.join(', ')}`);
+    }
+    return this._eventService.uploadBanner(eventUuid, variant, file, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Delete event banner variant',
+    description: 'Removes the image of a specific platform variant and deletes the file from storage.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'variant', enum: BANNER_VARIANT_NAMES, description: 'Platform variant.' })
+  @ApiResponse({ status: 200, description: 'Variant removed. Returns the updated `bannerImages` map.' })
+  @ApiResponse({ status: 400, description: 'Unknown variant or the event has no image for it.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/banner/:variant')
+  async deleteBanner(
+    @Param('eventUuid') eventUuid: string,
+    @Param('variant') variant: string,
+    @User() loggedUser: string
+  ): Promise<{ bannerImages: BannerImages }> {
+    if (!isBannerVariant(variant)) {
+      throw new BadRequestException(`Variante inválida. Valores permitidos: ${BANNER_VARIANT_NAMES.join(', ')}`);
+    }
+    return this._eventService.deleteBanner(eventUuid, variant, loggedUser);
   }
 
   @UserAuth(null, TicketTypeResponse)

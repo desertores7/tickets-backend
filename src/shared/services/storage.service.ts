@@ -24,7 +24,11 @@ export class StorageService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     this.storagePath = join(process.cwd(), this.envService.get('STORAGE_PATH'));
 
-    const dirs = [join(this.storagePath, 'tickets', 'qr'), join(this.storagePath, 'tickets', 'pdf')];
+    const dirs = [
+      join(this.storagePath, 'tickets', 'qr'),
+      join(this.storagePath, 'tickets', 'pdf'),
+      join(this.storagePath, 'events', 'banners')
+    ];
 
     await Promise.all(dirs.map(dir => mkdir(dir, { recursive: true })));
 

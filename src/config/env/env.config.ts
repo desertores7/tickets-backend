@@ -71,7 +71,18 @@ export const envSchema = z.object({
 
   STORAGE_PATH: z.string().default('./storage'),
 
-  QR_SECRET: z.string().default('change-this-to-a-random-secret-32chars')
+  QR_SECRET: z.string().default('change-this-to-a-random-secret-32chars'),
+
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform(val => val === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_FROM_NAME: z.string().optional(),
+  SMTP_FROM_EMAIL: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

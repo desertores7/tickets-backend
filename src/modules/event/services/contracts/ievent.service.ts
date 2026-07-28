@@ -4,6 +4,7 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
+import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
 
@@ -38,4 +39,13 @@ export interface IEventService {
   updateTicketType(eventUuid: string, ticketTypeUuid: string, data: ITicketTypeUpdate, loggedUser: string): Promise<TTicketTypeResponse>;
 
   getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null>;
+
+  uploadBanner(
+    eventUuid: string,
+    variant: BannerVariant,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }>;
+
+  deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
 }

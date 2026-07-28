@@ -8,6 +8,12 @@ export class GetIdEventResponse {
   @ApiProperty({ nullable: true }) description: string | null;
   @ApiProperty() slug: string;
   @ApiProperty({ nullable: true }) bannerUrl: string | null;
+  @ApiProperty({
+    nullable: true,
+    description: 'URLs por plataforma',
+    example: { desktop: '…/desktop-1.webp', mobile: '…/mobile-1.webp', thumbnail: '…/thumbnail-1.webp' }
+  })
+  bannerImages: Record<string, string> | null;
   @ApiProperty() startDate: Date;
   @ApiProperty() endDate: Date;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
@@ -30,6 +36,7 @@ export class GetIdEventResponse {
     this.description = data.description;
     this.slug = data.slug;
     this.bannerUrl = data.bannerUrl;
+    this.bannerImages = data.bannerImages ?? null;
     this.startDate = data.startDate;
     this.endDate = data.endDate;
     this.saleStartDate = data.saleStartDate;

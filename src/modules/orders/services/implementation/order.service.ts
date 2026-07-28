@@ -15,7 +15,8 @@ import { RedisService } from '@config/redis/redis.service';
 import {
   GenerateQrJobData,
   QUEUE_NAMES,
-  ReleaseExpiredStockJobData
+  ReleaseExpiredStockJobData,
+  SendOrderTicketsEmailJobData
 } from '@config/redis/bull-jobs.types';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
@@ -380,7 +381,7 @@ export class OrderService implements IOrderService {
       await queryRunner.release();
     }
 
-    // 8. Enqueue generate-qr job per ticket (processor sends the email once QR + PDF are ready)
+    // 8. Enqueue generate-qr job per ticket
     for (const ticket of createdTickets) {
       const jobData: GenerateQrJobData = {
         ticketId: ticket.uuid,
@@ -391,6 +392,16 @@ export class OrderService implements IOrderService {
       };
       await this.ticketsQueue.add('generate-qr', jobData);
     }
+
+    // 9. Enqueue ONE email per order with all ticket PDFs attached.
+    // Delay 15s gives generate-qr time to produce the PDFs; the processor
+    // re-throws (retry with backoff) if any PDF is still missing.
+    const emailJobData: SendOrderTicketsEmailJobData = { orderId: order.uuid };
+    await this.notificationsQueue.add('send-order-tickets-email', emailJobData, {
+      delay: 15000,
+      attempts: 6,
+      backoff: { type: 'exponential', delay: 10000 }
+    });
 
     return this.fetchOrderInternal(orderId);
   }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tus entradas</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden;">{{preheader}}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#0f172a; padding:32px 40px; text-align:center;">
+              <div style="font-size:26px;">🎫</div>
+              <h1 style="margin:8px 0 0; color:#ffffff; font-size:22px; font-weight:800;">¡Tus entradas están listas!</h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 40px;">
+              <p style="margin:0 0 16px; color:#334155; font-size:15px;">Hola {{firstName}},</p>
+              <p style="margin:0 0 24px; color:#334155; font-size:15px;">
+                Tu compra fue confirmada. Adjuntamos en este correo los PDF de tus entradas para
+                <strong>{{eventName}}</strong> — presentalos desde tu celular o impresos en la entrada.
+              </p>
+
+              <!-- Event card -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; border:1px solid #e2e8f0; border-radius:12px;">
+                <tr>
+                  <td style="padding:20px 24px;">
+                    <p style="margin:0 0 6px; color:#0f172a; font-size:17px; font-weight:700;">{{eventName}}</p>
+                    <p style="margin:0 0 4px; color:#64748b; font-size:14px;">📅 {{eventDate}}</p>
+                    <p style="margin:0; color:#64748b; font-size:14px;">📍 {{venueName}} · {{venueCity}}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Tickets -->
+              <p style="margin:24px 0 10px; color:#0f172a; font-size:15px; font-weight:700;">Entradas ({{ticketCount}})</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0; border-radius:12px; border-collapse:separate; overflow:hidden;">
+                {{#each tickets}}
+                <tr>
+                  <td style="padding:12px 20px; border-bottom:1px solid #e2e8f0; color:#334155; font-size:14px;">
+                    <span style="font-family:'Courier New',monospace; font-weight:700;">{{this.ticketNumber}}</span>
+                    <span style="color:#94a3b8;"> — {{this.ticketTypeName}}</span>
+                  </td>
+                </tr>
+                {{/each}}
+              </table>
+
+              <p style="margin:24px 0 0; color:#64748b; font-size:13px;">
+                Orden <strong>{{orderNumber}}</strong> · Cada entrada es válida para una persona y se invalida al primer escaneo.
+                No compartas los códigos QR.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 40px; text-align:center; border-top:1px solid #e2e8f0;">
+              <p style="margin:0; color:#94a3b8; font-size:12px;">{{appName}} · {{year}}</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

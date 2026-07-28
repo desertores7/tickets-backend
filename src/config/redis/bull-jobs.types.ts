@@ -17,14 +17,9 @@ export interface GenerateQrJobData {
   ticketTypeId: string;
 }
 
-export interface SendTicketEmailJobData {
-  userId: string;
+export interface SendOrderTicketsEmailJobData {
+  /** Un solo email por orden con todos los tickets adjuntos — el processor carga el resto desde la DB */
   orderId: string;
-  email: string;
-  eventName: string;
-  ticketNumber: string;
-  qrUrl: string;
-  pdfUrl: string;
 }
 
 export interface ProcessWebhookJobData {

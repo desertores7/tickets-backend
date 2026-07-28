@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { ILike, In, IsNull, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import sharp from 'sharp';
+import { StorageService } from '@root/shared/services/storage.service';
 import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
@@ -12,6 +14,11 @@ import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import {
+  BANNER_VARIANTS,
+  BannerImages,
+  BannerVariant
+} from '../../controllers/const/banner-variant.const';
+import {
   IEventService,
   TEventFilters,
   TEventResponse,
@@ -20,13 +27,16 @@ import {
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 
+const BANNERS_BASE_PATH = 'events/banners';
+
 @Injectable()
 export class EventService implements IEventService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly redisService: RedisService,
     private readonly userPermission: UserPermissionService,
-    private readonly feeSummaryService: FeeSummaryService
+    private readonly feeSummaryService: FeeSummaryService,
+    private readonly storageService: StorageService
   ) {}
 
   async getEvents(
@@ -249,6 +259,104 @@ export class EventService implements IEventService {
     // Puede ser null si el evento todavía no tiene ventas pagadas — el caller
     // (DTO) mapea null a ceros en lugar de 404.
     return this.feeSummaryService.getSummaryByEvent(eventUuid);
+  }
+
+  async uploadBanner(
+    eventUuid: string,
+    variant: BannerVariant,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No se recibió ningún archivo');
+    }
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Solo se permiten imágenes (jpg, png, webp, etc.)');
+    }
+
+    const spec = BANNER_VARIANTS[variant];
+
+    // Normalizar a webp con la relación de aspecto de la variante.
+    // `cover` recorta centrado en lugar de deformar; `withoutEnlargement` evita
+    // escalar hacia arriba una imagen chica (quedaría pixelada).
+    let processed: Buffer;
+    try {
+      processed = await sharp(file.buffer)
+        .resize({ width: spec.width, height: spec.height, fit: 'cover', position: 'centre', withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      throw new BadRequestException('El archivo no es una imagen válida');
+    }
+
+    // Un directorio por evento; nombre versionado por timestamp para invalidar cache
+    // del browser/CDN al reemplazar una variante.
+    const relativePath = `${BANNERS_BASE_PATH}/${event.uuid}`;
+    const filename = `${variant}-${Date.now()}.webp`;
+
+    const { url } = await this.storageService.saveFile({ buffer: processed, relativePath, filename });
+
+    const current: BannerImages = (event.bannerImages as BannerImages) ?? {};
+    const previousUrl = current[variant];
+
+    const bannerImages: BannerImages = { ...current, [variant]: url };
+
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      // bannerUrl sigue apuntando a desktop para no romper consumidores existentes
+      data: {
+        bannerImages,
+        ...(variant === 'desktop' ? { bannerUrl: url } : {})
+      }
+    });
+
+    await this.removeStoredBanner(event.uuid, previousUrl);
+
+    return { variant, url, bannerImages };
+  }
+
+  async deleteBanner(
+    eventUuid: string,
+    variant: BannerVariant,
+    loggedUser: string
+  ): Promise<{ bannerImages: BannerImages }> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const current: BannerImages = (event.bannerImages as BannerImages) ?? {};
+    const targetUrl = current[variant];
+
+    if (!targetUrl) {
+      throw new BadRequestException(`El evento no tiene imagen para la variante "${variant}"`);
+    }
+
+    const bannerImages: BannerImages = { ...current };
+    delete bannerImages[variant];
+
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: {
+        bannerImages,
+        ...(variant === 'desktop' ? { bannerUrl: null } : {})
+      }
+    });
+
+    await this.removeStoredBanner(event.uuid, targetUrl);
+
+    return { bannerImages };
+  }
+
+  /** Borra del volumen una imagen previa, solo si es un archivo servido por nosotros. */
+  private async removeStoredBanner(eventUuid: string, url: string | undefined): Promise<void> {
+    if (!url?.includes(`/static/${BANNERS_BASE_PATH}/${eventUuid}/`)) return;
+    const filename = url.split('/').pop();
+    if (!filename) return;
+    await this.storageService.deleteFile(
+      this.storageService.resolveAbsolutePath(`${BANNERS_BASE_PATH}/${eventUuid}`, filename)
+    );
   }
 
   private async assertOwnership(eventUuid: string, loggedUser: string): Promise<TEventResponse> {

@@ -12,6 +12,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { CheckInModule } from './modules/check-in/checkin.module';
 import { QrGenerationModule } from './modules/qr-generation/qr-generation.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorageModule } from './shared/services/storage.module';
 import { UserJwtStrategy } from './shared/auth/strategies/user-jwt-strategy';
 import { HttpExceptionFilter } from './shared/middlewares/exception-filter.filter';
@@ -46,6 +47,7 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
       ]
     }),
     QrGenerationModule,
+    NotificationsModule,
     ControllerModule,
     OrdersModule,
     PaymentsModule,

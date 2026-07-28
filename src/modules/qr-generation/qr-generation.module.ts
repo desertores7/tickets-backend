@@ -18,7 +18,6 @@ const CLEANUP_GRACE_DAYS = 30;
   imports: [
     DBModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.TICKETS }),
-    BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS }),
     BullModule.registerQueue({ name: QUEUE_NAMES.MAINTENANCE })
   ],
   controllers: [TicketController, AdminTicketController],

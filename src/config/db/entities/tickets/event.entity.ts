@@ -28,8 +28,13 @@ export class EventEntity {
   @Column({ type: 'varchar', length: 255, unique: true })
   slug: string;
 
+  /** Banner principal. Se mantiene sincronizado con la variante `desktop` de bannerImages. */
   @Column({ type: 'varchar', length: 500, nullable: true, default: null })
   bannerUrl: string | null;
+
+  /** URLs por plataforma: { desktop, mobile, thumbnail } */
+  @Column({ type: 'json', nullable: true, default: null })
+  bannerImages: Record<string, string> | null;
 
   @Column({ type: 'timestamp' })
   startDate: Date;

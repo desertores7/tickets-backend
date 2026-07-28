@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Queue, Job } from 'bullmq';
+import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Job } from 'bullmq';
 import { DataSource } from 'typeorm';
-import { QUEUE_NAMES, GenerateQrJobData, SendTicketEmailJobData } from '@config/redis/bull-jobs.types';
+import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
 import { StorageService } from '@root/shared/services/storage.service';
 import { QrSigningService } from '../services/qr-signing.service';
@@ -18,8 +18,7 @@ export class GenerateQrProcessor extends WorkerHost {
     private readonly storageService: StorageService,
     private readonly qrSigningService: QrSigningService,
     private readonly qrImageService: QrImageService,
-    private readonly pdfTicketService: PdfTicketService,
-    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
+    private readonly pdfTicketService: PdfTicketService
   ) {
     super();
   }
@@ -113,20 +112,10 @@ export class GenerateQrProcessor extends WorkerHost {
         await queryRunner.release();
       }
 
-      // ── PASO 9 — Encolar notificación ─────────────────────────────────────
+      // El email de la orden lo encola OrderService.confirmPayment (un solo job
+      // 'send-order-tickets-email' con delay que agrupa todos los tickets).
 
-      const emailJob: SendTicketEmailJobData = {
-        userId: ticket.userUuid,
-        orderId: ticket.orderItem.orderUuid,
-        email: ticket.user.email,
-        eventName: ticket.event.name,
-        ticketNumber: ticket.ticketNumber,
-        qrUrl,
-        pdfUrl
-      };
-      await this.notificationsQueue.add('send-ticket-email', emailJob);
-
-      // ── PASO 10 — Loguear éxito ───────────────────────────────────────────
+      // ── PASO 9 — Loguear éxito ────────────────────────────────────────────
 
       this.logger.log(`QR generated for ticket ${ticket.ticketNumber} | qr=${qrUrl} | pdf=${pdfUrl}`);
     } catch (err) {
