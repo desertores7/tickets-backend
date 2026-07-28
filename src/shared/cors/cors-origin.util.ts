@@ -43,6 +43,24 @@ export function isLocalDevOrigin(origin: string): boolean {
   }
 }
 
+/** Cache de patrones compilados: evita recompilar el regex en cada request. */
+const wildcardCache = new Map<string, RegExp>();
+
+/**
+ * Convierte un patrón con `*` en RegExp. El comodín matchea un único segmento DNS
+ * (no incluye puntos), que es la semántica estándar de wildcard de subdominio:
+ * `https://*.vercel.app` acepta `https://app.vercel.app` pero NO `https://a.b.vercel.app`.
+ */
+function wildcardToRegExp(pattern: string): RegExp {
+  const cached = wildcardCache.get(pattern);
+  if (cached) return cached;
+
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '[^.]*');
+  const regex = new RegExp(`^${escaped}$`);
+  wildcardCache.set(pattern, regex);
+  return regex;
+}
+
 export function isOriginAllowed(origin: string | undefined, allowedOrigins: string[]): boolean {
   if (!origin) return true;
 
@@ -52,7 +70,15 @@ export function isOriginAllowed(origin: string | undefined, allowedOrigins: stri
     return true;
   }
 
-  return allowedOrigins.includes(normalizedOrigin);
+  // Match exacto primero (caso común, sin costo de regex)
+  if (allowedOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  // Patrones con comodín, ej. https://mi-proyecto-*.vercel.app (previews de Vercel)
+  return allowedOrigins.some(
+    allowed => allowed.includes('*') && wildcardToRegExp(allowed).test(normalizedOrigin)
+  );
 }
 
 const CORS_METHODS = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
