@@ -22,7 +22,7 @@ export interface IEventService {
     role: string | null
   ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }>;
 
-  getEventById(uuid: string): Promise<TEventWithTicketTypesResponse>;
+  getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
 
   createEvent(data: IEventCreate, loggedUser: string): Promise<boolean>;
 

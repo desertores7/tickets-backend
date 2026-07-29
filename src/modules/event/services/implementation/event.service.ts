@@ -83,7 +83,7 @@ export class EventService implements IEventService {
     return { meta, items: result.items as TEventResponse[] };
   }
 
-  async getEventById(uuid: string): Promise<TEventWithTicketTypesResponse> {
+  async getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid, isActive: true },
@@ -91,6 +91,10 @@ export class EventService implements IEventService {
     });
 
     if (!event) throw new BadRequestException('Evento no encontrado');
+
+    // Los borradores no se exponen a visitantes anónimos (endpoint público).
+    // Los usuarios autenticados mantienen el acceso: el backoffice los necesita.
+    if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
 
     return event as TEventWithTicketTypesResponse;
   }

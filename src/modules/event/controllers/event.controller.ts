@@ -16,6 +16,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
+import { OptionalUserAuth } from '@root/shared/auth/decorator/optional-user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
@@ -52,8 +53,13 @@ export class EventController {
     return this._eventService.createEvent(data, loggedUser);
   }
 
-  @UserAuth(null, GetAllEventResponse)
-  @ApiOperation({ summary: 'List public events', description: 'Returns published and active events with pagination, search and filters.' })
+  @OptionalUserAuth(null, GetAllEventResponse)
+  @ApiOperation({
+    summary: 'List public events',
+    description:
+      'Returns published and active events with pagination, search and filters. ' +
+      'Public: no token required. With an admin token it also returns unpublished drafts.'
+  })
   @ApiPagination()
   @ApiSearch()
   @ApiFilter(eventFilters)
@@ -72,12 +78,20 @@ export class EventController {
     };
   }
 
-  @UserAuth(null, GetIdEventResponse)
-  @ApiOperation({ summary: 'Get event by ID', description: 'Returns event details including ticket types.' })
+  @OptionalUserAuth(null, GetIdEventResponse)
+  @ApiOperation({
+    summary: 'Get event by ID',
+    description:
+      'Returns event details including ticket types. Public: no token required. ' +
+      'Unpublished drafts are only visible to authenticated users.'
+  })
   @HttpCode(200)
   @Get(':eventUuid')
-  async getEventById(@Param('eventUuid') eventUuid: string): Promise<GetIdEventResponse> {
-    const event = await this._eventService.getEventById(eventUuid);
+  async getEventById(
+    @Param('eventUuid') eventUuid: string,
+    @UserRole() role: string | null
+  ): Promise<GetIdEventResponse> {
+    const event = await this._eventService.getEventById(eventUuid, role);
     return new GetIdEventResponse(event);
   }
 
@@ -141,7 +155,8 @@ export class EventController {
       'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
       'cropped centred to the target aspect ratio. Files are stored per event in ' +
       '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
-      'Only members of the owning organization or an admin can upload.'
+      'Only members of the owning organization or an admin can upload.\n\n' +
+      'Max upload size is 4MB — kept under the 4.5MB body limit of the frontend proxy (Vercel).'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -154,7 +169,7 @@ export class EventController {
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'variant', enum: BANNER_VARIANT_NAMES, description: 'Platform variant.' })
   @ApiResponse({ status: 200, description: 'Banner uploaded. Returns the variant URL and the full `bannerImages` map.' })
-  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 5MB).' })
+  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 4MB).' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @UseInterceptors(FileInterceptor('banner'))
@@ -164,8 +179,9 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @Param('variant') variant: string,
     @UploadedFile(
+      // 4MB: por debajo del límite de body (4.5MB) del proxy del frontend en Vercel
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 5 * 1024 * 1024 })
+        .addMaxSizeValidator({ maxSize: 4 * 1024 * 1024 })
         .build({ fileIsRequired: true })
     )
     file: Express.Multer.File,
