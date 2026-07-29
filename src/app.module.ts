@@ -1,4 +1,4 @@
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
@@ -29,7 +29,8 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
-          rootPath: join(process.cwd(), config.get('STORAGE_PATH', 'storage')),
+          // resolve, igual que StorageService: respeta STORAGE_PATH absoluta
+          rootPath: resolve(process.cwd(), config.get('STORAGE_PATH', 'storage')),
           serveRoot: '/static',
           serveStaticOptions: {
             index: false,

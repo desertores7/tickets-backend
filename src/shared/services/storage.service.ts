@@ -1,5 +1,5 @@
 import { access, mkdir, unlink, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EnvService } from '@config/env/env.service';
 
@@ -22,7 +22,10 @@ export class StorageService implements OnModuleInit {
   constructor(private readonly envService: EnvService) {}
 
   async onModuleInit(): Promise<void> {
-    this.storagePath = join(process.cwd(), this.envService.get('STORAGE_PATH'));
+    // resolve (no join): si STORAGE_PATH es absoluta la respeta tal cual.
+    // Con join, '/var/data/storage' terminaba en '/app/var/data/storage' —
+    // fuera del volumen montado, y los archivos se perdían al recrear el contenedor.
+    this.storagePath = resolve(process.cwd(), this.envService.get('STORAGE_PATH'));
 
     const dirs = [
       join(this.storagePath, 'tickets', 'qr'),
