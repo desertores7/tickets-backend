@@ -76,8 +76,17 @@ export class OrderService implements IOrderService {
       throw new UnprocessableEntityException('El período de venta aún no ha comenzado');
     }
 
-    if (event.saleEndDate && now > event.saleEndDate) {
-      throw new UnprocessableEntityException('El período de venta ha finalizado');
+    // La venta se cierra cuando arranca el evento: se puede comprar el mismo día
+    // hasta la hora de inicio. Si el organizador fijó un saleEndDate anterior,
+    // ese tiene prioridad (cierre anticipado explícito).
+    const eventStart = new Date(event.startDate);
+    const saleEnd =
+      event.saleEndDate && new Date(event.saleEndDate) < eventStart ? new Date(event.saleEndDate) : eventStart;
+
+    if (now > saleEnd) {
+      throw new UnprocessableEntityException(
+        now > eventStart ? 'El evento ya comenzó' : 'El período de venta ha finalizado'
+      );
     }
 
     // 2. Validate each ticket type

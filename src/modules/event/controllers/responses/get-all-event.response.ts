@@ -18,6 +18,8 @@ export class GetAllEventResponse {
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
   @ApiProperty({ nullable: true }) saleEndDate: Date | null;
   @ApiProperty() isPublished: boolean;
+  @ApiProperty({ nullable: true, description: 'Momento en que salió a la venta. Null si es borrador.' })
+  publishedAt: Date | null;
   @ApiProperty() isActive: boolean;
   @ApiProperty() organizationUuid: string;
   @ApiProperty() venueName: string;
@@ -40,6 +42,7 @@ export class GetAllEventResponse {
     this.saleStartDate = data.saleStartDate;
     this.saleEndDate = data.saleEndDate;
     this.isPublished = data.isPublished;
+    this.publishedAt = data.publishedAt ?? null;
     this.isActive = data.isActive;
     this.organizationUuid = data.organizationUuid;
     this.venueName = data.venueName;

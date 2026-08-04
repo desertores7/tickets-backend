@@ -51,6 +51,10 @@ export class EventEntity {
   @Column({ type: 'boolean', default: false })
   isPublished: boolean;
 
+  /** Momento en que el evento salió a la venta. Null mientras es borrador. */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  publishedAt: Date | null;
+
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 

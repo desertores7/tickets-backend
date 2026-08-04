@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { ILike, In, IsNull, Or } from 'typeorm';
+import { ILike, In, IsNull, MoreThanOrEqual, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -49,7 +49,10 @@ export class EventService implements IEventService {
     const where: Record<string, unknown> = {
       isActive: true,
       name: ILike(`%${search.search}%`),
-      ...(!isAdmin && { isPublished: true })
+      // Público: solo eventos publicados y que todavía no terminaron.
+      // Se filtra por endDate (no startDate): un evento en curso sigue vigente.
+      // El admin ve todo, incluidos borradores y pasados (los necesita en el backoffice).
+      ...(!isAdmin && { isPublished: true, endDate: MoreThanOrEqual(new Date()) })
     };
 
     if (filters.city?.length) {
@@ -174,7 +177,13 @@ export class EventService implements IEventService {
     });
     if (!hasTicketTypes) throw new BadRequestException('El evento debe tener al menos un tipo de entrada para publicarse');
 
-    await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: { isPublished: true } });
+    // publishedAt marca el momento real de salida a la venta: es lo que usa el
+    // frontend para destacar los "nuevos shows".
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: { isPublished: true, publishedAt: new Date() }
+    });
     return true;
   }
 
