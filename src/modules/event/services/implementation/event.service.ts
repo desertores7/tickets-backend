@@ -111,6 +111,11 @@ export class EventService implements IEventService {
 
     await this.assertOrganizationMembership(data.organizationUuid, loggedUser);
 
+    this.assertDateCoherence(data);
+    if (new Date(data.endDate) <= new Date()) {
+      throw new BadRequestException('La fecha de fin del evento debe ser futura');
+    }
+
     const existing = await this.dbRepository.findOne({
       entity: 'event',
       where: { slug: data.slug }
@@ -142,6 +147,23 @@ export class EventService implements IEventService {
 
   async updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void> {
     const event = await this.assertOwnership(uuid, loggedUser);
+
+    // Se valida el resultado del merge: un update parcial puede dejar fechas
+    // incoherentes contra valores que no vinieron en el request.
+    const merged = {
+      startDate: data.startDate ?? event.startDate,
+      endDate: data.endDate ?? event.endDate,
+      saleStartDate: data.saleStartDate !== undefined ? data.saleStartDate : event.saleStartDate,
+      saleEndDate: data.saleEndDate !== undefined ? data.saleEndDate : event.saleEndDate
+    };
+    this.assertDateCoherence(merged);
+
+    // Un evento vigente no puede pasar a tener fin en el pasado. Si ya terminó,
+    // se permite editarlo igual (corrección de datos históricos).
+    const alreadyFinished = new Date(event.endDate) <= new Date();
+    if (!alreadyFinished && new Date(merged.endDate) <= new Date()) {
+      throw new BadRequestException('La fecha de fin del evento debe ser futura');
+    }
 
     const patch: Partial<EventEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -370,6 +392,42 @@ export class EventService implements IEventService {
     await this.storageService.deleteFile(
       this.storageService.resolveAbsolutePath(`${BANNERS_BASE_PATH}/${eventUuid}`, filename)
     );
+  }
+
+  /**
+   * Coherencia entre las cuatro fechas del evento. Se valida sobre el estado
+   * final (existente + cambios), no solo sobre lo que vino en el request:
+   * un update parcial puede romper la relación con un campo que no se envió.
+   */
+  private assertDateCoherence(dates: {
+    startDate: Date | string;
+    endDate: Date | string;
+    saleStartDate?: Date | string | null;
+    saleEndDate?: Date | string | null;
+  }): void {
+    const start = new Date(dates.startDate);
+    const end = new Date(dates.endDate);
+
+    if (end <= start) {
+      throw new BadRequestException('La fecha de fin del evento debe ser posterior a la de inicio');
+    }
+
+    const saleStart = dates.saleStartDate ? new Date(dates.saleStartDate) : null;
+    const saleEnd = dates.saleEndDate ? new Date(dates.saleEndDate) : null;
+
+    if (saleStart && saleEnd && saleEnd <= saleStart) {
+      throw new BadRequestException('El fin de la venta debe ser posterior al inicio de la venta');
+    }
+
+    if (saleStart && saleStart >= start) {
+      throw new BadRequestException('La venta debe comenzar antes del inicio del evento');
+    }
+
+    // Sin saleEndDate la venta corre hasta el fin del evento; un valor posterior
+    // a esa fecha no tendría efecto.
+    if (saleEnd && saleEnd > end) {
+      throw new BadRequestException('La venta no puede finalizar después del fin del evento');
+    }
   }
 
   private async assertOwnership(eventUuid: string, loggedUser: string): Promise<TEventResponse> {
