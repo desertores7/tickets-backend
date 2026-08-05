@@ -19,7 +19,8 @@ export interface IEventService {
     pagination: IPaginationParams,
     search: ISearchParams,
     filters: TEventFilters,
-    role: string | null
+    role: string | null,
+    options?: { mine?: boolean; loggedUser?: string | null }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }>;
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;

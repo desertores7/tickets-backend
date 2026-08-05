@@ -10,13 +10,15 @@ import {
   ParseFilePipeBuilder,
   Patch,
   Post,
+  Query,
   UploadedFile,
   UseInterceptors
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { OptionalUserAuth } from '@root/shared/auth/decorator/optional-user-auth.decorator';
+import { OptionalUser } from '@root/shared/auth/decorator/optional-user.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
@@ -55,10 +57,18 @@ export class EventController {
 
   @OptionalUserAuth(null, GetAllEventResponse)
   @ApiOperation({
-    summary: 'List public events',
+    summary: 'List events',
     description:
-      'Returns published and active events with pagination, search and filters. ' +
-      'Public: no token required. With an admin token it also returns unpublished drafts.'
+      'Public by default: returns published, active events that have not ended yet. No token required.\n\n' +
+      'With `mine=true` (requires token) switches to backoffice scope: includes drafts and past events. ' +
+      'An `Administrador` gets every event; any other role only gets events belonging to the ' +
+      'organizations the user is a member of (e.g. `Productor`).'
+  })
+  @ApiQuery({
+    name: 'mine',
+    required: false,
+    type: Boolean,
+    description: 'Backoffice scope: eventos propios (incluye borradores y pasados).'
   })
   @ApiPagination()
   @ApiSearch()
@@ -69,9 +79,16 @@ export class EventController {
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
     @FilterParams(eventFilters) filters: IFiltersParams<typeof eventFilters>,
-    @UserRole() role: string | null
+    @UserRole() role: string | null,
+    @OptionalUser() loggedUser: string | null,
+    @Query('mine') mine?: string
   ): Promise<{ meta: PaginationMetaResponse; items: GetAllEventResponse[] }> {
-    const result = await this._eventService.getEvents(pagination, search, filters, role);
+    // `mine` solo aplica con sesión; sin token cae siempre a la vista pública
+    const isMine = mine === 'true' && !!loggedUser;
+    const result = await this._eventService.getEvents(pagination, search, filters, role, {
+      mine: isMine,
+      loggedUser
+    });
     return {
       meta: result.meta,
       items: result.items.map(item => new GetAllEventResponse(item))

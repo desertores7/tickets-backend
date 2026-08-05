@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
@@ -11,6 +12,7 @@ import { GetIdOrganizationResponse } from './dtos/get-id-organization/get-id-org
 import { UpdateOrganizationRequest } from './dtos/update-organization/update-organization.request';
 import { AssignUserOrganizationRequest } from './dtos/assign-user-organization/assign-user-organization.request';
 import { UnassignUserOrganizationRequest } from './dtos/unassing-user-organization/unassign-user-organization.request';
+import { LinkUsersOrganizationRequest } from './dtos/link-users-organization/link-users-organization.request';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import {
   OrganizationUsersListResponse,
@@ -120,6 +122,27 @@ export class OrganizationController {
     @Body() data: AssignUserOrganizationRequest
   ): Promise<boolean> {
     return await this._organizationService.assignUserOrganization(organizationUuid, data);
+  }
+
+  @AdminAuth(LinkUsersOrganizationRequest, null)
+  @ApiOperation({
+    summary: 'Link existing users to organization',
+    description:
+      'Assigns users that ALREADY exist to the organization (unlike POST /assign-user, which creates a new user). ' +
+      'Used by the admin backoffice to grant a `Productor` access to an organization. ' +
+      'Idempotent: re-linking someone already assigned is a no-op.'
+  })
+  @ApiResponse({ status: 200, description: 'Users linked to the organization.' })
+  @ApiResponse({ status: 400, description: 'Organization or user not found.' })
+  @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
+  @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
+  @HttpCode(200)
+  @Post(':organizationUuid/members')
+  async linkUsersToOrganization(
+    @Param('organizationUuid') organizationUuid: string,
+    @Body() data: LinkUsersOrganizationRequest
+  ): Promise<boolean> {
+    return await this._organizationService.linkUsersToOrganization(organizationUuid, data.userUuids);
   }
 
   @UserAuth(UnassignUserOrganizationRequest, null)

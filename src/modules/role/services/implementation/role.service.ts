@@ -199,15 +199,19 @@ export class RoleService implements IRoleService {
       throw new BadRequestException('Role does not exist');
     }
 
-    // Verificar si el usuario ya tiene este rol asignado
-    const existingUserRole = await this.dbRepository.findOne({
-      entity: 'user_role',
-      where: {
-        userUuid: userUuid,
-        roleUuid: roleUuid,
-        isDeleted: IsNull()
-      }
-    });
+    // Verificar si el usuario ya tiene este rol asignado.
+    // IMPORTANTE: cuando viene un queryRunner hay que leer DENTRO de esa
+    // transacción. updateUser da de baja los roles previos y después reasigna;
+    // leyendo por fuera no se ve ese soft-delete y el reemplazo fallaba con
+    // "User already has this role" aunque el rol ya estuviera desactivado.
+    const existingUserRole = queryRunner
+      ? await queryRunner.manager.findOne(UserRoleEntity, {
+          where: { userUuid, roleUuid, isDeleted: IsNull() }
+        })
+      : await this.dbRepository.findOne({
+          entity: 'user_role',
+          where: { userUuid, roleUuid, isDeleted: IsNull() }
+        });
 
     if (existingUserRole) {
       throw new ConflictException('User already has this role');

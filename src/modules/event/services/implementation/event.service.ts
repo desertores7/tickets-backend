@@ -43,17 +43,33 @@ export class EventService implements IEventService {
     pagination: IPaginationParams,
     search: ISearchParams,
     filters: TEventFilters,
-    role: string | null
+    role: string | null,
+    options?: { mine?: boolean; loggedUser?: string | null }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }> {
     const isAdmin = role === 'Administrador';
+
     const where: Record<string, unknown> = {
       isActive: true,
-      name: ILike(`%${search.search}%`),
-      // Público: solo eventos publicados y que todavía no terminaron.
-      // Se filtra por endDate (no startDate): un evento en curso sigue vigente.
-      // El admin ve todo, incluidos borradores y pasados (los necesita en el backoffice).
-      ...(!isAdmin && { isPublished: true, endDate: MoreThanOrEqual(new Date()) })
+      name: ILike(`%${search.search}%`)
     };
+
+    if (options?.mine) {
+      // Vista de backoffice: incluye borradores y eventos pasados.
+      // El admin ve todos; el resto (productores) solo los de sus organizaciones.
+      if (!isAdmin) {
+        const orgUuids = await this.getUserOrganizationUuids(options.loggedUser);
+        if (orgUuids.length === 0) {
+          const meta = new PaginationMetaResponse({ limit: pagination.limit, page: pagination.page, total: 0 });
+          return { meta, items: [] };
+        }
+        where['organizationUuid'] = In(orgUuids);
+      }
+    } else {
+      // Vista pública: solo publicados y que todavía no terminaron. Se filtra por
+      // endDate (no startDate) para que un evento en curso siga visible.
+      where['isPublished'] = true;
+      where['endDate'] = MoreThanOrEqual(new Date());
+    }
 
     if (filters.city?.length) {
       where['venueCity'] = filters.city.length === 1
@@ -392,6 +408,16 @@ export class EventService implements IEventService {
     await this.storageService.deleteFile(
       this.storageService.resolveAbsolutePath(`${BANNERS_BASE_PATH}/${eventUuid}`, filename)
     );
+  }
+
+  /** Organizaciones a las que pertenece el usuario (base del alcance de un productor) */
+  private async getUserOrganizationUuids(loggedUser?: string | null): Promise<string[]> {
+    if (!loggedUser) return [];
+    const memberships = await this.dbRepository.findMany({
+      entity: 'user_organization',
+      where: { userUuid: loggedUser, isDeleted: IsNull() } as any
+    });
+    return [...new Set(memberships.map(m => m.organizationUuid))];
   }
 
   /**

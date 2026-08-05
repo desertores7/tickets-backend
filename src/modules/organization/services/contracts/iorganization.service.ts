@@ -41,6 +41,8 @@ export interface IOrganizationService {
   getOrganizationId(id: string, search: ISearchParams): Promise<TOrganizationResponseWithUserOrganizations>;
   updateOrganization(id: string, data: IOrganizationUpdate): Promise<void>;
   assignUserOrganization(organizationUuid: string, data: IAssignUserOrganization): Promise<boolean>;
+  linkUsersToOrganization(organizationUuid: string, userUuids: string[]): Promise<boolean>;
+
   unassignUserOrganization(organizationUuid: string, data: IUnassignUserOrganization): Promise<boolean>;
   deleteOrganization(id: string): Promise<boolean>;
 }

@@ -229,6 +229,62 @@ export class OrganizationService implements IOrganizationService {
     return true;
   }
 
+  /**
+   * Vincula usuarios ya existentes a una organización (no crea usuarios).
+   * Idempotente: si el vínculo ya existe no hace nada; si estaba dado de baja
+   * lo reactiva. Así reasignar a alguien que fue removido no duplica filas.
+   */
+  async linkUsersToOrganization(organizationUuid: string, userUuids: string[]): Promise<boolean> {
+    const organization = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() }
+    });
+    if (!organization) throw new BadRequestException('Organización no encontrada');
+
+    if (!userUuids?.length) return true;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      for (const userUuid of userUuids) {
+        const user = await this.dbRepository.findOne({
+          entity: 'user',
+          where: { uuid: userUuid, isDeleted: IsNull() }
+        });
+        if (!user) throw new BadRequestException(`Usuario ${userUuid} no encontrado`);
+
+        const existing = await this.dbRepository.findOne({
+          entity: 'user_organization',
+          where: { organizationUuid, userUuid } as any
+        });
+
+        if (existing) {
+          if (existing.isDeleted) {
+            await queryRunner.manager.update(UserOrganizationEntity, { uuid: existing.uuid }, { isDeleted: null });
+          }
+          continue;
+        }
+
+        const link = new UserOrganizationEntity();
+        link.uuid = uuidv4();
+        link.userUuid = userUuid;
+        link.organizationUuid = organizationUuid;
+        link.createdAt = new Date();
+        await queryRunner.manager.save(UserOrganizationEntity, link);
+      }
+
+      await queryRunner.commitTransaction();
+      return true;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async unassignUserOrganization(organizationUuid: string, data: IUnassignUserOrganization): Promise<boolean> {
     if (!data.userUuids?.length) return true;
 
