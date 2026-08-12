@@ -12,6 +12,8 @@ export interface TicketSummaryData {
   eventDate: Date;
   venueName: string;
   ticketTypeName: string;
+  /** Transferencia pendiente de confirmación, si la hay */
+  pendingTransfer: { id: string; toEmail: string } | null;
   createdAt: Date;
 }
 
@@ -25,6 +27,12 @@ export class TicketSummaryResponse {
   @ApiProperty() eventDate: Date;
   @ApiProperty({ example: 'Hipódromo de San Isidro' }) venueName: string;
   @ApiProperty({ example: 'Campo General' }) ticketTypeName: string;
+  @ApiProperty({
+    nullable: true,
+    description: 'Transferencia esperando confirmación del destinatario.',
+    example: { id: 'a1b2…', toEmail: 'amigo@ejemplo.com' }
+  })
+  pendingTransfer: { id: string; toEmail: string } | null;
   @ApiProperty() createdAt: Date;
 
   constructor(data: TicketSummaryData) {
@@ -37,6 +45,7 @@ export class TicketSummaryResponse {
     this.eventDate = data.eventDate;
     this.venueName = data.venueName;
     this.ticketTypeName = data.ticketTypeName;
+    this.pendingTransfer = data.pendingTransfer;
     this.createdAt = data.createdAt;
   }
 }

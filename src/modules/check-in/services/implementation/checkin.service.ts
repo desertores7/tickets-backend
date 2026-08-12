@@ -53,14 +53,33 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'QR inválido o no registrado', result: CheckInResultEnum.INVALID };
     }
 
-    // 3. Verificar que el ticket corresponde al evento correcto
+    // 3. El token vigente es el guardado en el ticket. Una firma válida no
+    // alcanza: si el QR se regeneró (por una transferencia aceptada o por el
+    // endpoint de admin), las copias anteriores quedan revocadas.
+    if (ticket.qrCode !== qrCode) {
+      this.logger.warn(`Check-in rechazado: QR reemplazado (ticket=${ticket.uuid} scannedBy=${scannedBy})`);
+      await this.writeLog({
+        ticketUuid: ticket.uuid,
+        eventUuid: eventId,
+        scannedBy,
+        result: CheckInResult.INVALID,
+        deviceInfo
+      });
+      return {
+        success: false,
+        message: 'Este código fue reemplazado. Pedí la versión actualizada de la entrada.',
+        result: CheckInResultEnum.INVALID
+      };
+    }
+
+    // 4. Verificar que el ticket corresponde al evento correcto
     if (ticket.eventUuid !== eventId) {
       this.logger.warn(`Check-in fallido: ticket ${ticket.uuid} no pertenece al evento ${eventId}`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.WRONG_EVENT, deviceInfo });
       return { success: false, message: 'Esta entrada no corresponde a este evento', result: CheckInResultEnum.WRONG_EVENT };
     }
 
-    // 4. Ventana de escaneo: solo el día del evento, hasta que termina.
+    // 5. Ventana de escaneo: solo el día del evento, hasta que termina.
     // Se abre a las 00:00 de la fecha de inicio (permite acreditación temprana)
     // y se cierra en endDate, para que un show que cruza la medianoche siga
     // aceptando ingresos después de las 00:00.
@@ -99,14 +118,14 @@ export class CheckInService implements ICheckInService {
       return { success: false, message, result: CheckInResultEnum.OUTSIDE_WINDOW };
     }
 
-    // 5. Verificar que el ticket no fue usado ya (check DB)
+    // 6. Verificar que el ticket no fue usado ya (check DB)
     if (ticket.status === TicketStatus.USED) {
       this.logger.log(`Check-in fallido: ticket ${ticket.uuid} ya utilizado (DB)`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 6. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
+    // 7. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
     const lockKey = `checkin:${ticket.uuid}`;
     const acquired = await this.redisService.markIdempotency(lockKey, CHECKIN_LOCK_TTL);
 
@@ -116,7 +135,7 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 7. Actualizar ticket + crear log en transacción
+    // 8. Actualizar ticket + crear log en transacción
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();

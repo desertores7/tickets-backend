@@ -88,10 +88,14 @@ export class NotificationEmailService {
     return compiled;
   }
 
-  async sendOrderTicketsEmail(params: SendOrderTicketsEmailParams): Promise<void> {
+  /** Envío genérico con template + adjuntos */
+  private async sendTemplate(
+    templateName: string,
+    params: SendOrderTicketsEmailParams
+  ): Promise<void> {
     const { to, subject, templateData, attachments } = params;
 
-    const template = this.compileTemplate('ticket-email');
+    const template = this.compileTemplate(templateName);
     const html = template(templateData);
 
     await this.getTransporter().sendMail({
@@ -101,7 +105,15 @@ export class NotificationEmailService {
       html,
       attachments
     });
+  }
 
-    this.logger.log(`Order tickets email sent to ${to} (${attachments.length} attachments)`);
+  async sendOrderTicketsEmail(params: SendOrderTicketsEmailParams): Promise<void> {
+    await this.sendTemplate('ticket-email', params);
+    this.logger.log(`Order tickets email sent to ${params.to} (${params.attachments.length} attachments)`);
+  }
+
+  async sendTransferOfferEmail(params: SendOrderTicketsEmailParams): Promise<void> {
+    await this.sendTemplate('ticket-transfer', params);
+    this.logger.log(`Transfer offer email sent to ${params.to}`);
   }
 }

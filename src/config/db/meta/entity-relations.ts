@@ -338,5 +338,10 @@ export const entityRelations = {
   event_producer: {
     event: 'event',
     user: 'user'
+  },
+
+  ticket_transfer: {
+    ticket: 'ticket',
+    fromUser: 'user'
   }
 } as const;
