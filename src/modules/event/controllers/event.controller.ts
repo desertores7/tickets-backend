@@ -17,6 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
+import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { OptionalUserAuth } from '@root/shared/auth/decorator/optional-user-auth.decorator';
 import { OptionalUser } from '@root/shared/auth/decorator/optional-user.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
@@ -25,7 +26,7 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { IEventService } from '../services/contracts/ievent.service';
+import { IEventService, TEventProducer } from '../services/contracts/ievent.service';
 import { eventFilters } from './const/event.filters';
 import {
   BANNER_VARIANT_NAMES,
@@ -37,6 +38,7 @@ import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
+import { AssignProducerRequest } from './requests/assign-producer.request';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
@@ -232,6 +234,65 @@ export class EventController {
       throw new BadRequestException(`Variante inválida. Valores permitidos: ${BANNER_VARIANT_NAMES.join(', ')}`);
     }
     return this._eventService.deleteBanner(eventUuid, variant, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'List producers assigned to the event',
+    description:
+      'Producers explicitly assigned to this event. Access via the event organization is NOT listed here — ' +
+      'those users reach the event through `user_organization`.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 200, description: 'Assigned producers.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Get(':eventUuid/producers')
+  async getEventProducers(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<TEventProducer[]> {
+    return this._eventService.getEventProducers(eventUuid, loggedUser);
+  }
+
+  @AdminAuth(AssignProducerRequest, null)
+  @ApiOperation({
+    summary: 'Assign a producer to the event',
+    description:
+      'Grants a specific user access to THIS event only (additive to organization membership). ' +
+      'Idempotent: assigning someone already assigned is a no-op.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 200, description: 'Producer assigned.' })
+  @ApiResponse({ status: 400, description: 'User not found.' })
+  @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
+  @HttpCode(200)
+  @Post(':eventUuid/producers')
+  async assignProducer(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: AssignProducerRequest,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.assignProducerToEvent(eventUuid, data.userUuid, loggedUser);
+  }
+
+  @AdminAuth(null, null)
+  @ApiOperation({
+    summary: 'Remove a producer from the event',
+    description: 'Revokes the per-event assignment. Does not affect access granted by organization membership.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'userUuid', description: 'User UUID.' })
+  @ApiResponse({ status: 200, description: 'Assignment removed.' })
+  @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/producers/:userUuid')
+  async removeProducer(
+    @Param('eventUuid') eventUuid: string,
+    @Param('userUuid') userUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.removeProducerFromEvent(eventUuid, userUuid, loggedUser);
   }
 
   @UserAuth(null, TicketTypeResponse)

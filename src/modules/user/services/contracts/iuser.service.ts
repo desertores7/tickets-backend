@@ -26,9 +26,4 @@ export interface IUserService {
   updateUser(id: string, data: IUserUpdate): Promise<void>;
   deleteUser(arrayUuids: string[]): Promise<void>;
   assignRoleToUser(userUuid: string, roleUuid: string, assignedBy: string): Promise<void>;
-  getActiveOperators(
-    organizationUuid?: string
-  ): Promise<
-    (TEntityResponse<'user', { files: true }, undefined> & { imgProfile: object; role: string; roleUuid: string })[]
-  >;
 }

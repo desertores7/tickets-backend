@@ -26,7 +26,7 @@ export class ValidateQrResponse {
   @ApiProperty({ description: 'Mensaje descriptivo del resultado' }) message: string;
   @ApiProperty({
     description: 'Resultado del intento de check-in',
-    enum: ['success', 'already_used', 'invalid', 'wrong_event']
+    enum: ['success', 'already_used', 'invalid', 'wrong_event', 'outside_window']
   })
   result: string;
 

@@ -11,6 +11,8 @@ import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.r
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
+import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
+import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import {
@@ -21,6 +23,7 @@ import {
 import {
   IEventService,
   TEventFilters,
+  TEventProducer,
   TEventResponse,
   TEventWithTicketTypesResponse,
   TTicketTypeResponse
@@ -55,14 +58,25 @@ export class EventService implements IEventService {
 
     if (options?.mine) {
       // Vista de backoffice: incluye borradores y eventos pasados.
-      // El admin ve todos; el resto (productores) solo los de sus organizaciones.
+      // El admin ve todos; un productor ve los de sus organizaciones MÁS los
+      // eventos puntuales que le asignaron.
       if (!isAdmin) {
-        const orgUuids = await this.getUserOrganizationUuids(options.loggedUser);
-        if (orgUuids.length === 0) {
+        const [orgUuids, eventUuids] = await Promise.all([
+          this.getUserOrganizationUuids(options.loggedUser),
+          this.getAssignedEventUuids(options.loggedUser)
+        ]);
+
+        if (orgUuids.length === 0 && eventUuids.length === 0) {
           const meta = new PaginationMetaResponse({ limit: pagination.limit, page: pagination.page, total: 0 });
           return { meta, items: [] };
         }
-        where['organizationUuid'] = In(orgUuids);
+
+        // Se arma un OR: TypeORM lo expresa como array de condiciones
+        const scoped: Record<string, unknown>[] = [];
+        if (orgUuids.length > 0) scoped.push({ ...where, organizationUuid: In(orgUuids) });
+        if (eventUuids.length > 0) scoped.push({ ...where, uuid: In(eventUuids) });
+
+        return this.runEventsQuery(scoped, filters, pagination);
       }
     } else {
       // Vista pública: solo publicados y que todavía no terminaron. Se filtra por
@@ -410,6 +424,131 @@ export class EventService implements IEventService {
     );
   }
 
+  async getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_producer',
+      where: { eventUuid } as any,
+      relations: { user: true } as any
+    });
+
+    return rows.map((r: any) => ({
+      uuid: r.uuid,
+      userUuid: r.userUuid,
+      firstName: r.user?.firstName ?? '',
+      lastName: r.user?.lastName ?? '',
+      email: r.user?.email ?? '',
+      createdAt: r.createdAt
+    }));
+  }
+
+  /**
+   * Asigna un productor a un evento puntual. Idempotente.
+   * Además lo vincula a la organización dueña del evento: sin ese vínculo el
+   * productor no podría operar sobre los recursos de la organización.
+   */
+  async assignProducerToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() }
+    });
+    if (!user) throw new BadRequestException('Usuario no encontrado');
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'event_producer',
+      where: { eventUuid, userUuid } as any
+    });
+
+    if (!existing) {
+      const assignment = new EventProducerEntity();
+      assignment.uuid = uuidv4();
+      assignment.eventUuid = eventUuid;
+      assignment.userUuid = userUuid;
+      assignment.assignedBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_producer', data: assignment });
+    }
+
+    // Vínculo con la organización del evento (idempotente; reactiva si estaba de baja)
+    const membership = await this.dbRepository.findOne({
+      entity: 'user_organization',
+      where: { userUuid, organizationUuid: event.organizationUuid } as any
+    });
+
+    if (!membership) {
+      const link = new UserOrganizationEntity();
+      link.uuid = uuidv4();
+      link.userUuid = userUuid;
+      link.organizationUuid = event.organizationUuid;
+      link.createdAt = new Date();
+      await this.dbRepository.create({ entity: 'user_organization', data: link });
+    } else if (membership.isDeleted) {
+      await this.dbRepository.update({
+        entity: 'user_organization',
+        where: { uuid: membership.uuid } as any,
+        data: { isDeleted: null }
+      });
+    }
+  }
+
+  async removeProducerFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    await this.dbRepository.delete({ entity: 'event_producer', where: { eventUuid, userUuid } as any });
+  }
+
+  /** Aplica los filtros de la query y ejecuta la búsqueda paginada */
+  private async runEventsQuery(
+    conditions: Record<string, unknown>[],
+    filters: TEventFilters,
+    pagination: IPaginationParams
+  ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }> {
+    const withFilters = conditions.map(cond => {
+      const c = { ...cond };
+      if (filters.city?.length) {
+        c['venueCity'] =
+          filters.city.length === 1 ? ILike(`%${filters.city[0]}%`) : Or(...filters.city.map(x => ILike(`%${x}%`)));
+      }
+      if (filters.country?.length) {
+        c['venueCountry'] =
+          filters.country.length === 1
+            ? ILike(`%${filters.country[0]}%`)
+            : Or(...filters.country.map(x => ILike(`%${x}%`)));
+      }
+      if (filters.organizationUuid?.length) c['organizationUuid'] = In(filters.organizationUuid);
+      return c;
+    });
+
+    const result = await this.dbRepository.findManyAndCount({
+      entity: 'event',
+      where: withFilters as any,
+      other: {
+        take: pagination.limit,
+        skip: (pagination.page - 1) * pagination.limit,
+        order: { startDate: 'ASC' }
+      }
+    });
+
+    const meta = new PaginationMetaResponse({
+      limit: pagination.limit,
+      page: pagination.page,
+      total: result.count
+    });
+
+    return { meta, items: result.items as TEventResponse[] };
+  }
+
+  /** Eventos asignados puntualmente al usuario (event_producer) */
+  private async getAssignedEventUuids(loggedUser?: string | null): Promise<string[]> {
+    if (!loggedUser) return [];
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_producer',
+      where: { userUuid: loggedUser } as any
+    });
+    return [...new Set(rows.map(r => r.eventUuid))];
+  }
+
   /** Organizaciones a las que pertenece el usuario (base del alcance de un productor) */
   private async getUserOrganizationUuids(loggedUser?: string | null): Promise<string[]> {
     if (!loggedUser) return [];
@@ -470,7 +609,14 @@ export class EventService implements IEventService {
       entity: 'user_organization',
       where: { userUuid: loggedUser, organizationUuid: event.organizationUuid, isDeleted: IsNull() } as any
     });
-    if (!membership) throw new ForbiddenException('No tenés permiso para modificar este evento');
+    if (membership) return event as TEventResponse;
+
+    // Acceso alternativo: asignación puntual a este evento
+    const assignment = await this.dbRepository.findOne({
+      entity: 'event_producer',
+      where: { userUuid: loggedUser, eventUuid: event.uuid } as any
+    });
+    if (!assignment) throw new ForbiddenException('No tenés permiso para modificar este evento');
 
     return event as TEventResponse;
   }

@@ -14,6 +14,16 @@ export type TTicketTypeResponse = TEntityResponse<'ticket_type', undefined, unde
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
 
+/** Productor asignado puntualmente a un evento */
+export type TEventProducer = {
+  uuid: string;
+  userUuid: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  createdAt: Date;
+};
+
 export interface IEventService {
   getEvents(
     pagination: IPaginationParams,
@@ -49,4 +59,10 @@ export interface IEventService {
   ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }>;
 
   deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
+
+  getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]>;
+
+  assignProducerToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
+
+  removeProducerFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 }

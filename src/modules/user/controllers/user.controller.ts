@@ -132,25 +132,4 @@ export class UserController {
     await this.userService.assignRoleToUser(userId, data.roleUuid, userId);
   }
 
-  @ApiOperation({
-    summary: 'Get active operators',
-    description:
-      'This endpoint returns all operators that are currently within their working hours. Optionally filter by organization UUID.'
-  })
-  @ApiQuery({
-    name: 'organizationUuid',
-    required: false,
-    type: String,
-    description:
-      'UUID of the organization to filter operators. If not provided, returns operators from all organizations.'
-  })
-  @Get('operator/active')
-  async getActiveOperators(@Query('organizationUuid') organizationUuid?: string): Promise<{
-    items: GetAllUserResponse[];
-  }> {
-    const operators = await this.userService.getActiveOperators(organizationUuid);
-    return {
-      items: operators.map((item: any) => new GetAllUserResponse(item))
-    };
-  }
 }

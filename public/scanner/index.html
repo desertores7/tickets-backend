@@ -68,6 +68,7 @@
   #result.success { background: #14532d; }
   #result.already_used { background: #7f1d1d; }
   #result.wrong_event { background: #7c2d12; }
+  #result.outside_window { background: #713f12; }
   #result.invalid { background: #334155; }
   #result .icon { font-size: 90px; line-height: 1; margin-bottom: 18px; }
   #result .title { font-size: 30px; font-weight: 800; margin-bottom: 10px; }
@@ -150,10 +151,11 @@
   const recentCodes = new Map(); // qrCode → timestamp (anti doble-lectura)
 
   const RESULT_META = {
-    success:      { icon: '✅', title: 'ENTRADA VÁLIDA' },
-    already_used: { icon: '⛔', title: 'YA UTILIZADA' },
-    wrong_event:  { icon: '⚠️', title: 'OTRO EVENTO' },
-    invalid:      { icon: '❌', title: 'QR INVÁLIDO' }
+    success:        { icon: '✅', title: 'ENTRADA VÁLIDA' },
+    already_used:   { icon: '⛔', title: 'YA UTILIZADA' },
+    wrong_event:    { icon: '⚠️', title: 'OTRO EVENTO' },
+    outside_window: { icon: '🕒', title: 'FUERA DE FECHA' },
+    invalid:        { icon: '❌', title: 'QR INVÁLIDO' }
   };
 
   function show(screenId) {

@@ -28,8 +28,10 @@ export class CheckInController {
       '- `success` — Valid ticket, entry granted. Ticket status set to `used`.\n' +
       '- `already_used` — Ticket was already scanned (DB check or Redis race-condition guard).\n' +
       '- `invalid` — QR code does not match any registered ticket.\n' +
-      '- `wrong_event` — Ticket exists but belongs to a different event.\n\n' +
-      '> Note: all four outcomes return **HTTP 200**. The `success` field and `result` enum ' +
+      '- `wrong_event` — Ticket exists but belongs to a different event.\n' +
+      '- `outside_window` — Scanned outside the allowed window: check-in opens at 00:00 of the event ' +
+      'start date and closes at `endDate` (so a show running past midnight still accepts entries).\n\n' +
+      '> Note: every outcome returns **HTTP 200**. The `success` field and `result` enum ' +
       'indicate the business outcome.'
   })
   @ApiResponse({

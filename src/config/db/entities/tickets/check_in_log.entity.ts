@@ -8,7 +8,9 @@ export enum CheckInResult {
   SUCCESS = 'success',
   ALREADY_USED = 'already_used',
   INVALID = 'invalid',
-  WRONG_EVENT = 'wrong_event'
+  WRONG_EVENT = 'wrong_event',
+  /** Escaneo fuera de la ventana habilitada (antes del día del evento o después de que terminó) */
+  OUTSIDE_WINDOW = 'outside_window'
 }
 
 const tableName = 'check_in_log' as const;

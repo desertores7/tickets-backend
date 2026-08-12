@@ -60,14 +60,53 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada no corresponde a este evento', result: CheckInResultEnum.WRONG_EVENT };
     }
 
-    // 4. Verificar que el ticket no fue usado ya (check DB)
+    // 4. Ventana de escaneo: solo el día del evento, hasta que termina.
+    // Se abre a las 00:00 de la fecha de inicio (permite acreditación temprana)
+    // y se cierra en endDate, para que un show que cruza la medianoche siga
+    // aceptando ingresos después de las 00:00.
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: ticket.eventUuid }
+    });
+
+    if (!event) {
+      this.logger.error(`Check-in fallido: evento ${ticket.eventUuid} no encontrado`);
+      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.INVALID, deviceInfo });
+      return { success: false, message: 'Evento no encontrado', result: CheckInResultEnum.INVALID };
+    }
+
+    // Momento del escaneo: se usa tanto para la ventana como para checkedInAt
+    const now = new Date();
+    const windowStart = new Date(event.startDate);
+    windowStart.setHours(0, 0, 0, 0);
+    const windowEnd = new Date(event.endDate);
+
+    if (now < windowStart || now > windowEnd) {
+      const message =
+        now < windowStart
+          ? `El check-in habilita el día del evento (${windowStart.toLocaleDateString('es-AR')})`
+          : 'El evento ya finalizó';
+      this.logger.warn(
+        `Check-in fuera de ventana: ticket ${ticket.uuid} (ahora=${now.toISOString()} ventana=${windowStart.toISOString()}..${windowEnd.toISOString()})`
+      );
+      await this.writeLog({
+        ticketUuid: ticket.uuid,
+        eventUuid: eventId,
+        scannedBy,
+        result: CheckInResult.OUTSIDE_WINDOW,
+        deviceInfo
+      });
+      return { success: false, message, result: CheckInResultEnum.OUTSIDE_WINDOW };
+    }
+
+    // 5. Verificar que el ticket no fue usado ya (check DB)
     if (ticket.status === TicketStatus.USED) {
       this.logger.log(`Check-in fallido: ticket ${ticket.uuid} ya utilizado (DB)`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 5. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
+    // 6. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
     const lockKey = `checkin:${ticket.uuid}`;
     const acquired = await this.redisService.markIdempotency(lockKey, CHECKIN_LOCK_TTL);
 
@@ -77,12 +116,10 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 6. Actualizar ticket + crear log en transacción
+    // 7. Actualizar ticket + crear log en transacción
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
-
-    const now = new Date();
 
     try {
       await queryRunner.manager.save('ticket', {

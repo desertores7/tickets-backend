@@ -39,7 +39,12 @@ export class AuthService implements IAuthService {
   ) {}
 
   private readonly defaultRoleNames = ['Usuario', 'usuario', 'user', 'patient', 'clinic_admin'];
-  private readonly roleUserUuid = '3c987e4a-6432-11f1-aef5-c8e8d4beeaa8';
+  /**
+   * Rol asignado a quien se registra desde el sitio público (comprador).
+   * Sembrado por la migración SeedClienteRole; `user_role` tiene FK contra
+   * `role`, así que este UUID tiene que existir sí o sí.
+   */
+  private readonly roleUserUuid = 'd4f8a1c3-5b27-4e69-9a04-3c71e8b5d2f6';
   private readonly superAdminRoleUuid = '58f10bc6-a38c-4876-9d38-c11351e376b8';
 
   private async resolveDefaultRoleUuid(createdBy?: string): Promise<string> {

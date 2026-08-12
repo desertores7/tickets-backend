@@ -333,5 +333,10 @@ export const entityRelations = {
 
   event_fee_summary: {
     event: 'event'
+  },
+
+  event_producer: {
+    event: 'event',
+    user: 'user'
   }
 } as const;
