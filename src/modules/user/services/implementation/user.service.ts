@@ -202,6 +202,12 @@ export class UserService implements IUserService {
       const hash = await this.hash(data.password);
       user.password = hash;
       user.active = 1;
+      // Alta desde el backoffice: la crea un administrador, que ya validó a la
+      // persona. Este flujo no manda correo de verificación, así que dejarlo en
+      // false dejaría al usuario sin poder ingresar nunca (el login exige
+      // emailVerified fuera de local).
+      user.emailVerified = true;
+      user.emailVerifiedAt = new Date();
       user.createdAt = new Date();
       user.createdBy = userUuid;
       await this.dbRepository.create({
