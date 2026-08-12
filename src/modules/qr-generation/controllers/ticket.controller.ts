@@ -194,13 +194,15 @@ export class TicketController {
     summary: 'Accept a ticket transfer',
     description:
       'Moves ticket ownership to the authenticated user and regenerates the QR, so the previous ' +
-      'holder copy stops being valid. Only the account whose email matches the offer can accept.'
+      'holder copy stops being valid.\n\n' +
+      'Requirements: the account email must match the offer **and** be verified — accepting a ' +
+      'ticket is proof that the address belongs to the recipient.'
   })
   @ApiParam({ name: 'transferId', description: 'Transfer UUID.' })
   @ApiResponse({ status: 200, description: 'Transfer accepted; the ticket is now yours.' })
   @ApiResponse({ status: 403, description: 'The transfer was not addressed to your email.' })
   @ApiResponse({ status: 404, description: 'Transfer not found.' })
-  @ApiResponse({ status: 422, description: 'Transfer already resolved, or the event finished.' })
+  @ApiResponse({ status: 422, description: 'Email not verified, transfer already resolved, or the event finished.' })
   @HttpCode(200)
   @Post('transfers/:transferId/accept')
   async acceptTransfer(
@@ -208,6 +210,14 @@ export class TicketController {
     @User() userId: string
   ): Promise<{ ticketId: string }> {
     const { transfer, me } = await this.loadTransferForRecipient(transferId, userId);
+
+    // Recibir una entrada exige haber probado que el email es tuyo: es la única
+    // garantía de que la transferencia llegó a la persona correcta.
+    if (!me.emailVerified) {
+      throw new UnprocessableEntityException(
+        'Tenés que validar tu correo antes de aceptar una entrada. Revisá tu bandeja de entrada.'
+      );
+    }
 
     if (new Date(transfer.ticket.event.endDate) < new Date()) {
       throw new UnprocessableEntityException('El evento ya finalizó');

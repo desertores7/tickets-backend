@@ -1,13 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 
-// A6 portrait in points (72dpi): 105mm × 148mm
+// A6 portrait en puntos (72dpi): 105mm × 148mm
 const PAGE_WIDTH = 298;
 const PAGE_HEIGHT = 420;
 const MARGIN = 20;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
-const GRAY = '#666666';
-const QR_SIZE = 150;
+
+/** Misma paleta que el email de transferencia, para que la marca se vea igual en los dos lados */
+const COLOR = {
+  navy: '#0f172a',
+  text: '#334155',
+  muted: '#64748b',
+  softMuted: '#94a3b8',
+  cardBg: '#f8fafc',
+  border: '#e2e8f0',
+  accent: '#0284c7',
+  white: '#ffffff'
+} as const;
+
+const HEADER_HEIGHT = 70;
+const FOOTER_TOP = 348;
+const QR_SIZE = 148;
+const QR_CARD_SIZE = 172;
 
 export interface TicketPdfData {
   ticketNumber: string;
@@ -39,7 +54,7 @@ export class PdfTicketService {
   async generateTicketPdf(data: TicketPdfData): Promise<Buffer> {
     const doc = new PDFDocument({
       size: [PAGE_WIDTH, PAGE_HEIGHT],
-      margin: MARGIN,
+      margin: 0,
       info: {
         Title: `Ticket ${data.ticketNumber}`,
         Subject: data.eventName,
@@ -51,89 +66,101 @@ export class PdfTicketService {
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     const endPromise = new Promise<void>(resolve => doc.on('end', resolve));
 
-    // ── HEADER ────────────────────────────────────────────────────────────────
+    // ── HEADER: banda navy, igual al encabezado del email ─────────────────────
+
+    doc.rect(0, 0, PAGE_WIDTH, HEADER_HEIGHT).fill(COLOR.navy);
 
     doc
       .font('Helvetica-Bold')
-      .fontSize(16)
-      .text(data.eventName, MARGIN, MARGIN, { width: CONTENT_WIDTH, align: 'center' });
+      .fontSize(15)
+      .fillColor(COLOR.white)
+      .text(data.eventName, MARGIN, 20, {
+        width: CONTENT_WIDTH,
+        align: 'center',
+        height: 34,
+        ellipsis: true,
+        lineGap: 1
+      });
 
-    doc
-      .moveTo(MARGIN, doc.y + 6)
-      .lineTo(PAGE_WIDTH - MARGIN, doc.y + 6)
-      .strokeColor('#CCCCCC')
-      .lineWidth(0.5)
-      .stroke();
+    // Línea de acento bajo el título
+    doc.rect(PAGE_WIDTH / 2 - 16, HEADER_HEIGHT - 12, 32, 2.5).fill(COLOR.accent);
 
-    doc.moveDown(0.8);
-
-    doc
-      .font('Helvetica')
-      .fontSize(9)
-      .fillColor('#333333')
-      .text(formatEventDate(data.eventDate), { width: CONTENT_WIDTH, align: 'center' });
+    // ── Fecha y lugar ─────────────────────────────────────────────────────────
 
     doc
       .font('Helvetica')
       .fontSize(9)
-      .fillColor(GRAY)
-      .text(`${data.eventVenue} · ${data.eventCity}`, { width: CONTENT_WIDTH, align: 'center' });
+      .fillColor(COLOR.text)
+      .text(formatEventDate(data.eventDate), MARGIN, HEADER_HEIGHT + 16, {
+        width: CONTENT_WIDTH,
+        align: 'center'
+      });
 
-    // ── QR IMAGE ──────────────────────────────────────────────────────────────
+    doc
+      .font('Helvetica')
+      .fontSize(8.5)
+      .fillColor(COLOR.softMuted)
+      .text(`${data.eventVenue} · ${data.eventCity}`, MARGIN, HEADER_HEIGHT + 30, {
+        width: CONTENT_WIDTH,
+        align: 'center'
+      });
 
-    doc.moveDown(0.6);
+    // ── QR dentro de una tarjeta, como las del email ──────────────────────────
+
+    const cardX = (PAGE_WIDTH - QR_CARD_SIZE) / 2;
+    const cardY = HEADER_HEIGHT + 48;
+
+    doc
+      .roundedRect(cardX, cardY, QR_CARD_SIZE, QR_CARD_SIZE, 12)
+      .fillAndStroke(COLOR.cardBg, COLOR.border);
 
     const qrX = (PAGE_WIDTH - QR_SIZE) / 2;
-    const qrY = doc.y;
+    doc.image(data.qrImageBuffer, qrX, cardY + (QR_CARD_SIZE - QR_SIZE) / 2, { width: QR_SIZE });
 
-    doc.image(data.qrImageBuffer, qrX, qrY, { width: QR_SIZE });
-
-    doc.y = qrY + QR_SIZE + 6;
-
-    // ── TICKET NUMBER & TYPE ──────────────────────────────────────────────────
+    // ── Número de entrada y tipo ──────────────────────────────────────────────
 
     doc
       .font('Courier-Bold')
-      .fontSize(12)
-      .fillColor('#000000')
-      .text(data.ticketNumber, MARGIN, doc.y, { width: CONTENT_WIDTH, align: 'center' });
-
-    doc.moveDown(0.3);
+      .fontSize(11)
+      .fillColor(COLOR.navy)
+      .text(data.ticketNumber, MARGIN, cardY + QR_CARD_SIZE + 14, {
+        width: CONTENT_WIDTH,
+        align: 'center',
+        characterSpacing: 0.3
+      });
 
     doc
       .font('Helvetica-Bold')
-      .fontSize(11)
-      .fillColor('#000000')
-      .text(data.ticketTypeName.toUpperCase(), { width: CONTENT_WIDTH, align: 'center' });
+      .fontSize(9.5)
+      .fillColor(COLOR.accent)
+      .text(data.ticketTypeName.toUpperCase(), MARGIN, cardY + QR_CARD_SIZE + 30, {
+        width: CONTENT_WIDTH,
+        align: 'center',
+        characterSpacing: 0.6
+      });
 
-    // ── FOOTER ────────────────────────────────────────────────────────────────
+    // ── FOOTER: banda clara con borde superior, igual al pie del email ─────────
 
-    const footerY = PAGE_HEIGHT - MARGIN - 38;
-
-    doc
-      .moveTo(MARGIN, footerY)
-      .lineTo(PAGE_WIDTH - MARGIN, footerY)
-      .strokeColor('#CCCCCC')
-      .lineWidth(0.5)
-      .stroke();
+    doc.rect(0, FOOTER_TOP, PAGE_WIDTH, PAGE_HEIGHT - FOOTER_TOP).fill(COLOR.cardBg);
+    doc.rect(0, FOOTER_TOP, PAGE_WIDTH, 1).fill(COLOR.border);
 
     doc
-      .font('Helvetica')
-      .fontSize(9)
-      .fillColor('#333333')
-      .text(`Titular: ${data.holderName}`, MARGIN, footerY + 5, { width: CONTENT_WIDTH });
-
-    doc
-      .font('Helvetica')
+      .font('Helvetica-Bold')
       .fontSize(8)
-      .fillColor(GRAY)
-      .text(`Orden: ${data.orderId}`, MARGIN, doc.y + 1, { width: CONTENT_WIDTH });
+      .fillColor(COLOR.text)
+      .text(data.holderName, MARGIN, FOOTER_TOP + 14, { width: CONTENT_WIDTH });
 
     doc
       .font('Helvetica')
-      .fontSize(8)
-      .fillColor(GRAY)
-      .text('Entrada válida para una persona. No se permite el reingreso.', MARGIN, doc.y + 3, {
+      .fontSize(7)
+      .fillColor(COLOR.softMuted)
+      .text(`Orden ${data.orderId}`, MARGIN, FOOTER_TOP + 26, { width: CONTENT_WIDTH });
+
+    doc
+      .font('Helvetica')
+      .fontSize(7)
+      .fillColor(COLOR.muted)
+      .text('Entrada válida para una persona. No se permite el reingreso.', MARGIN, FOOTER_TOP + 44, {
         width: CONTENT_WIDTH,
         align: 'center'
       });

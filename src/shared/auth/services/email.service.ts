@@ -239,7 +239,7 @@ export class EmailService {
     const content = [
       emailInfoCard(
         'Tu cuenta ya está activa',
-        'Ya puedes ingresar y comenzar a disfrutar de todas las funcionalidades de DentalHub.'
+        'Ya puedes ingresar y comenzar a disfrutar de todas las funcionalidades de Ticketera.'
       ),
       emailParagraph(`Usuario registrado: <strong>${Handlebars.escapeExpression(data.email)}</strong>`)
     ].join('');
@@ -247,11 +247,11 @@ export class EmailService {
     await this.sendTemplateEmail(
       'base-email',
       this.baseTemplateData({
-        preheader: `Bienvenido a DentalHub, ${data.firstName}. Tu cuenta ya está activa.`,
+        preheader: `Bienvenido a Ticketera, ${data.firstName}. Tu cuenta ya está activa.`,
         title: '¡Bienvenido a',
-        titleHighlight: 'DentalHub',
+        titleHighlight: 'Ticketera',
         titleSuffix: '!',
-        subtitle: 'Gracias por confiar en nosotros para transformar la gestión de tu consultorio.',
+        subtitle: 'Gracias por confiar en nosotros para transformar tus próximos shows.',
         greeting: `Hola ${data.firstName} ${data.lastName},`,
         content,
         ctaUrl: loginUrl,
@@ -261,8 +261,8 @@ export class EmailService {
       }),
       {
         to: data.email,
-        subject: `¡Bienvenido a DentalHub, ${data.firstName}!`,
-        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en DentalHub ya está activa. Ingresa en: ${loginUrl}`
+        subject: `¡Bienvenido a Ticketera, ${data.firstName}!`,
+        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en Ticketera ya está activa. Ingresa en: ${loginUrl}`
       }
     );
   }
@@ -275,7 +275,7 @@ export class EmailService {
     await this.sendTemplateEmail(
       'base-email',
       this.baseTemplateData({
-        preheader: 'Restablece tu contraseña de DentalHub.',
+        preheader: 'Restablece tu contraseña de Ticketera.',
         title: 'Recuperación de',
         titleHighlight: 'contraseña',
         greeting: `Hola ${data.firstName},`,
@@ -289,7 +289,7 @@ export class EmailService {
       }),
       {
         to: data.email,
-        subject: 'Restablecer contraseña — DentalHub',
+        subject: 'Restablecer contraseña — Ticketera',
         text: `Hola ${data.firstName}, restablece tu contraseña visitando: ${data.resetUrl}`
       }
     );
@@ -305,7 +305,7 @@ export class EmailService {
     await this.sendTemplateEmail(
       'base-email',
       this.baseTemplateData({
-        preheader: `Tu código de acceso a DentalHub es ${data.code}`,
+        preheader: `Tu código de acceso a Ticketera es ${data.code}`,
         title: 'Código de',
         titleHighlight: 'acceso',
         greeting: `Hola ${data.firstName},`,
@@ -314,7 +314,7 @@ export class EmailService {
       {
         to: data.email,
         text: `Hola ${data.firstName}, tu codigo de acceso es ${data.code}. Expira en 5 minutos.`,
-        subject: 'Código de validación de acceso — DentalHub'
+        subject: 'Código de validación de acceso — Ticketera'
       }
     );
   }
@@ -328,11 +328,11 @@ export class EmailService {
     await this.sendTemplateEmail(
       'base-email',
       this.baseTemplateData({
-        preheader: 'Confirma tu registro en DentalHub.',
+        preheader: 'Confirma tu registro en Ticketera.',
         title: '¡Registro',
         titleHighlight: 'exitoso',
         titleSuffix: '!',
-        subtitle: 'Estás a un paso de comenzar a gestionar tu consultorio con DentalHub.',
+        subtitle: 'Estás a un paso de comenzar a comprar tus entradas en Ticketera.',
         greeting: `Hola ${data.firstName},`,
         content,
         ctaUrl: data.validationUrl,
@@ -342,7 +342,7 @@ export class EmailService {
       }),
       {
         to: data.email,
-        subject: 'Confirma tu registro — DentalHub',
+        subject: 'Confirma tu registro — Ticketera',
         text: `Hola ${data.firstName}, valida tu correo visitando: ${data.validationUrl}`
       }
     );
@@ -353,17 +353,17 @@ export class EmailService {
     const content = [
       emailInfoCard(
         'Correo validado exitosamente',
-        'Tu dirección de correo ha sido confirmada. Ya puedes iniciar sesión y comenzar a disfrutar de todas las funcionalidades de DentalHub.'
+        'Tu dirección de correo ha sido confirmada. Ya puedes iniciar sesión y comenzar a disfrutar de todas las funcionalidades de Ticketera.'
       ),
       emailParagraph(
-        'Gracias por ser parte de DentalHub. Estamos felices de acompañarte en la gestión de tu consultorio.'
+        'Gracias por ser parte de Ticketera. Estamos felices de acompañarte en tus próximos shows.'
       )
     ].join('');
 
     await this.sendTemplateEmail(
       'base-email',
       this.baseTemplateData({
-        preheader: 'Tu correo fue validado correctamente en DentalHub.',
+        preheader: 'Tu correo fue validado correctamente en Ticketera.',
         title: 'Correo',
         titleHighlight: 'validado',
         titleSuffix: ' correctamente',
@@ -376,8 +376,8 @@ export class EmailService {
       }),
       {
         to: data.email,
-        subject: 'Correo validado correctamente — DentalHub',
-        text: `Hola ${data.firstName}, tu correo fue validado correctamente. Gracias por ser parte de DentalHub. Inicia sesión en: ${loginUrl}`
+        subject: 'Correo validado correctamente — Ticketera',
+        text: `Hola ${data.firstName}, tu correo fue validado correctamente. Gracias por ser parte de Ticketera. Inicia sesión en: ${loginUrl}`
       }
     );
   }
