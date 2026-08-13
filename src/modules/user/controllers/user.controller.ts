@@ -26,6 +26,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AssignRoleRequest } from './dtos/assign-role/assign-role.request';
 import { GetListUserResponse } from './dtos/get-list-user/get-list-user.response';
 import { GetIdUserResponse } from './dtos/get-id-user/get-id-user.response';
+import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
+import { User } from '@root/shared/auth/decorator/user.decorator';
 
 @ApiTags('Users')
 @Controller({ path: 'users', version: '1' })
@@ -36,6 +38,7 @@ export class UserController {
     summary: 'Get all users',
     description: 'Returns all users from the local database with pagination, search and filters.'
   })
+  @AdminAuth(null, GetAllUserResponse)
   @ApiPagination()
   @ApiSearch()
   @ApiFilter(userFilters)
@@ -59,6 +62,7 @@ export class UserController {
     summary: 'Get list of users',
     description: 'This endpoint is for get list of users'
   })
+  @AdminAuth(null, GetListUserResponse)
   @ApiSearch()
   @Get('list')
   async getListUsers(@SearchParams() search: ISearchParams): Promise<GetListUserResponse[]> {
@@ -70,6 +74,7 @@ export class UserController {
     summary: 'Get user by id',
     description: 'Returns a single user from the local user entity by UUID (not deleted).'
   })
+  @AdminAuth(null, GetIdUserResponse)
   @ApiParam({ name: 'userId', description: 'UUID del usuario' })
   @Get(':userId')
   async getUserById(@Param('userId') userId: string): Promise<GetIdUserResponse> {
@@ -81,6 +86,9 @@ export class UserController {
     summary: 'Create user',
     description: 'This endpoint is for create user'
   })
+  // requestType en null: el body es multipart y lo describe @ApiConsumes,
+  // igual que en el upload de banners de event.controller.
+  @AdminAuth(null, null)
   @HttpCode(201)
   @Post()
   @UseInterceptors(FileInterceptor('imgProfile'))
@@ -98,6 +106,7 @@ export class UserController {
     description:
       'Partial update of a user. Optional: firstName, lastName, email, username, password, roleUuid, activeUser, imgProfile.'
   })
+  @AdminAuth(null, null)
   @HttpCode(204)
   @Put(':userId')
   @UseInterceptors(FileInterceptor('imgProfile'))
@@ -114,6 +123,7 @@ export class UserController {
     summary: 'Delete user (logical)',
     description: 'Soft-deletes the user by setting isDeleted.'
   })
+  @AdminAuth(null, null)
   @HttpCode(204)
   @Delete(':userId')
   async deleteUser(@Param('userId') userId: string): Promise<void> {
@@ -124,12 +134,17 @@ export class UserController {
     summary: 'Assign role to user',
     description: 'This endpoint assigns a role to an existing user'
   })
+  @AdminAuth(AssignRoleRequest, null)
   @HttpCode(201)
   @Post(':userId/roles')
-  async assignRoleToUser(@Param('userId') userId: string, @Body() data: AssignRoleRequest): Promise<void> {
-    // TODO: Obtener el UUID del usuario que está haciendo la asignación desde el token/auth
-    // Por ahora usamos el mismo userId como assignedBy
-    await this.userService.assignRoleToUser(userId, data.roleUuid, userId);
+  async assignRoleToUser(
+    @Param('userId') userId: string,
+    @Body() data: AssignRoleRequest,
+    @User() adminId: string
+  ): Promise<void> {
+    // assignedBy es el administrador que ejecuta la acción, no el usuario que
+    // recibe el rol (antes se pasaba userId y el registro de auditoría mentía).
+    await this.userService.assignRoleToUser(userId, data.roleUuid, adminId);
   }
 
 }
