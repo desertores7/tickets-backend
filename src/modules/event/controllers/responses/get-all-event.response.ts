@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { TEventResponse } from '@modules/event/services/contracts/ievent.service';
+import { TEventListItem } from '@modules/event/services/contracts/ievent.service';
 
 export class GetAllEventResponse {
   @ApiProperty() uuid: string;
@@ -27,10 +27,17 @@ export class GetAllEventResponse {
   @ApiProperty() venueCity: string;
   @ApiProperty() venueCountry: string;
   @ApiProperty() maxCapacity: number;
+  @ApiProperty({
+    description:
+      'True si el evento tiene tipos de entrada pero ninguno con disponibilidad. ' +
+      'Se calcula sobre `availableQuantity`, que baja al confirmarse el pago: ' +
+      'las reservas sin pagar no cuentan como vendidas.'
+  })
+  soldOut: boolean;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 
-  constructor(data: TEventResponse) {
+  constructor(data: TEventListItem) {
     this.uuid = data.uuid;
     this.name = data.name;
     this.description = data.description;
@@ -50,6 +57,7 @@ export class GetAllEventResponse {
     this.venueCity = data.venueCity;
     this.venueCountry = data.venueCountry;
     this.maxCapacity = data.maxCapacity;
+    this.soldOut = data.soldOut;
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;
   }

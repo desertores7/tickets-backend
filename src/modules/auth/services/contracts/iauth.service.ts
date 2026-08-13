@@ -45,6 +45,7 @@ export interface IAuthService {
   validateEmailAuth(token: string): Promise<{ verified: boolean; alreadyVerified: boolean; message: string }>;
   sendResetPassword(email: string): Promise<void>;
   resetPassword(email: string, password: string, token: string): Promise<void>;
+  changePassword(userUuid: string, currentPassword: string, newPassword: string): Promise<void>;
   createTokenSession(
     userId: string,
     accessToken: string,

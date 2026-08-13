@@ -26,7 +26,7 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { IEventService, TEventProducer } from '../services/contracts/ievent.service';
+import { IEventService, TEventProducer, TEventValidator, TUserSummary } from '../services/contracts/ievent.service';
 import { eventFilters } from './const/event.filters';
 import {
   BANNER_VARIANT_NAMES,
@@ -39,6 +39,7 @@ import { UpdateEventRequest } from './requests/update-event.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import { AssignProducerRequest } from './requests/assign-producer.request';
+import { AssignValidatorRequest } from './requests/assign-validator.request';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
@@ -293,6 +294,93 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<void> {
     await this._eventService.removeProducerFromEvent(eventUuid, userUuid, loggedUser);
+  }
+
+  // ── Validadores del evento ────────────────────────────────────────────────
+  // A diferencia de los productores usan @UserAuth: el productor dueño del
+  // evento también arma su equipo de puerta. assertOwnership acota el alcance.
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'List validators assigned to the event',
+    description: 'Door staff assigned to this event. Accessible to an admin or to the event owner.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 200, description: 'Assigned validators.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Get(':eventUuid/validators')
+  async getEventValidators(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<TEventValidator[]> {
+    return this._eventService.getEventValidators(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Search users to assign as validators',
+    description:
+      'Searches active users by first name, last name or email, excluding those already assigned. ' +
+      'Returns up to 10 results; an empty `search` returns an empty list.\n\n' +
+      'Exists as an event-scoped endpoint because `GET /users` is admin-only, and a producer ' +
+      'must also be able to staff their own event.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiQuery({ name: 'search', required: false, description: 'Name or email fragment.' })
+  @ApiResponse({ status: 200, description: 'Matching users.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Get(':eventUuid/validators/candidates')
+  async getValidatorCandidates(
+    @Param('eventUuid') eventUuid: string,
+    @Query('search') search: string,
+    @User() loggedUser: string
+  ): Promise<TUserSummary[]> {
+    return this._eventService.getValidatorCandidates(eventUuid, search ?? '', loggedUser);
+  }
+
+  @UserAuth(AssignValidatorRequest, null)
+  @ApiOperation({
+    summary: 'Assign a validator to the event',
+    description:
+      'Assigns door staff to THIS event and grants the `Validador` role if the user does not ' +
+      'already have it (the expected flow is that they register as a Cliente first). ' +
+      'Idempotent: assigning someone already assigned is a no-op.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 200, description: 'Validator assigned.' })
+  @ApiResponse({ status: 400, description: 'User not found, or the Validador role is missing.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Post(':eventUuid/validators')
+  async assignValidator(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: AssignValidatorRequest,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.assignValidatorToEvent(eventUuid, data.userUuid, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Remove a validator from the event',
+    description:
+      'Removes the assignment. The `Validador` role is NOT revoked — the person may still be ' +
+      'working the door at other events.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'userUuid', description: 'User UUID.' })
+  @ApiResponse({ status: 200, description: 'Assignment removed.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/validators/:userUuid')
+  async removeValidator(
+    @Param('eventUuid') eventUuid: string,
+    @Param('userUuid') userUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.removeValidatorFromEvent(eventUuid, userUuid, loggedUser);
   }
 
   @UserAuth(null, TicketTypeResponse)

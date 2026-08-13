@@ -20,6 +20,7 @@ import { PaymentEntityData } from '../entities/tickets/payment.entity';
 import { CheckInLogEntityData } from '../entities/tickets/check_in_log.entity';
 import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary.entity';
 import { EventProducerEntityData } from '../entities/tickets/event_producer.entity';
+import { EventValidatorEntityData } from '../entities/tickets/event_validator.entity';
 import { TicketTransferEntityData } from '../entities/tickets/ticket_transfer.entity';
 
 export const entitiesData = [
@@ -44,6 +45,7 @@ export const entitiesData = [
   CheckInLogEntityData,
   EventFeeSummaryEntityData,
   EventProducerEntityData,
+  EventValidatorEntityData,
   TicketTransferEntityData
 ] as const;
 

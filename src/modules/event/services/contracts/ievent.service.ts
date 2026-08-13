@@ -12,6 +12,12 @@ export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
 export type TTicketTypeResponse = TEntityResponse<'ticket_type', undefined, undefined>;
 
+/**
+ * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
+ * el listado para no obligar al frontend a pedir el detalle de cada tarjeta.
+ */
+export type TEventListItem = TEventResponse & { soldOut: boolean };
+
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
 
 /** Productor asignado puntualmente a un evento */
@@ -24,6 +30,17 @@ export type TEventProducer = {
   createdAt: Date;
 };
 
+/** Validador de puerta asignado a un evento. Misma forma que el productor. */
+export type TEventValidator = TEventProducer;
+
+/** Usuario candidato a ser asignado como validador */
+export type TUserSummary = {
+  uuid: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
 export interface IEventService {
   getEvents(
     pagination: IPaginationParams,
@@ -31,7 +48,7 @@ export interface IEventService {
     filters: TEventFilters,
     role: string | null,
     options?: { mine?: boolean; loggedUser?: string | null }
-  ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }>;
+  ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }>;
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
 
@@ -65,4 +82,12 @@ export interface IEventService {
   assignProducerToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
   removeProducerFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
+
+  getEventValidators(eventUuid: string, loggedUser: string): Promise<TEventValidator[]>;
+
+  getValidatorCandidates(eventUuid: string, search: string, loggedUser: string): Promise<TUserSummary[]>;
+
+  assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
+
+  removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 }

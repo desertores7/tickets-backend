@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { ILike, In, IsNull, MoreThanOrEqual, Or } from 'typeorm';
+import { ILike, In, IsNull, MoreThan, MoreThanOrEqual, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -12,7 +12,9 @@ import { UserPermissionService } from '@root/shared/services/userPermissions.ser
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
+import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
+import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import {
@@ -24,6 +26,9 @@ import {
   IEventService,
   TEventFilters,
   TEventProducer,
+  TEventValidator,
+  TUserSummary,
+  TEventListItem,
   TEventResponse,
   TEventWithTicketTypesResponse,
   TTicketTypeResponse
@@ -48,7 +53,7 @@ export class EventService implements IEventService {
     filters: TEventFilters,
     role: string | null,
     options?: { mine?: boolean; loggedUser?: string | null }
-  ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }> {
+  ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }> {
     const isAdmin = role === 'Administrador';
 
     const where: Record<string, unknown> = {
@@ -113,7 +118,7 @@ export class EventService implements IEventService {
       total: result.count
     });
 
-    return { meta, items: result.items as TEventResponse[] };
+    return { meta, items: await this.attachSoldOut(result.items as TEventResponse[]) };
   }
 
   async getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse> {
@@ -228,6 +233,18 @@ export class EventService implements IEventService {
       where: { eventUuid: event.uuid, isActive: true }
     });
     if (!hasTicketTypes) throw new BadRequestException('El evento debe tener al menos un tipo de entrada para publicarse');
+
+    // Publicar sin stock deja el evento en cartelera sin nada que comprar. Se
+    // separa del chequeo anterior para poder decir cuál de los dos falta.
+    const hasStock = await this.dbRepository.count({
+      entity: 'ticket_type',
+      where: { eventUuid: event.uuid, isActive: true, availableQuantity: MoreThan(0) }
+    });
+    if (!hasStock) {
+      throw new BadRequestException(
+        'Ningún tipo de entrada tiene disponibilidad. Cargá stock antes de publicar el evento'
+      );
+    }
 
     // publishedAt marca el momento real de salida a la venta: es lo que usa el
     // frontend para destacar los "nuevos shows".
@@ -498,12 +515,177 @@ export class EventService implements IEventService {
     await this.dbRepository.delete({ entity: 'event_producer', where: { eventUuid, userUuid } as any });
   }
 
+  // ── Validadores del evento ────────────────────────────────────────────────
+
+  async getEventValidators(eventUuid: string, loggedUser: string): Promise<TEventValidator[]> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_validator',
+      where: { eventUuid } as any,
+      relations: { user: true } as any
+    });
+
+    return rows.map((r: any) => ({
+      uuid: r.uuid,
+      userUuid: r.userUuid,
+      firstName: r.user?.firstName ?? '',
+      lastName: r.user?.lastName ?? '',
+      email: r.user?.email ?? '',
+      createdAt: r.createdAt
+    }));
+  }
+
+  /**
+   * Candidatos a validador: cualquier usuario activo que no esté ya asignado.
+   *
+   * Existe como endpoint propio del evento en lugar de reusar `GET /users`
+   * porque ese listado es solo para administradores, y acá también tiene que
+   * poder buscar un productor sobre su propio evento.
+   */
+  async getValidatorCandidates(eventUuid: string, search: string, loggedUser: string): Promise<TUserSummary[]> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const term = search?.trim();
+    if (!term) return [];
+
+    const assigned = await this.dbRepository.findMany({
+      entity: 'event_validator',
+      where: { eventUuid } as any
+    });
+    const assignedUuids = new Set(assigned.map((a: any) => a.userUuid));
+
+    // Se busca por nombre, apellido o email: en la puerta se lo suele identificar
+    // por el correo con el que se registró.
+    const users = await this.dbRepository.findMany({
+      entity: 'user',
+      where: [
+        { firstName: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 },
+        { lastName: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 },
+        { email: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 }
+      ] as any,
+      other: { take: 10 }
+    });
+
+    return users
+      .filter((u: any) => !assignedUuids.has(u.uuid))
+      .map((u: any) => ({
+        uuid: u.uuid,
+        firstName: u.firstName ?? '',
+        lastName: u.lastName ?? '',
+        email: u.email ?? ''
+      }));
+  }
+
+  async assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() }
+    });
+    if (!user) throw new BadRequestException('Usuario no encontrado');
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'event_validator',
+      where: { eventUuid, userUuid } as any
+    });
+
+    if (!existing) {
+      const assignment = new EventValidatorEntity();
+      assignment.uuid = uuidv4();
+      assignment.eventUuid = eventUuid;
+      assignment.userUuid = userUuid;
+      assignment.assignedBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_validator', data: assignment });
+    }
+
+    await this.grantValidatorRole(userUuid, loggedUser);
+  }
+
+  /**
+   * Otorga el rol `Validador` si el usuario no lo tiene. El flujo esperado es
+   * que la persona se registre como Cliente y acá se la habilite para escanear;
+   * sin esto quedaría asignada al evento pero el check-in le daría 403.
+   *
+   * El rol se busca por nombre y no por UUID: los UUIDs de los roles base
+   * difieren entre bases (los seeds matchearon filas preexistentes por nombre).
+   */
+  private async grantValidatorRole(userUuid: string, assignedBy: string): Promise<void> {
+    const role = await this.dbRepository.findOne({
+      entity: 'role',
+      where: { name: 'Validador', isDeleted: IsNull() } as any
+    });
+    if (!role) throw new BadRequestException('No existe el rol Validador en el sistema');
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'user_role',
+      where: { userUuid, roleUuid: role.uuid } as any
+    });
+
+    if (!existing) {
+      const link = new UserRoleEntity();
+      link.uuid = uuidv4();
+      link.userUuid = userUuid;
+      link.roleUuid = role.uuid;
+      link.createdBy = assignedBy;
+      await this.dbRepository.create({ entity: 'user_role', data: link });
+    } else if (existing.isDeleted) {
+      await this.dbRepository.update({
+        entity: 'user_role',
+        where: { uuid: existing.uuid } as any,
+        data: { isDeleted: null, updatedBy: assignedBy }
+      });
+    }
+  }
+
+  /**
+   * Quita la asignación al evento. NO revoca el rol `Validador`: la persona
+   * puede estar trabajando la puerta de otros shows.
+   */
+  async removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    await this.dbRepository.delete({ entity: 'event_validator', where: { eventUuid, userUuid } as any });
+  }
+
   /** Aplica los filtros de la query y ejecuta la búsqueda paginada */
+  /**
+   * Marca cada evento como agotado o no con UNA sola consulta para toda la
+   * página (nada de una por tarjeta).
+   *
+   * Se mira `availableQuantity` de MySQL, que baja recién al confirmarse el
+   * pago. Las reservas en Redis sin pagar no cuentan como vendidas: expiran a
+   * los 10 minutos y volverían a estar disponibles.
+   */
+  private async attachSoldOut(events: TEventResponse[]): Promise<TEventListItem[]> {
+    if (events.length === 0) return [];
+
+    const ticketTypes = await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { eventUuid: In(events.map(e => e.uuid)), isActive: true },
+      select: { eventUuid: true, availableQuantity: true }
+    });
+
+    const withStock = new Set<string>();
+    for (const tt of ticketTypes) {
+      if (tt.availableQuantity > 0) withStock.add(tt.eventUuid);
+    }
+
+    // Un evento sin ningún tipo de entrada activo no se considera agotado: no
+    // llegó a estar a la venta. Publicar en ese estado ya está bloqueado.
+    const withAnyType = new Set(ticketTypes.map(tt => tt.eventUuid));
+
+    return events.map(event => ({
+      ...event,
+      soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid)
+    }));
+  }
+
   private async runEventsQuery(
     conditions: Record<string, unknown>[],
     filters: TEventFilters,
     pagination: IPaginationParams
-  ): Promise<{ meta: PaginationMetaResponse; items: TEventResponse[] }> {
+  ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }> {
     const withFilters = conditions.map(cond => {
       const c = { ...cond };
       if (filters.city?.length) {
@@ -536,7 +718,7 @@ export class EventService implements IEventService {
       total: result.count
     });
 
-    return { meta, items: result.items as TEventResponse[] };
+    return { meta, items: await this.attachSoldOut(result.items as TEventResponse[]) };
   }
 
   /** Eventos asignados puntualmente al usuario (event_producer) */

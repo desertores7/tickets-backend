@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException
 } from '@nestjs/common';
@@ -30,6 +31,8 @@ import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register
 
 @Injectable()
 export class AuthService implements IAuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(DBRepository) private dbRepository: DBRepository,
     protected readonly jwt: JwtService,
@@ -458,8 +461,13 @@ export class AuthService implements IAuthService {
       entity: 'user',
       where: { email, isDeleted: IsNull() }
     });
+
+    // Silencio deliberado si el correo no existe: responder distinto convertiría
+    // este endpoint público en un oráculo para saber qué direcciones tienen
+    // cuenta. El controller devuelve 200 con un mensaje neutro en ambos casos.
     if (!user) {
-      throw new BadRequestException('No existe un usuario con este correo');
+      this.logger.warn(`Reset de contraseña pedido para un correo inexistente: ${email}`);
+      return;
     }
 
     const resetToken = await this.signPasswordResetToken(user.uuid, email);
@@ -470,6 +478,35 @@ export class AuthService implements IAuthService {
       firstName: user.firstName || user.username || 'Usuario',
       email,
       resetUrl
+    });
+  }
+
+  /**
+   * Cambio de contraseña desde el perfil. Endpoint propio y no un campo más de
+   * `updateMe` porque exige la contraseña actual: sin esa comprobación, un token
+   * robado alcanzaría para quedarse con la cuenta.
+   */
+  async changePassword(userUuid: string, currentPassword: string, newPassword: string): Promise<void> {
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() }
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const matches = await bcryptjs.compare(currentPassword, user.password ?? '');
+    if (!matches) {
+      this.logger.warn(`Cambio de contraseña rechazado para ${user.email}: contraseña actual incorrecta`);
+      throw new BadRequestException('La contraseña actual no es correcta');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser distinta de la actual');
+    }
+
+    await this.dbRepository.update({
+      entity: 'user',
+      where: { uuid: userUuid },
+      data: { password: await this.hash(newPassword), updatedBy: userUuid }
     });
   }
 

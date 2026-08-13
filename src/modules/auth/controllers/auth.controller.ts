@@ -11,6 +11,7 @@ import { LoginAuthRequest } from './requests/login-auth.request';
 import { UpdateMeRequest } from './requests/update-me.request';
 import { ResetPasswordRequest } from './requests/reset-password.request';
 import { SendResetPasswordRequest } from './requests/send-password.request';
+import { ChangePasswordRequest } from './requests/change-password.request';
 import { RegisterAuthRequest } from './requests/register-auth.request';
 import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
@@ -69,13 +70,31 @@ export class AuthController {
 
   @ApiOperation({
     summary: 'Send reset password email',
-    description: 'Sends an email with a link to /new-password so the user can set a new password.'
+    description:
+      'Sends an email with a link to /new-password so the user can set a new password.\n\n' +
+      '**Always returns 200**, whether or not the address belongs to an account. Answering ' +
+      'differently would turn this public endpoint into an oracle for discovering which ' +
+      'email addresses are registered.'
   })
   @Swagger(SendResetPasswordRequest, null)
   @HttpCode(200)
   @Post('send-reset-password')
-  async sendResetPassword(@Body() request: SendResetPasswordRequest): Promise<void> {
+  async sendResetPassword(@Body() request: SendResetPasswordRequest): Promise<{ message: string }> {
     await this.authService.sendResetPassword(request.email);
+    return { message: 'Si el correo está registrado, te enviamos las instrucciones para recuperar tu contraseña.' };
+  }
+
+  @ApiOperation({
+    summary: 'Change own password',
+    description:
+      'Changes the authenticated user password. Requires the current password: without that ' +
+      'check a stolen token would be enough to take over the account.'
+  })
+  @UserAuth(ChangePasswordRequest, null)
+  @HttpCode(200)
+  @Post('change-password')
+  async changePassword(@Body() request: ChangePasswordRequest, @User() userId: string): Promise<void> {
+    await this.authService.changePassword(userId, request.currentPassword, request.newPassword);
   }
 
   @ApiOperation({

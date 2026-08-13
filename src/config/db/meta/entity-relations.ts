@@ -340,6 +340,11 @@ export const entityRelations = {
     user: 'user'
   },
 
+  event_validator: {
+    event: 'event',
+    user: 'user'
+  },
+
   ticket_transfer: {
     ticket: 'ticket',
     fromUser: 'user'
