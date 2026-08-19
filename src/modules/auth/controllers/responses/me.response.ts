@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { TMeResponse } from '@modules/auth/services/contracts/iauth.service';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 
 export class MeImgProfileResponse {
   @ApiProperty({ name: 'url' })
@@ -110,7 +111,8 @@ export class MeResponse {
   organizations: MeOrganizationResponse[];
 
   constructor(data: TMeResponse) {
-    const activeRole = data.userRoles?.find(userRole => userRole.userUuid === data.uuid && !userRole.isDeleted)?.role;
+    // Mismo criterio que el login: si divergen, el perfil dice un rol y el menú se comporta como otro.
+    const activeRole = resolveActiveRole(data.userRoles as any);
 
     this.user = new MeUserResponse(data);
     this.role = activeRole ? new MeRoleResponse(activeRole.uuid, activeRole.name) : null;

@@ -626,6 +626,15 @@ export class EventService implements IEventService {
    * difieren entre bases (los seeds matchearon filas preexistentes por nombre).
    */
   private async grantValidatorRole(userUuid: string, assignedBy: string): Promise<void> {
+    // Un administrador ya pasa @ValidatorAuth: sumarle el rol Validador solo
+    // le agrega un segundo rol activo y confunde a la sesión, que maneja uno.
+    const currentRoles = await this.dbRepository.findMany({
+      entity: 'user_role',
+      where: { userUuid, isDeleted: IsNull() } as any,
+      relations: { role: true } as any
+    });
+    if (currentRoles.some((ur: any) => ur.role?.name === 'Administrador')) return;
+
     const role = await this.dbRepository.findOne({
       entity: 'role',
       where: { name: 'Validador', isDeleted: IsNull() } as any
