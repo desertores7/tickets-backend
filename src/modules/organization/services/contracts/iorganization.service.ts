@@ -13,7 +13,7 @@ export type TOrganizationResponse = TEntityResponse<'organization', undefined, u
 
 export type TOrganizationResponseWithUserOrganizations = TEntityResponse<
   'organization',
-  { userOrganizations: { user: true } },
+  { userOrganizations: { user: { userRoles: { role: true } } } },
   undefined
 >;
 

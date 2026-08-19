@@ -163,7 +163,9 @@ export class OrganizationService implements IOrganizationService {
     const organization = await this.dbRepository.findOne({
       entity: 'organization',
       where: { uuid: id, isDeleted: IsNull() },
-      relations: { userOrganizations: { user: true } }
+      // Se traen los roles para poder separar productores de validadores:
+      // ambos son miembros de la organización, la diferencia está en el rol.
+      relations: { userOrganizations: { user: { userRoles: { role: true } } } }
     });
 
     if (!organization) throw new BadRequestException('Organización no encontrada');

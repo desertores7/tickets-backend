@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TEntityResponse } from '@config/db/meta/db.types';
 import { TOrganizationResponseWithUserOrganizations } from '@modules/organization/services/contracts/iorganization.service';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 
 export class UserOrganizationResponse {
   @ApiProperty({
@@ -19,10 +20,17 @@ export class UserOrganizationResponse {
   })
   lastName: string;
 
+  @ApiProperty({
+    name: 'role',
+    description: 'Rol vigente del miembro. Permite distinguir productores de validadores.'
+  })
+  role: string;
+
   constructor(data: TEntityResponse<'user', undefined, undefined>) {
     this.uuid = data.uuid;
     this.firstName = data.firstName;
     this.lastName = data.lastName;
+    this.role = resolveActiveRole((data as any).userRoles)?.name ?? '';
   }
 }
 
