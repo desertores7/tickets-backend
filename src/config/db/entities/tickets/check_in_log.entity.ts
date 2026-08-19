@@ -10,7 +10,9 @@ export enum CheckInResult {
   INVALID = 'invalid',
   WRONG_EVENT = 'wrong_event',
   /** Escaneo fuera de la ventana habilitada (antes del día del evento o después de que terminó) */
-  OUTSIDE_WINDOW = 'outside_window'
+  OUTSIDE_WINDOW = 'outside_window',
+  /** El validador no está habilitado para este evento (no pertenece a su organización) */
+  NOT_ASSIGNED = 'not_assigned'
 }
 
 const tableName = 'check_in_log' as const;

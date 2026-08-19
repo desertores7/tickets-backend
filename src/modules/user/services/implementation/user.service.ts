@@ -20,6 +20,7 @@ import { ISystemParameterService } from '@modules/system-parameter/services/cont
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { FileEntity } from '@config/db/entities/user/file.entity';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 
 export class UserService implements IUserService {
   constructor(
@@ -124,7 +125,7 @@ export class UserService implements IUserService {
     });
 
     const items: any[] = user.items.map((item: any) => {
-      const dataRole = item.userRoles?.find((role: any) => role.userUuid === item.uuid)?.role;
+      const dataRole = resolveActiveRole(item.userRoles);
       const profileFile = item.files?.find((file: FileEntity) => isProfileFile(file));
       const organizationUuids = (item.userOrganizations ?? [])
         .map((uo: any) => uo.organizationUuid)
@@ -302,7 +303,7 @@ export class UserService implements IUserService {
 
     if (!user) throw new BadRequestException('User not found');
 
-    const dataRole = user.userRoles?.find(role => role.userUuid === id)?.role;
+    const dataRole = resolveActiveRole(user.userRoles as any);
 
     return {
       ...user,

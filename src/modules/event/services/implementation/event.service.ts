@@ -488,20 +488,30 @@ export class EventService implements IEventService {
       await this.dbRepository.create({ entity: 'event_producer', data: assignment });
     }
 
-    // Vínculo con la organización del evento (idempotente; reactiva si estaba de baja)
+    await this.linkUserToOrganization(userUuid, event.organizationUuid);
+  }
+
+  /**
+   * Vincula al usuario con la organización del evento. Idempotente: si ya
+   * existe no hace nada, y si estaba dado de baja lo reactiva.
+   */
+  private async linkUserToOrganization(userUuid: string, organizationUuid: string): Promise<void> {
     const membership = await this.dbRepository.findOne({
       entity: 'user_organization',
-      where: { userUuid, organizationUuid: event.organizationUuid } as any
+      where: { userUuid, organizationUuid } as any
     });
 
     if (!membership) {
       const link = new UserOrganizationEntity();
       link.uuid = uuidv4();
       link.userUuid = userUuid;
-      link.organizationUuid = event.organizationUuid;
+      link.organizationUuid = organizationUuid;
       link.createdAt = new Date();
       await this.dbRepository.create({ entity: 'user_organization', data: link });
-    } else if (membership.isDeleted) {
+      return;
+    }
+
+    if (membership.isDeleted) {
       await this.dbRepository.update({
         entity: 'user_organization',
         where: { uuid: membership.uuid } as any,
@@ -578,7 +588,7 @@ export class EventService implements IEventService {
   }
 
   async assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    const event = await this.assertOwnership(eventUuid, loggedUser);
 
     const user = await this.dbRepository.findOne({
       entity: 'user',
@@ -601,6 +611,10 @@ export class EventService implements IEventService {
     }
 
     await this.grantValidatorRole(userUuid, loggedUser);
+
+    // El alcance del validador se define por organización: sin esta membresía
+    // no vería el evento en el escáner ni podría validar sus entradas.
+    await this.linkUserToOrganization(userUuid, event.organizationUuid);
   }
 
   /**
@@ -722,13 +736,19 @@ export class EventService implements IEventService {
   }
 
   /** Eventos asignados puntualmente al usuario (event_producer) */
+  /**
+   * Eventos asignados puntualmente al usuario, como productor o como validador
+   * de puerta. Se incluyen los dos para que un validador vea su evento en el
+   * escáner aunque la membresía de organización falte (por ejemplo, si lo
+   * desvincularon de la organización pero sigue asignado al show).
+   */
   private async getAssignedEventUuids(loggedUser?: string | null): Promise<string[]> {
     if (!loggedUser) return [];
-    const rows = await this.dbRepository.findMany({
-      entity: 'event_producer',
-      where: { userUuid: loggedUser } as any
-    });
-    return [...new Set(rows.map(r => r.eventUuid))];
+    const [asProducer, asValidator] = await Promise.all([
+      this.dbRepository.findMany({ entity: 'event_producer', where: { userUuid: loggedUser } as any }),
+      this.dbRepository.findMany({ entity: 'event_validator', where: { userUuid: loggedUser } as any })
+    ]);
+    return [...new Set([...asProducer, ...asValidator].map(r => r.eventUuid))];
   }
 
   /** Organizaciones a las que pertenece el usuario (base del alcance de un productor) */

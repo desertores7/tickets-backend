@@ -9,14 +9,14 @@ import { UpdateRoleRequest } from './dtos/update-role/update-role.request';
 import { GetAllRoleResponse } from './dtos/get-all-role/get-all-role.response';
 import { CreateRoleRequest } from './dtos/create-role/create-role.request';
 import { User } from '@root/shared/auth/decorator/user.decorator';
-import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
+import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 
 @ApiTags('Roles')
 @Controller({ path: 'roles', version: '1' })
 export class RoleController {
   constructor(@Inject('IRoleService') public _roleService: IRoleService) {}
 
-  @UserAuth(null, GetAllRoleResponse)
+  @AdminAuth(null, GetAllRoleResponse)
   @ApiOperation({
     summary: 'Get all roles',
     description: 'This endpoint is for get all roles'
@@ -38,7 +38,7 @@ export class RoleController {
     };
   }
 
-  @UserAuth(CreateRoleRequest, null)
+  @AdminAuth(CreateRoleRequest, null)
   @ApiOperation({
     summary: 'Create role',
     description: 'This endpoint is for create role'
@@ -49,7 +49,7 @@ export class RoleController {
     await this._roleService.createRole(data, userId);
   }
 
-  @UserAuth(null, GetIdRoleResponse)
+  @AdminAuth(null, GetIdRoleResponse)
   @ApiOperation({
     summary: 'Get role by id',
     description: 'This endpoint is for get role by id'
@@ -61,7 +61,7 @@ export class RoleController {
     return new GetIdRoleResponse(user);
   }
 
-  @UserAuth(UpdateRoleRequest, null)
+  @AdminAuth(UpdateRoleRequest, null)
   @ApiOperation({
     summary: 'Update role',
     description: 'This endpoint is for update user'
@@ -76,7 +76,7 @@ export class RoleController {
     await this._roleService.updateRole(roleUuid, data, userId);
   }
 
-  @UserAuth(null, null)
+  @AdminAuth(null, null)
   @ApiOperation({
     summary: 'Delete role',
     description: 'This endpoint is for delete role'

@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { TUserLoginAuthResponse } from '@modules/auth/services/contracts/iauth.service';
 import { MeOrganizationResponse } from './me.response';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 
 export class UserResponse {
   @ApiProperty({ name: 'uuid' })
@@ -41,8 +42,10 @@ export class UserResponse {
       url: user.files?.find(file => isProfileFile(file))?.path || '',
       type: user.files?.find(file => isProfileFile(file))?.type || ''
     };
-    this.roleUuid = user.userRoles?.find(role => role.userUuid === user.uuid)?.role?.uuid ?? undefined;
-    this.role = user.userRoles?.find(role => role.userUuid === user.uuid)?.role?.name ?? undefined;
+    const activeRole = resolveActiveRole(user.userRoles as any);
+
+    this.roleUuid = activeRole?.uuid ?? undefined;
+    this.role = activeRole?.name ?? undefined;
   }
 }
 

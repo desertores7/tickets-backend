@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
@@ -92,6 +92,28 @@ export class CheckInService implements ICheckInService {
       this.logger.error(`Check-in fallido: evento ${ticket.eventUuid} no encontrado`);
       await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.INVALID, deviceInfo });
       return { success: false, message: 'Evento no encontrado', result: CheckInResultEnum.INVALID };
+    }
+
+    // El validador solo trabaja los eventos de sus organizaciones. El rol
+    // Validador por sí solo no alcanza: sin esto, cualquier validador podría
+    // marcar entradas de shows con los que no tiene relación.
+    const authorized = await this.isAuthorizedForEvent(scannedBy, event.uuid, event.organizationUuid);
+    if (!authorized) {
+      this.logger.warn(
+        `Check-in rechazado: ${scannedBy} no está habilitado para el evento ${event.uuid} (org ${event.organizationUuid})`
+      );
+      await this.writeLog({
+        ticketUuid: ticket.uuid,
+        eventUuid: eventId,
+        scannedBy,
+        result: CheckInResult.NOT_ASSIGNED,
+        deviceInfo
+      });
+      return {
+        success: false,
+        message: "No estás habilitado para validar entradas de este evento",
+        result: CheckInResultEnum.NOT_ASSIGNED
+      };
     }
 
     // Momento del escaneo: se usa tanto para la ventana como para checkedInAt
@@ -217,4 +239,38 @@ export class CheckInService implements ICheckInService {
       this.logger.error('Error al insertar check_in_log (swallowed)', err);
     }
   }
+
+  /**
+   * Habilitado = administrador, miembro de la organización dueña del evento, o
+   * asignado puntualmente al evento en event_validator.
+   *
+   * Se acepta la asignación puntual además de la organización para no dejar a
+   * nadie en la puerta si lo sacaron de la organización pero sigue asignado al
+   * show.
+   */
+  private async isAuthorizedForEvent(
+    userUuid: string,
+    eventUuid: string,
+    organizationUuid: string
+  ): Promise<boolean> {
+    const roles = await this.dbRepository.findMany({
+      entity: "user_role",
+      where: { userUuid, isDeleted: IsNull() } as any,
+      relations: { role: true } as any
+    });
+    if (roles.some((r: any) => r.role?.name === "Administrador")) return true;
+
+    const membership = await this.dbRepository.findOne({
+      entity: "user_organization",
+      where: { userUuid, organizationUuid, isDeleted: IsNull() } as any
+    });
+    if (membership) return true;
+
+    const assignment = await this.dbRepository.findOne({
+      entity: "event_validator",
+      where: { userUuid, eventUuid } as any
+    });
+    return !!assignment;
+  }
+
 }

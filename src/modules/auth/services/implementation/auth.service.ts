@@ -25,9 +25,8 @@ import { FileTypeEntity } from '@config/db/entities/user/file_type.entity';
 import { PROFILE_FILE_TYPE_NAME, PROFILE_FILE_TYPE_UUID } from '@config/db/const/file-type.const';
 import { UserEntity } from '@config/db/entities/user/user.entity';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
-import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
-import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register-auth.request';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -146,7 +145,7 @@ export class AuthService implements IAuthService {
       email: user.email,
       role:
         'userRoles' in user
-          ? user.userRoles?.find((userRole: any) => userRole.userUuid === user.uuid)?.role?.name || ''
+          ? resolveActiveRole(user.userRoles as any)?.name || ''
           : ''
     };
     const access = await this.jwt.signAsync(payload, {
@@ -427,27 +426,11 @@ export class AuthService implements IAuthService {
       console.error('Failed to send email verified confirmation:', error);
     }
 
-    if (user?.emailVerified === false) {
-      const organization: OrganizationEntity = new OrganizationEntity();
-      const organizationUuid = uuidv4();
-      organization.uuid = organizationUuid;
-      organization.name = `Organización ${user.firstName} ${user.lastName}`;
-      organization.createdAt = new Date();
-      await this.dbRepository.create({
-        entity: 'organization',
-        data: organization
-      });
-
-      const userOrganization: UserOrganizationEntity = new UserOrganizationEntity();
-      userOrganization.uuid = uuidv4();
-      userOrganization.userUuid = user.uuid;
-      userOrganization.organizationUuid = organizationUuid;
-      userOrganization.createdAt = new Date();
-      await this.dbRepository.create({
-        entity: 'user_organization',
-        data: userOrganization
-      });
-    }
+    // Antes se creaba acá una organización "Organización {nombre} {apellido}"
+    // y se vinculaba al usuario. Es herencia del proyecto base (un SaaS donde
+    // cada cuenta tenía su propio espacio) y en la ticketera no corresponde: un
+    // comprador no es un organizador, y esa membresía le daba alcance sobre
+    // eventos en toda consulta que filtre por user_organization.
 
     return {
       verified: true,
