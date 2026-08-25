@@ -17,6 +17,7 @@ import { UserOrganizationEntity } from '@config/db/entities/user/user_organizati
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
+import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import {
   BANNER_VARIANTS,
   BannerImages,
@@ -143,6 +144,12 @@ export class EventService implements IEventService {
       where: { uuid: data.organizationUuid, isDeleted: IsNull() }
     });
     if (!org) throw new BadRequestException('Organización no encontrada');
+
+    if (org.organizationStatusUuid !== ORGANIZATION_STATUS.APPROVED.uuid) {
+      throw new ForbiddenException(
+        'La productora debe estar aprobada para crear eventos. Completá y enviá la validación fiscal.'
+      );
+    }
 
     await this.assertOrganizationMembership(data.organizationUuid, loggedUser);
 

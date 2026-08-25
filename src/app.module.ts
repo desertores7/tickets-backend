@@ -27,25 +27,30 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     StorageModule,
     ServeStaticModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => [
-        {
-          // resolve, igual que StorageService: respeta STORAGE_PATH absoluta
-          rootPath: resolve(process.cwd(), config.get('STORAGE_PATH', 'storage')),
-          serveRoot: '/static',
-          serveStaticOptions: {
-            index: false,
-            fallthrough: false
+      useFactory: (config: ConfigService) => {
+        // Solo tickets/ y events/ públicos. private/ (docs fiscales) NO se monta en /static.
+        const storageRoot = resolve(process.cwd(), config.get('STORAGE_PATH', 'storage'));
+        return [
+          {
+            rootPath: join(storageRoot, 'tickets'),
+            serveRoot: '/static/tickets',
+            serveStaticOptions: { index: false, fallthrough: false }
+          },
+          {
+            rootPath: join(storageRoot, 'events'),
+            serveRoot: '/static/events',
+            serveStaticOptions: { index: false, fallthrough: false }
+          },
+          {
+            rootPath: join(process.cwd(), 'public', 'scanner'),
+            serveRoot: '/scanner',
+            serveStaticOptions: {
+              index: ['index.html'],
+              fallthrough: false
+            }
           }
-        },
-        {
-          rootPath: join(process.cwd(), 'public', 'scanner'),
-          serveRoot: '/scanner',
-          serveStaticOptions: {
-            index: ['index.html'],
-            fallthrough: false
-          }
-        }
-      ]
+        ];
+      }
     }),
     QrGenerationModule,
     NotificationsModule,

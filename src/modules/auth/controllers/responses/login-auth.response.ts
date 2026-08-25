@@ -1,8 +1,9 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { TUserLoginAuthResponse } from '@modules/auth/services/contracts/iauth.service';
 import { MeOrganizationResponse } from './me.response';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 
 export class UserResponse {
   @ApiProperty({ name: 'uuid' })
@@ -16,6 +17,9 @@ export class UserResponse {
 
   @ApiProperty({ name: 'email' })
   email: string;
+
+  @ApiProperty({ name: 'emailVerified' })
+  emailVerified: boolean;
 
   @ApiProperty({
     name: 'imgProfile',
@@ -38,6 +42,7 @@ export class UserResponse {
     this.firstName = user.firstName;
     this.lastName = user.lastName;
     this.email = user.email;
+    this.emailVerified = Boolean(user.emailVerified);
     this.imgProfile = {
       url: user.files?.find(file => isProfileFile(file))?.path || '',
       type: user.files?.find(file => isProfileFile(file))?.type || ''
@@ -50,19 +55,38 @@ export class UserResponse {
 }
 
 export class LoginAuthResponse {
-  @ApiProperty({ name: 'access_token' })
-  access_token: string;
+  @ApiPropertyOptional({
+    description: 'true si hay que completar el challenge 2FA por email antes de emitir tokens'
+  })
+  requiresTwoFactor?: boolean;
 
-  @ApiProperty({ name: 'refresh_token' })
-  refresh_token: string;
+  @ApiPropertyOptional({ description: 'Email al que se envió el código (solo si requiresTwoFactor)' })
+  email?: string;
 
-  @ApiProperty({ name: 'user' })
-  user: UserResponse;
+  @ApiPropertyOptional({ name: 'access_token' })
+  access_token?: string;
 
-  @ApiProperty({ name: 'organizations', type: [MeOrganizationResponse] })
-  organizations: MeOrganizationResponse[];
+  @ApiPropertyOptional({ name: 'refresh_token' })
+  refresh_token?: string;
 
-  constructor(loginInfo: TUserLoginAuthResponse) {
+  @ApiPropertyOptional({ name: 'user', type: UserResponse })
+  user?: UserResponse;
+
+  @ApiPropertyOptional({ name: 'organizations', type: [MeOrganizationResponse] })
+  organizations?: MeOrganizationResponse[];
+
+  constructor(
+    loginInfo:
+      | { requiresTwoFactor: true; email: string }
+      | (TUserLoginAuthResponse & { requiresTwoFactor?: false })
+  ) {
+    if ('requiresTwoFactor' in loginInfo && loginInfo.requiresTwoFactor === true) {
+      this.requiresTwoFactor = true;
+      this.email = loginInfo.email;
+      return;
+    }
+
+    this.requiresTwoFactor = false;
     this.access_token = loginInfo.access_token;
     this.refresh_token = loginInfo.refresh_token;
     this.user = new UserResponse(loginInfo);
@@ -73,7 +97,8 @@ export class LoginAuthResponse {
           new MeOrganizationResponse({
             uuid: uo.organization.uuid,
             name: uo.organization.name,
-            active: uo.organization.active
+            active: uo.organization.active,
+            validationStatus: organizationStatusName(uo.organization)
           })
       );
   }

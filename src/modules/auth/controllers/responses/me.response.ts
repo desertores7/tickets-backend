@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { TMeResponse } from '@modules/auth/services/contracts/iauth.service';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 
 export class MeImgProfileResponse {
   @ApiProperty({ name: 'url' })
@@ -39,10 +40,18 @@ export class MeOrganizationResponse {
   @ApiProperty({ name: 'active' })
   active: number;
 
-  constructor(data: { uuid: string; name: string; active: number }) {
+  @ApiProperty({
+    name: 'validationStatus',
+    enum: ['draft_incomplete', 'pending_review', 'approved', 'rejected'],
+    required: false
+  })
+  validationStatus?: string;
+
+  constructor(data: { uuid: string; name: string; active: number; validationStatus?: string }) {
     this.uuid = data.uuid;
     this.name = data.name;
     this.active = data.active;
+    this.validationStatus = data.validationStatus;
   }
 }
 
@@ -65,8 +74,24 @@ export class MeUserResponse {
   @ApiProperty({ name: 'phone', type: String, nullable: true })
   phone: string | null;
 
-  @ApiProperty({ name: 'dni', type: String, nullable: true })
+  @ApiProperty({ name: 'dni', type: String, nullable: true, description: 'Número de documento (columna user.dni)' })
   dni: string | null;
+
+  @ApiProperty({
+    name: 'documentNumber',
+    type: String,
+    nullable: true,
+    description: 'Alias de dni — número de documento de identidad'
+  })
+  documentNumber: string | null;
+
+  @ApiProperty({
+    name: 'documentType',
+    enum: ['DNI', 'Pasaporte', 'Documento extranjero', 'Otro'],
+    nullable: true,
+    required: false
+  })
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
 
   @ApiProperty({ name: 'gender', type: String, nullable: true })
   gender: string | null;
@@ -74,8 +99,40 @@ export class MeUserResponse {
   @ApiProperty({ name: 'birthday', type: String, format: 'date-time', nullable: true })
   birthday: Date | null;
 
+  @ApiProperty({ name: 'address', type: String, nullable: true, required: false })
+  address: string | null;
+
+  @ApiProperty({ name: 'billingIdType', enum: ['DNI', 'CUIT/CUIL'], nullable: true, required: false })
+  billingIdType: 'DNI' | 'CUIT/CUIL' | null;
+
+  @ApiProperty({ name: 'billingIdNumber', type: String, nullable: true, required: false })
+  billingIdNumber: string | null;
+
+  @ApiProperty({ name: 'billingLegalName', type: String, nullable: true, required: false })
+  billingLegalName: string | null;
+
+  @ApiProperty({
+    name: 'billingVatCondition',
+    enum: ['Consumidor final', 'Monotributo', 'Responsable inscripto', 'Exento'],
+    nullable: true,
+    required: false
+  })
+  billingVatCondition: 'Consumidor final' | 'Monotributo' | 'Responsable inscripto' | 'Exento' | null;
+
+  @ApiProperty({ name: 'billingFiscalAddress', type: String, nullable: true, required: false })
+  billingFiscalAddress: string | null;
+
+  @ApiProperty({ name: 'billingEmail', type: String, nullable: true, required: false })
+  billingEmail: string | null;
+
   @ApiProperty({ name: 'emailVerified' })
   emailVerified: boolean;
+
+  @ApiProperty({ name: 'termsAcceptedAt', type: String, format: 'date-time', nullable: true, required: false })
+  termsAcceptedAt: Date | null;
+
+  @ApiProperty({ name: 'twoAuthentication' })
+  twoAuthentication: boolean;
 
   @ApiProperty({ name: 'active' })
   active: number;
@@ -92,9 +149,20 @@ export class MeUserResponse {
     this.username = data.username ?? null;
     this.phone = data.phone ?? null;
     this.dni = data.dni ?? null;
+    this.documentNumber = data.dni ?? null;
+    this.documentType = data.documentType ?? null;
     this.gender = data.gender ?? null;
     this.birthday = data.birthday ?? null;
+    this.address = data.address ?? null;
+    this.billingIdType = data.billingIdType ?? null;
+    this.billingIdNumber = data.billingIdNumber ?? null;
+    this.billingLegalName = data.billingLegalName ?? null;
+    this.billingVatCondition = data.billingVatCondition ?? null;
+    this.billingFiscalAddress = data.billingFiscalAddress ?? null;
+    this.billingEmail = data.billingEmail ?? null;
     this.emailVerified = data.emailVerified;
+    this.termsAcceptedAt = data.termsAcceptedAt ?? null;
+    this.twoAuthentication = Boolean(data.twoAuthentication);
     this.active = data.active;
     this.imgProfile = new MeImgProfileResponse(profileFile?.path || '', profileFile?.type || '');
   }
@@ -123,7 +191,8 @@ export class MeResponse {
           new MeOrganizationResponse({
             uuid: uo.organization.uuid,
             name: uo.organization.name,
-            active: uo.organization.active
+            active: uo.organization.active,
+            validationStatus: organizationStatusName(uo.organization)
           })
       );
   }

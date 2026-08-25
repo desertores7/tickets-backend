@@ -25,7 +25,7 @@ function patchOpenApiDocument(document: OpenAPIObject): OpenAPIObject {
     'updatedBy',
     'description'
   ]);
-  const dateNullableFields = new Set(['birthday', 'isDeleted', 'emailVerifiedAt']);
+  const dateNullableFields = new Set(['birthday', 'isDeleted', 'emailVerifiedAt', 'termsAcceptedAt']);
 
   for (const schema of Object.values(schemas)) {
     if (!schema || typeof schema !== 'object' || !('properties' in schema) || !schema.properties) {

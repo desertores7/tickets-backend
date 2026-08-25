@@ -81,7 +81,7 @@ modules/<nombre>/
 ## Decisiones de negocio tomadas (NO cambiar sin consultar)
 
 - **Sin split de pagos de Mercado Pago**: se investigó y se descartó. El pago completo entra a la cuenta única de la ticketera; al organizador se le factura la comisión por separado. No hay OAuth por organizador ni `marketplace_fee`.
-- **Service fee**: 10% del subtotal, mostrado como ítem separado en el checkout de MP
+- **Service fee**: 15% del subtotal, mostrado como ítem separado en el checkout de MP
 - **Tabla `event_fee_summary`**: resumen materializado de fees por evento, actualizado con `INSERT ... ON DUPLICATE KEY UPDATE` (atómico, a prueba de pagos concurrentes). Consultable en `GET /api/v1/events/:eventId/fee-summary` (solo organizador dueño o admin)
 - **QR firmado**: HMAC-SHA256 con `QR_SECRET`, formato `base64url(payload).base64url(signature)`. Nunca IDs secuenciales.
 - **Storage local**: los QR y PDFs viven en el volumen Docker, servidos via `/static/` con ServeStaticModule. La interfaz de `StorageService` (`saveFile`, `deleteFile`, `fileExists`) se mantiene para poder migrar a S3 después sin tocar el resto.
@@ -99,9 +99,10 @@ modules/<nombre>/
 - QR Generation (firma HMAC, PNG, PDF A6, storage local, endpoints: `GET /tickets/mine`, `GET /tickets/:id`, `POST /admin/tickets/:id/regenerate-qr`)
 - Event Fee Summary (tabla + upsert atómico + endpoint de consulta)
 - Preferencia MP itemizada (entrada + costo de servicio separados)
-- **Notifications**: módulo en `src/modules/notifications/` — `NotificationEmailService` (nodemailer con `SMTP_*`, fallback a las `*_EMAIL` legacy), template `ticket-email.hbs` (en `src/shared/auth/templates/`, el build lo copia a dist), processor `send-order-tickets-email` (único worker de la queue `notifications`). `confirmPayment` encola UN job por orden `{ orderId }` con delay 15s + 6 attempts con backoff; el processor verifica que TODOS los PDFs estén generados (si falta alguno lanza y reintenta) y manda un solo email con todos los PDFs adjuntos. SIN WhatsApp por ahora.
+- **Notifications**: módulo en `src/modules/notifications/` — `NotificationEmailService` (nodemailer con `SMTP_*`, fallback a las `*_EMAIL` legacy), templates Handlebars en `src/shared/email/templates/` (p. ej. `ticket-email.hbs`; el build los copia a dist), processor `send-order-tickets-email` (único worker de la queue `notifications`). `confirmPayment` encola UN job por orden `{ orderId }` con delay 15s + 6 attempts con backoff; el processor verifica que TODOS los PDFs estén generados (si falta alguno lanza y reintenta) y manda un solo email con todos los PDFs adjuntos. SIN WhatsApp por ahora.
 - Scanner web para validadores: página autocontenida en `public/scanner/index.html`, servida en `/scanner` (ServeStatic). Login staff → selección de evento → escaneo continuo con jsQR → `POST /check-in/validate`. Timeout de 10s por request para señal baja.
 - Cleanup de assets: job diario 04:00 (queue `maintenance`) que borra QR/PDF de eventos finalizados hace +30 días; conserva ticket, `qrCode` y `check_in_log` (regenerable vía endpoint admin).
+- **Validación fiscal productora (FP01 / BR-PROD-002, 011, 014):** wizard bloqueante hasta aprobación Admin; campos banco/CBU/alias separados; identidad fiscal + docs bloqueados post-aprobación; cambio de cuenta vía `POST /organizations/me/bank-change-request` + approve/reject Admin (productora sigue operando). Migración `1784250000000-OrganizationBankFieldsAndChangeRequest`. Specs en `tickets-frontend/docs/` (Actualización 28).
 
 ### Pendientes (en orden)
 1. Waiting Room (módulo completo — la base ya está en RedisService)

@@ -9,6 +9,7 @@ import { AuthService } from './auth/services/implementation/auth.service';
 import { UserFileService } from './user-file/services/implementation/user-file.service';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { OrganizationService } from './organization/services/implementation/organization.service';
+import { OrganizationStaffService } from './organization/services/implementation/organization-staff.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
@@ -22,6 +23,9 @@ import { MercadoPagoService } from './payments/services/implementation/mercadopa
 import { PaymentService } from './payments/services/implementation/payment.service';
 import { CheckInService } from './check-in/services/implementation/checkin.service';
 import { QrGenerationModule } from './qr-generation/qr-generation.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
+import { SupportService } from './support/services/implementation/support.service';
 
 @Module({
   imports: [
@@ -33,7 +37,8 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
       signOptions: { expiresIn: '1d' }
     }),
     DBModule,
-    QrGenerationModule
+    QrGenerationModule,
+    NotificationsModule
   ],
   providers: [
     { provide: 'IAuthService', useClass: AuthService },
@@ -41,11 +46,14 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
     { provide: 'IUserFileService', useClass: UserFileService },
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
+    OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
+    { provide: 'IUserNotificationService', useClass: UserNotificationService },
+    { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
     StockService,
     FeeSummaryService,
@@ -62,11 +70,14 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
     { provide: 'IUserFileService', useClass: UserFileService },
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
+    OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
+    { provide: 'IUserNotificationService', useClass: UserNotificationService },
+    { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
     StockService,
     FeeSummaryService,
@@ -76,7 +87,8 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
     RoleGuard,
     InternalTokenGuard,
     UserPermissionService,
-    QrGenerationModule
+    QrGenerationModule,
+    NotificationsModule
   ]
 })
 export class ServiceModule {}

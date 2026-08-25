@@ -18,7 +18,7 @@ export class CreateUserFileRequest {
   path: string;
 
   constructor(data: TEntityResponse<'file', undefined, undefined>) {
-    this.userUuid = data.userUuid;
-    this.path = data.path;
+    this.userUuid = data.userUuid ?? '';
+    this.path = data.path ?? '';
   }
 }

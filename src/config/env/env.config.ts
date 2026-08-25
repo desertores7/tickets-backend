@@ -44,7 +44,8 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_ACCESS_EXPIRES: z.string().default('15m'),
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
-  JWT_REFRESH_EXPIRES: z.string().default('7d'),
+  /** Sesión web: el refresh renueva el access; 12h alcanza para un día de uso sin re-login. */
+  JWT_REFRESH_EXPIRES: z.string().default('12h'),
 
   CORS_ALLOWED_ORIGINS: z
     .string()
@@ -82,7 +83,10 @@ export const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM_NAME: z.string().optional(),
-  SMTP_FROM_EMAIL: z.string().optional()
+  SMTP_FROM_EMAIL: z.string().optional(),
+
+  /** Destino de formularios de contacto / soporte (BR-SUPPORT-002) */
+  SUPPORT_EMAIL: z.string().email().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

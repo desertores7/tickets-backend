@@ -34,6 +34,8 @@ import {
 } from '../core/order';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
+/** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
+const SERVICE_FEE_RATE = 0.15;
 const IDEMPOTENCY_TTL_SECONDS = 86400;
 
 @Injectable()
@@ -132,7 +134,7 @@ export class OrderService implements IOrderService {
       subtotal += dto.items[i].quantity * Number(ticketTypes[i]!.price);
     }
     subtotal = Math.round(subtotal * 100) / 100;
-    const serviceFee = Math.round(subtotal * 0.1 * 100) / 100;
+    const serviceFee = Math.round(subtotal * SERVICE_FEE_RATE * 100) / 100;
     const total = Math.round((subtotal + serviceFee) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails

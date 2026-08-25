@@ -8,7 +8,7 @@
   "scripts": {
     "build": "nest build && npm run copy-migrations && npm run copy-templates",
     "copy-migrations": "copyfiles -u 1 \"src/migrations/**/*\" dist",
-    "copy-templates": "copyfiles -u 1 \"src/shared/auth/templates/**/*\" dist",
+    "copy-templates": "copyfiles -u 1 \"src/shared/email/templates/**/*\" dist",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",

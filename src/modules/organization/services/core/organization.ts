@@ -29,6 +29,8 @@ export interface IOrganizationUpdate {
 export interface IAssignUserOrganization {
   firstName: string;
   lastName: string;
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro';
+  documentNumber: string;
   email: string;
   password: string;
 }

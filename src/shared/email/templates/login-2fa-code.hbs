@@ -1,0 +1,53 @@
+{{!-- login-2fa-code: código de acceso cuando twoAuthentication está activo --}}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Código de acceso</title>
+  {{> styles}}
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden;">{{preheader}}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+          {{> header}}
+
+          <tr>
+            <td class="mobile-padding" style="padding:32px 40px;">
+              <h1 style="margin:0 0 12px; color:#0f172a; font-size:24px; font-weight:800;">
+                Código de acceso
+              </h1>
+              <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                Hola {{firstName}},
+              </p>
+              <p style="margin:0 0 8px; color:#334155; font-size:15px; line-height:1.7;">
+                Usá el siguiente código para ingresar a tu cuenta:
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto;">
+                <tr>
+                  <td align="center" style="padding:18px 32px; background-color:#e0f2fe; border:1px solid #e2e8f0; border-radius:12px;">
+                    <span style="font-family:'Courier New',Courier,monospace; font-size:32px; font-weight:800; letter-spacing:8px; color:#0f172a;">
+                      {{code}}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0; color:#94a3b8; font-size:13px; line-height:1.6;">
+                Este código expira en 5 minutos. Si no lo solicitaste, ignorá este correo.
+              </p>
+            </td>
+          </tr>
+
+          {{> footer}}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

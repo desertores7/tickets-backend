@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class ResetPasswordRequest {
   @IsNotEmpty()
@@ -9,14 +9,23 @@ export class ResetPasswordRequest {
   email: string;
 
   @IsNotEmpty()
-  @MinLength(6)
-  @MaxLength(255)
   @IsString()
-  @ApiProperty({ description: 'Nueva contraseña' })
-  password: string;
+  @MinLength(6)
+  @MaxLength(6)
+  @Matches(/^\d{6}$/, { message: 'El código debe tener 6 dígitos' })
+  @ApiProperty({ description: 'Código de 6 dígitos enviado por email', example: '123456' })
+  code: string;
 
   @IsNotEmpty()
   @IsString()
-  @ApiProperty({ description: 'Token recibido en el enlace del correo (/new-password?token=...)' })
-  token: string;
+  @MinLength(8)
+  @MaxLength(255)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
+    message: 'La contraseña debe incluir letras, números y al menos un carácter especial'
+  })
+  @ApiProperty({
+    description: 'Nueva contraseña: letras, números y al menos un carácter especial (BR-AUTH-010)',
+    minLength: 8
+  })
+  password: string;
 }
