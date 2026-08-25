@@ -17,6 +17,9 @@ export class UserResponse {
   @ApiProperty({ name: 'email' })
   email: string;
 
+  @ApiProperty({ name: 'emailVerified' })
+  emailVerified: boolean;
+
   @ApiProperty({
     name: 'imgProfile',
     type: 'object',
@@ -38,6 +41,7 @@ export class UserResponse {
     this.firstName = user.firstName;
     this.lastName = user.lastName;
     this.email = user.email;
+    this.emailVerified = Boolean(user.emailVerified);
     this.imgProfile = {
       url: user.files?.find(file => isProfileFile(file))?.path || '',
       type: user.files?.find(file => isProfileFile(file))?.type || ''
@@ -92,7 +96,8 @@ export class LoginAuthResponse {
           new MeOrganizationResponse({
             uuid: uo.organization.uuid,
             name: uo.organization.name,
-            active: uo.organization.active
+            active: uo.organization.active,
+            validationStatus: uo.organization.validationStatus
           })
       );
   }

@@ -1,10 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
-import * as Handlebars from 'handlebars';
 import { EnvService } from '@config/env/env.service';
+import { renderEmailTemplate } from '@root/shared/email/compile-template';
+import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
+import { EMAIL_BRAND } from '@root/shared/auth/const/email-brand';
 
 export interface EmailAttachment {
   filename: string;
@@ -20,24 +20,14 @@ export interface SendOrderTicketsEmailParams {
 
 /**
  * Servicio de email transaccional del módulo de notificaciones.
- * Usa las variables SMTP_* (Gmail SMTP con contraseña de aplicación en MVP),
- * con fallback a las variables *_EMAIL legacy si las SMTP_* no están definidas.
- *
- * Gmail SMTP tiene límite de ~500 emails/día — suficiente para MVP,
- * migrar a proveedor transaccional en producción.
+ * Templates en `src/shared/email/templates/` (Handlebars).
  */
 @Injectable()
 export class NotificationEmailService {
   private readonly logger = new Logger(NotificationEmailService.name);
   private transporter: Transporter | null = null;
-  private readonly templatesPath: string;
-  private readonly templateCache = new Map<string, HandlebarsTemplateDelegate>();
 
-  constructor(private readonly envService: EnvService) {
-    const distTemplates = path.join(__dirname, '..', '..', '..', '..', 'shared', 'auth', 'templates');
-    const srcTemplates = path.join(process.cwd(), 'src', 'shared', 'auth', 'templates');
-    this.templatesPath = fs.existsSync(path.join(distTemplates, 'ticket-email.hbs')) ? distTemplates : srcTemplates;
-  }
+  constructor(private readonly envService: EnvService) {}
 
   private getSmtpConfig() {
     const host = this.envService.get('SMTP_HOST') ?? this.envService.get('HOST_EMAIL');
@@ -77,26 +67,17 @@ export class NotificationEmailService {
     return `"${fromName}" <${fromEmail}>`;
   }
 
-  private compileTemplate(templateName: string): HandlebarsTemplateDelegate {
-    const cached = this.templateCache.get(templateName);
-    if (cached) return cached;
-
-    const templatePath = path.join(this.templatesPath, `${templateName}.hbs`);
-    const source = fs.readFileSync(templatePath, 'utf8');
-    const compiled = Handlebars.compile(source);
-    this.templateCache.set(templateName, compiled);
-    return compiled;
-  }
-
-  /** Envío genérico con template + adjuntos */
   private async sendTemplate(
     templateName: string,
     params: SendOrderTicketsEmailParams
   ): Promise<void> {
     const { to, subject, templateData, attachments } = params;
 
-    const template = this.compileTemplate(templateName);
-    const html = template(templateData);
+    const html = renderEmailTemplate(templateName, {
+      appName: EMAIL_BRAND.appName,
+      year: new Date().getFullYear(),
+      ...templateData
+    });
 
     await this.getTransporter().sendMail({
       from: this.getFromAddress(),
@@ -108,12 +89,12 @@ export class NotificationEmailService {
   }
 
   async sendOrderTicketsEmail(params: SendOrderTicketsEmailParams): Promise<void> {
-    await this.sendTemplate('ticket-email', params);
+    await this.sendTemplate(EMAIL_TEMPLATES.ticketEmail, params);
     this.logger.log(`Order tickets email sent to ${params.to} (${params.attachments.length} attachments)`);
   }
 
   async sendTransferOfferEmail(params: SendOrderTicketsEmailParams): Promise<void> {
-    await this.sendTemplate('ticket-transfer', params);
+    await this.sendTemplate(EMAIL_TEMPLATES.ticketTransfer, params);
     this.logger.log(`Transfer offer email sent to ${params.to}`);
   }
 

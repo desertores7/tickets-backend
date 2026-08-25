@@ -1,6 +1,7 @@
 import { TEntityResponse } from '@config/db/meta/db.types';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
+import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import {
   IAssignUserOrganization,
@@ -8,6 +9,9 @@ import {
   IOrganizationUpdate,
   IUnassignUserOrganization
 } from '../core/organization';
+import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
+import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { organizationFilters } from '../../controllers/const/organization.filters';
 
 export type TOrganizationResponse = TEntityResponse<'organization', undefined, undefined>;
 
@@ -25,7 +29,8 @@ export interface IOrganizationService {
   getOrganizations(
     pagination: IPaginationParams,
     search: ISearchParams,
-    loggedUser: string
+    loggedUser: string,
+    filters?: IFiltersParams<typeof organizationFilters>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: TOrganizationResponseWithUserOrganizations[];
@@ -45,4 +50,10 @@ export interface IOrganizationService {
 
   unassignUserOrganization(organizationUuid: string, data: IUnassignUserOrganization): Promise<boolean>;
   deleteOrganization(id: string): Promise<boolean>;
+
+  getMyOrganization(userUuid: string): Promise<OrganizationEntity>;
+  updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity>;
+  submitMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
+  approveOrganization(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
+  rejectOrganization(organizationUuid: string, adminUuid: string, reason: string): Promise<OrganizationEntity>;
 }

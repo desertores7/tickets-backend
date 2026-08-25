@@ -39,10 +39,18 @@ export class MeOrganizationResponse {
   @ApiProperty({ name: 'active' })
   active: number;
 
-  constructor(data: { uuid: string; name: string; active: number }) {
+  @ApiProperty({
+    name: 'validationStatus',
+    enum: ['draft_incomplete', 'pending_review', 'approved', 'rejected'],
+    required: false
+  })
+  validationStatus?: string;
+
+  constructor(data: { uuid: string; name: string; active: number; validationStatus?: string }) {
     this.uuid = data.uuid;
     this.name = data.name;
     this.active = data.active;
+    this.validationStatus = data.validationStatus;
   }
 }
 
@@ -182,7 +190,8 @@ export class MeResponse {
           new MeOrganizationResponse({
             uuid: uo.organization.uuid,
             name: uo.organization.name,
-            active: uo.organization.active
+            active: uo.organization.active,
+            validationStatus: uo.organization.validationStatus
           })
       );
   }

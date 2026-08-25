@@ -44,7 +44,8 @@ export const envSchema = z.object({
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_ACCESS_EXPIRES: z.string().default('15m'),
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
-  JWT_REFRESH_EXPIRES: z.string().default('7d'),
+  /** Sesión web: el refresh renueva el access; 12h alcanza para un día de uso sin re-login. */
+  JWT_REFRESH_EXPIRES: z.string().default('12h'),
 
   CORS_ALLOWED_ORIGINS: z
     .string()

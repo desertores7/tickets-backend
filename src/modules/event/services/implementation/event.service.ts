@@ -144,6 +144,12 @@ export class EventService implements IEventService {
     });
     if (!org) throw new BadRequestException('Organización no encontrada');
 
+    if (org.validationStatus !== 'approved') {
+      throw new ForbiddenException(
+        'La productora debe estar aprobada para crear eventos. Completá y enviá la validación fiscal.'
+      );
+    }
+
     await this.assertOrganizationMembership(data.organizationUuid, loggedUser);
 
     this.assertDateCoherence(data);

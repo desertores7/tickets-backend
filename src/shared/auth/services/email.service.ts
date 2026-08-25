@@ -1,36 +1,24 @@
 import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
-import * as Handlebars from 'handlebars';
-import * as fs from 'fs';
-import * as path from 'path';
 import { EmailConfig, SendEmailOptions } from '../const/email';
-import {
-  EMAIL_BRAND,
-  emailCodeBlock,
-  emailInfoCard,
-  emailLinkFallback,
-  emailParagraph,
-  emailSmallNote
-} from '../const/email-brand';
+import { EMAIL_BRAND } from '../const/email-brand';
 import { EnvService } from '@config/env/env.service';
 import { DBRepository } from '@config/db/db.repository';
 import { IsNull } from 'typeorm';
+import { renderEmailTemplate } from '@root/shared/email/compile-template';
+import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 
 @Injectable()
 export class EmailService {
   private transporter: Transporter;
   private emailConfig: EmailConfig;
-  private readonly templatesPath: string;
 
   constructor(
     private envService: EnvService,
     @Inject(DBRepository) private dbRepository: DBRepository
-  ) {
-    const distTemplates = path.join(__dirname, '..', 'templates');
-    const srcTemplates = path.join(process.cwd(), 'src', 'shared', 'auth', 'templates');
-    this.templatesPath = fs.existsSync(distTemplates) ? distTemplates : srcTemplates;
-  }
+  ) {}
+
   private async loadEmailConfig(): Promise<void> {
     if (this.emailConfig) {
       return;
@@ -199,19 +187,17 @@ export class EmailService {
     return this.emailConfig;
   }
 
-  private compileTemplate(templateName: string): HandlebarsTemplateDelegate {
+  async sendTemplateEmail(
+    templateName: string,
+    data: Record<string, unknown>,
+    options: Omit<SendEmailOptions, 'html'>
+  ): Promise<void> {
+    let html: string;
     try {
-      const templatePath = path.join(this.templatesPath, `${templateName}.hbs`);
-      const templateSource = fs.readFileSync(templatePath, 'utf8');
-      return Handlebars.compile(templateSource);
+      html = renderEmailTemplate(templateName, this.withBrand(data));
     } catch (error) {
-      throw new BadRequestException(`Template ${templateName} not found: ${error.message}`);
+      throw new BadRequestException(`Template ${templateName} not found: ${(error as Error).message}`);
     }
-  }
-
-  async sendTemplateEmail(templateName: string, data: any, options: Omit<SendEmailOptions, 'html'>): Promise<void> {
-    const template = this.compileTemplate(templateName);
-    const html = template(data);
 
     await this.send({
       ...options,
@@ -223,161 +209,147 @@ export class EmailService {
     return (this.envService.get('FRONTEND_URL') || 'http://localhost:3000').replace(/\/$/, '');
   }
 
-  private baseTemplateData(overrides: Record<string, unknown>) {
+  private withBrand(data: Record<string, unknown>): Record<string, unknown> {
     return {
       appName: EMAIL_BRAND.appName,
       appTagline: EMAIL_BRAND.appTagline,
       supportEmail: EMAIL_BRAND.supportEmail,
       frontendUrl: this.getFrontendUrl(),
       year: new Date().getFullYear(),
-      ...overrides
+      ...data
     };
   }
 
   async sendNewUserEmail(data: { firstName: string; lastName: string; email: string }): Promise<void> {
     const loginUrl = `${this.getFrontendUrl()}/login`;
-    const content = [
-      emailInfoCard(
-        'Tu cuenta ya está activa',
-        'Ya puedes ingresar y comenzar a disfrutar de todas las funcionalidades de Ticketera.'
-      ),
-      emailParagraph(`Usuario registrado: <strong>${Handlebars.escapeExpression(data.email)}</strong>`)
-    ].join('');
 
     await this.sendTemplateEmail(
-      'base-email',
-      this.baseTemplateData({
+      EMAIL_TEMPLATES.welcomeNewUser,
+      {
         preheader: `Bienvenido a Ticketera, ${data.firstName}. Tu cuenta ya está activa.`,
-        title: '¡Bienvenido a',
-        titleHighlight: 'Ticketera',
-        titleSuffix: '!',
-        subtitle: 'Gracias por confiar en nosotros para transformar tus próximos shows.',
-        greeting: `Hola ${data.firstName} ${data.lastName},`,
-        content,
-        ctaUrl: loginUrl,
-        ctaText: 'Iniciar sesión',
-        linkFallback: emailLinkFallback(loginUrl),
-        showFeatures: true
-      }),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        loginUrl
+      },
       {
         to: data.email,
         subject: `¡Bienvenido a Ticketera, ${data.firstName}!`,
-        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en Ticketera ya está activa. Ingresa en: ${loginUrl}`
+        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en Ticketera ya está activa. Ingresá en: ${loginUrl}`
       }
     );
   }
 
-  async sendResetPasswordEmail(data: { firstName: string; email: string; resetUrl: string }): Promise<void> {
-    const content = emailParagraph(
-      'Recibimos una solicitud para restablecer tu contraseña. Haz clic en el botón para elegir una nueva.'
-    );
-
+  async sendResetPasswordEmail(data: { firstName: string; email: string; code: string }): Promise<void> {
     await this.sendTemplateEmail(
-      'base-email',
-      this.baseTemplateData({
-        preheader: 'Restablece tu contraseña de Ticketera.',
-        title: 'Recuperación de',
-        titleHighlight: 'contraseña',
-        greeting: `Hola ${data.firstName},`,
-        content,
-        ctaUrl: data.resetUrl,
-        ctaText: 'Restablecer contraseña',
-        linkFallback: emailLinkFallback(data.resetUrl),
-        postCtaContent: emailSmallNote(
-          'Este enlace expira en 1 hora. Si no solicitaste este cambio, ignora este correo.'
-        )
-      }),
+      EMAIL_TEMPLATES.resetPasswordCode,
+      {
+        preheader: `Tu código para restablecer la contraseña es ${data.code}`,
+        firstName: data.firstName,
+        code: data.code
+      },
       {
         to: data.email,
         subject: 'Restablecer contraseña — Ticketera',
-        text: `Hola ${data.firstName}, restablece tu contraseña visitando: ${data.resetUrl}`
+        text: `Hola ${data.firstName}, tu código para restablecer la contraseña es ${data.code}. Expira en 15 minutos.`
       }
     );
   }
 
   async sendLoginCodeEmail(data: { firstName: string; email: string; code: string }): Promise<void> {
-    const content = [
-      emailParagraph('Usa el siguiente código para ingresar a tu cuenta:'),
-      emailCodeBlock(data.code),
-      emailSmallNote('Este código expira en 5 minutos. Si no lo solicitaste, ignora este correo.')
-    ].join('');
-
     await this.sendTemplateEmail(
-      'base-email',
-      this.baseTemplateData({
+      EMAIL_TEMPLATES.login2faCode,
+      {
         preheader: `Tu código de acceso a Ticketera es ${data.code}`,
-        title: 'Código de',
-        titleHighlight: 'acceso',
-        greeting: `Hola ${data.firstName},`,
-        content
-      }),
+        firstName: data.firstName,
+        code: data.code
+      },
       {
         to: data.email,
-        text: `Hola ${data.firstName}, tu codigo de acceso es ${data.code}. Expira en 5 minutos.`,
-        subject: 'Código de validación de acceso — Ticketera'
+        subject: 'Código de validación de acceso — Ticketera',
+        text: `Hola ${data.firstName}, tu código de acceso es ${data.code}. Expira en 5 minutos.`
       }
     );
   }
 
   async sendRegistrationEmail(data: { firstName: string; email: string; validationUrl: string }): Promise<void> {
-    const content = emailInfoCard(
-      'Confirma tu correo electrónico',
-      'Tu cuenta fue registrada correctamente. Para completar el proceso y activar tu acceso, valida tu dirección de correo.'
-    );
-
     await this.sendTemplateEmail(
-      'base-email',
-      this.baseTemplateData({
-        preheader: 'Confirma tu registro en Ticketera.',
-        title: '¡Registro',
-        titleHighlight: 'exitoso',
-        titleSuffix: '!',
-        subtitle: 'Estás a un paso de comenzar a comprar tus entradas en Ticketera.',
-        greeting: `Hola ${data.firstName},`,
-        content,
-        ctaUrl: data.validationUrl,
-        ctaText: 'Validar correo electrónico',
-        linkFallback: emailLinkFallback(data.validationUrl),
-        postCtaContent: emailSmallNote('Este enlace expira en 24 horas. Si no creaste esta cuenta, ignora este correo.')
-      }),
+      EMAIL_TEMPLATES.registrationWelcome,
+      {
+        preheader: 'Gracias por registrarte en Ticketera. Verificá tu email para empezar.',
+        firstName: data.firstName,
+        validationUrl: data.validationUrl
+      },
       {
         to: data.email,
-        subject: 'Confirma tu registro — Ticketera',
-        text: `Hola ${data.firstName}, valida tu correo visitando: ${data.validationUrl}`
+        subject: 'Bienvenido a Ticketera — verificá tu email',
+        text: `Hola ${data.firstName}, gracias por registrarte en Ticketera. Verificá tu email en: ${data.validationUrl}`
       }
     );
   }
 
   async sendEmailVerifiedEmail(data: { firstName: string; email: string }): Promise<void> {
     const loginUrl = `${this.getFrontendUrl()}/login`;
-    const content = [
-      emailInfoCard(
-        'Correo validado exitosamente',
-        'Tu dirección de correo ha sido confirmada. Ya puedes iniciar sesión y comenzar a disfrutar de todas las funcionalidades de Ticketera.'
-      ),
-      emailParagraph(
-        'Gracias por ser parte de Ticketera. Estamos felices de acompañarte en tus próximos shows.'
-      )
-    ].join('');
 
     await this.sendTemplateEmail(
-      'base-email',
-      this.baseTemplateData({
-        preheader: 'Tu correo fue validado correctamente en Ticketera.',
-        title: 'Correo',
-        titleHighlight: 'validado',
-        titleSuffix: ' correctamente',
-        subtitle: 'Tu cuenta está lista para usar.',
-        greeting: `Hola ${data.firstName},`,
-        content,
-        ctaUrl: loginUrl,
-        ctaText: 'Iniciar sesión',
-        linkFallback: emailLinkFallback(loginUrl)
-      }),
+      EMAIL_TEMPLATES.emailVerified,
+      {
+        preheader: 'Tu correo fue verificado correctamente en Ticketera.',
+        firstName: data.firstName,
+        loginUrl
+      },
       {
         to: data.email,
-        subject: 'Correo validado correctamente — Ticketera',
-        text: `Hola ${data.firstName}, tu correo fue validado correctamente. Gracias por ser parte de Ticketera. Inicia sesión en: ${loginUrl}`
+        subject: 'Correo verificado correctamente — Ticketera',
+        text: `Hola ${data.firstName}, tu correo fue verificado. Iniciá sesión en: ${loginUrl}`
+      }
+    );
+  }
+
+  async sendOrganizationApprovedEmail(data: {
+    firstName: string;
+    email: string;
+    organizationName: string;
+  }): Promise<void> {
+    const dashboardUrl = `${this.getFrontendUrl()}/producer/dashboard`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.organizationApproved,
+      {
+        preheader: `${data.organizationName} fue aprobada. Ya podés crear eventos.`,
+        firstName: data.firstName,
+        organizationName: data.organizationName,
+        dashboardUrl
+      },
+      {
+        to: data.email,
+        subject: `Productora aprobada — ${data.organizationName}`,
+        text: `Hola ${data.firstName}, la productora ${data.organizationName} fue aprobada. Ingresá en: ${dashboardUrl}`
+      }
+    );
+  }
+
+  async sendOrganizationRejectedEmail(data: {
+    firstName: string;
+    email: string;
+    organizationName: string;
+    rejectionReason: string;
+  }): Promise<void> {
+    const fiscalUrl = `${this.getFrontendUrl()}/producer/organization/fiscal`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.organizationRejected,
+      {
+        preheader: `La validación de ${data.organizationName} fue rechazada.`,
+        firstName: data.firstName,
+        organizationName: data.organizationName,
+        rejectionReason: data.rejectionReason,
+        fiscalUrl
+      },
+      {
+        to: data.email,
+        subject: `Validación rechazada — ${data.organizationName}`,
+        text: `Hola ${data.firstName}, la productora ${data.organizationName} no fue aprobada. Motivo: ${data.rejectionReason}. Corregí los datos en: ${fiscalUrl}`
       }
     );
   }

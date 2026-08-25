@@ -53,10 +53,18 @@ export interface IAuthService {
   verifyTwoFactor(email: string, code: string): Promise<TUserLoginAuthResponse>;
   resendTwoFactor(email: string): Promise<{ message: string }>;
   registerAuth(request: RegisterAuthRequest): Promise<{ email: string; uuid: string }>;
+  registerProducer(request: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    acceptedTerms: true;
+  }): Promise<{ email: string; uuid: string; organizationUuid: string }>;
   resendEmailVerification(email: string): Promise<void>;
   validateEmailAuth(token: string): Promise<{ verified: boolean; alreadyVerified: boolean; message: string }>;
   sendResetPassword(email: string): Promise<void>;
-  resetPassword(email: string, password: string, token: string): Promise<void>;
+  resetPassword(email: string, password: string, code: string): Promise<void>;
+  refreshTokens(refreshToken: string): Promise<{ access_token: string; refresh_token: string }>;
   changePassword(userUuid: string, currentPassword: string, newPassword: string): Promise<void>;
   createTokenSession(
     userId: string,

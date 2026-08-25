@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserTokenSessionEntity } from '@config/db/entities/user/user_token_session.entity';
 import { UserSessionEntity } from '@config/db/entities/user/user_session.entity';
+import { PasswordResetCodeEntity } from '@config/db/entities/user/password-reset-code.entity';
 import * as bcryptjs from 'bcryptjs';
 import { IsNull, MoreThan, QueryRunner } from 'typeorm';
 import { TEntityResponse } from '@config/db/meta/db.types';
@@ -25,9 +26,12 @@ import { FileEntity } from '@config/db/entities/user/file.entity';
 import { FileTypeEntity } from '@config/db/entities/user/file_type.entity';
 import { PROFILE_FILE_TYPE_NAME, PROFILE_FILE_TYPE_UUID } from '@config/db/const/file-type.const';
 import { UserEntity } from '@config/db/entities/user/user.entity';
+import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
 import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register-auth.request';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { PRODUCTOR_ROLE_UUID } from '@modules/organization/const/organization-fiscal.const';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -48,6 +52,7 @@ export class AuthService implements IAuthService {
    * `role`, así que este UUID tiene que existir sí o sí.
    */
   private readonly roleUserUuid = 'd4f8a1c3-5b27-4e69-9a04-3c71e8b5d2f6';
+  private readonly roleProductorUuid = PRODUCTOR_ROLE_UUID;
   private readonly superAdminRoleUuid = '58f10bc6-a38c-4876-9d38-c11351e376b8';
 
   private async resolveDefaultRoleUuid(createdBy?: string): Promise<string> {
@@ -113,9 +118,8 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedException('Usuario inactivo');
     }
 
-    if (!user.emailVerified && !this.isLocalEnvironment()) {
-      throw new UnauthorizedException('Email no verificado. Verifique su bandeja de entrada.');
-    }
+    // Si el email no está verificado igual puede entrar: el área cliente muestra un banner
+    // para completar la verificación del correo de registro (emailVerified).
 
     const localPasswordOk = await this.compare(password, user.password);
     if (!localPasswordOk) {
@@ -159,13 +163,13 @@ export class AuthService implements IAuthService {
     });
     const refresh = await this.jwt.signAsync(payload, {
       secret: this.config.get('JWT_REFRESH_SECRET'),
-      expiresIn: this.config.get('JWT_REFRESH_EXPIRES') || '7d'
+      expiresIn: this.config.get('JWT_REFRESH_EXPIRES') || '12h'
     });
     return { access, refresh };
   }
 
   public refreshExpToDate(): Date {
-    const exp = this.config.get('JWT_REFRESH_EXPIRES') || '7d';
+    const exp = this.config.get('JWT_REFRESH_EXPIRES') || '12h';
     // soporte simple: 7d, 15m, etc.
     const now = new Date();
     const n = parseInt(exp);
@@ -261,6 +265,61 @@ export class AuthService implements IAuthService {
       userTokenSessions: userWithRelations.userTokenSessions || [],
       userOrganizations: userWithRelations.userOrganizations || []
     };
+  }
+
+  /**
+   * Renueva access + refresh con rotación de sesión en DB.
+   * Access corto (15m) + refresh ~12h: patrón recomendado para SPA web.
+   */
+  async refreshTokens(refreshToken: string): Promise<{ access_token: string; refresh_token: string }> {
+    let payload: { sub?: string; email?: string };
+    try {
+      payload = await this.jwt.verifyAsync(refreshToken, {
+        secret: this.config.get('JWT_REFRESH_SECRET')
+      });
+    } catch {
+      throw new UnauthorizedException('Sesión expirada. Volvé a iniciar sesión.');
+    }
+
+    if (!payload.sub) {
+      throw new UnauthorizedException('Sesión inválida');
+    }
+
+    const sessions = await this.dbRepository.findMany({
+      entity: 'user_token_session',
+      where: { userUuid: payload.sub, isDeleted: IsNull() }
+    });
+
+    let matched = false;
+    for (const session of sessions) {
+      if (await this.compare(refreshToken, session.refresh_token)) {
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      throw new UnauthorizedException('Sesión inválida o revocada');
+    }
+
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: payload.sub, isDeleted: IsNull() },
+      relations: {
+        files: true,
+        userTokenSessions: true,
+        userRoles: { role: true }
+      }
+    });
+
+    if (!user || !user.active) {
+      throw new UnauthorizedException('Usuario inactivo o no encontrado');
+    }
+
+    const { access, refresh } = await this.signTokens(user);
+    await this.setRefresh(user.uuid, access, refresh);
+
+    return { access_token: access, refresh_token: refresh };
   }
 
   async userLoginAuth(emailOrUsername: string, password: string): Promise<TLoginAuthResult> {
@@ -404,33 +463,6 @@ export class AuthService implements IAuthService {
     return { userUuid: payload.sub, email: payload.email };
   }
 
-  private async signPasswordResetToken(userUuid: string, email: string): Promise<string> {
-    return this.jwt.signAsync(
-      { sub: userUuid, email, purpose: 'password-reset' },
-      {
-        secret: this.config.get('JWT_SECRET'),
-        expiresIn: '1h'
-      }
-    );
-  }
-
-  private async verifyPasswordResetToken(token: string): Promise<{ userUuid: string; email: string }> {
-    let payload: { sub?: string; email?: string; purpose?: string };
-    try {
-      payload = await this.jwt.verifyAsync(token, {
-        secret: this.config.get('JWT_SECRET')
-      });
-    } catch {
-      throw new BadRequestException('Invalid or expired reset link');
-    }
-
-    if (payload.purpose !== 'password-reset' || !payload.sub || !payload.email) {
-      throw new BadRequestException('Invalid reset link');
-    }
-
-    return { userUuid: payload.sub, email: payload.email };
-  }
-
   async registerAuth(request: RegisterAuthRequest): Promise<{ email: string; uuid: string }> {
     const existing = await this.dbRepository.findOne({
       entity: 'user',
@@ -477,6 +509,77 @@ export class AuthService implements IAuthService {
     }
 
     return { email: request.email, uuid: user.uuid };
+  }
+
+  async registerProducer(request: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    acceptedTerms: true;
+  }): Promise<{ email: string; uuid: string; organizationUuid: string }> {
+    const existing = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { email: request.email, isDeleted: IsNull() }
+    });
+    if (existing) throw new BadRequestException('El email ya se encuentra registrado');
+
+    const user = new UserEntity();
+    user.uuid = uuidv4();
+    user.firstName = request.firstName.trim();
+    user.lastName = request.lastName.trim();
+    user.email = request.email.trim();
+    user.password = await this.hash(request.password);
+    user.active = 1;
+    user.emailVerified = false;
+    user.emailVerifiedAt = null;
+    user.termsAcceptedAt = new Date();
+    user.twoAuthentication = false;
+    user.isDeleted = null;
+    await this.dbRepository.create({ entity: 'user', data: user });
+
+    const userRole = new UserRoleEntity();
+    userRole.uuid = uuidv4();
+    userRole.userUuid = user.uuid;
+    userRole.roleUuid = this.roleProductorUuid;
+    userRole.createdBy = user.uuid;
+    userRole.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'user_role', data: userRole });
+
+    const org = new OrganizationEntity();
+    org.uuid = uuidv4();
+    org.name = `Productora ${user.firstName} ${user.lastName}`.trim();
+    org.active = 1;
+    org.validationStatus = 'draft_incomplete';
+    org.isDeleted = null;
+    org.createdBy = user.uuid;
+    org.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'organization', data: org });
+
+    const membership = new UserOrganizationEntity();
+    membership.uuid = uuidv4();
+    membership.userUuid = user.uuid;
+    membership.organizationUuid = org.uuid;
+    membership.isDeleted = null;
+    membership.createdBy = user.uuid;
+    membership.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'user_organization', data: membership });
+
+    const verificationToken = await this.signEmailVerificationToken(user.uuid, request.email);
+    const validationUrl = `${this.getFrontendUrl()}/validate-email?token=${encodeURIComponent(verificationToken)}`;
+
+    try {
+      await this.emailService.initializeSmtp();
+      await this.emailService.sendRegistrationEmail({
+        firstName: user.firstName,
+        email: request.email,
+        validationUrl
+      });
+    } catch (error) {
+      console.error('Failed to send producer registration email:', error);
+    }
+
+    return { email: request.email, uuid: user.uuid, organizationUuid: org.uuid };
   }
 
   async resendEmailVerification(email: string): Promise<void> {
@@ -554,28 +657,58 @@ export class AuthService implements IAuthService {
   }
 
   async sendResetPassword(email: string): Promise<void> {
+    const normalizedEmail = email.trim();
     const user = await this.dbRepository.findOne({
       entity: 'user',
-      where: { email, isDeleted: IsNull() }
+      where: { email: normalizedEmail, isDeleted: IsNull() }
     });
 
     // Silencio deliberado si el correo no existe: responder distinto convertiría
     // este endpoint público en un oráculo para saber qué direcciones tienen
     // cuenta. El controller devuelve 200 con un mensaje neutro en ambos casos.
     if (!user) {
-      this.logger.warn(`Reset de contraseña pedido para un correo inexistente: ${email}`);
+      this.logger.warn(`Reset de contraseña pedido para un correo inexistente: ${normalizedEmail}`);
       return;
     }
 
-    const resetToken = await this.signPasswordResetToken(user.uuid, email);
-    const resetUrl = `${this.getFrontendUrl()}/new-password?token=${encodeURIComponent(resetToken)}&email=${encodeURIComponent(email)}`;
+    await this.issuePasswordResetCode(user.email, user.firstName || user.username || 'Usuario');
+  }
 
-    await this.emailService.initializeSmtp();
-    await this.emailService.sendResetPasswordEmail({
-      firstName: user.firstName || user.username || 'Usuario',
-      email,
-      resetUrl
+  private async issuePasswordResetCode(email: string, firstName: string): Promise<void> {
+    const pending = await this.dbRepository.findMany({
+      entity: 'user_password_reset',
+      where: { email, isUsed: false }
     });
+    for (const row of pending) {
+      await this.dbRepository.update({
+        entity: 'user_password_reset',
+        where: { uuid: row.uuid },
+        data: { isUsed: true }
+      });
+    }
+
+    const code = this.generateSixDigitCode();
+    const reset = new PasswordResetCodeEntity();
+    reset.uuid = uuidv4();
+    reset.code = code;
+    reset.email = email;
+    reset.isUsed = false;
+    reset.expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    await this.dbRepository.create({ entity: 'user_password_reset', data: reset });
+
+    try {
+      await this.emailService.initializeSmtp();
+      await this.emailService.sendResetPasswordEmail({ firstName, email, code });
+      this.logger.log(`Código de reset de contraseña enviado a ${email}`);
+    } catch (error) {
+      this.logger.error(`No se pudo enviar código de reset a ${email}: ${(error as Error).message}`);
+      if (this.isLocalEnvironment()) {
+        this.logger.warn(`[local] Código de reset para ${email}: ${code}`);
+      } else {
+        throw new BadRequestException('No se pudo enviar el código. Intentá de nuevo.');
+      }
+    }
   }
 
   /**
@@ -607,27 +740,42 @@ export class AuthService implements IAuthService {
     });
   }
 
-  async resetPassword(email: string, password: string, token: string): Promise<void> {
-    const { userUuid, email: tokenEmail } = await this.verifyPasswordResetToken(token);
+  async resetPassword(email: string, password: string, code: string): Promise<void> {
+    const normalizedEmail = email.trim();
+    const reset = await this.dbRepository.findOne({
+      entity: 'user_password_reset',
+      where: {
+        email: normalizedEmail,
+        code: code.trim(),
+        isUsed: false,
+        expiresAt: MoreThan(new Date())
+      },
+      other: { order: { createdAt: 'DESC' } }
+    });
 
-    if (tokenEmail.toLowerCase() !== email.trim().toLowerCase()) {
-      throw new BadRequestException('El link de restablecimiento de contraseña no es válido para este correo');
+    if (!reset) {
+      throw new BadRequestException('Código inválido o expirado');
     }
 
     const user = await this.dbRepository.findOne({
       entity: 'user',
-      where: { uuid: userUuid, email: tokenEmail, isDeleted: IsNull() }
+      where: { email: normalizedEmail, isDeleted: IsNull() }
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
-    const hashedPassword = await this.hash(password);
     await this.dbRepository.update({
       entity: 'user',
-      where: { uuid: userUuid },
-      data: { password: hashedPassword }
+      where: { uuid: user.uuid },
+      data: { password: await this.hash(password), updatedBy: user.uuid }
+    });
+
+    await this.dbRepository.update({
+      entity: 'user_password_reset',
+      where: { uuid: reset.uuid },
+      data: { isUsed: true }
     });
   }
 

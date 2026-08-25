@@ -12,7 +12,10 @@ import { UpdateMeRequest } from './requests/update-me.request';
 import { ResetPasswordRequest } from './requests/reset-password.request';
 import { SendResetPasswordRequest } from './requests/send-password.request';
 import { ChangePasswordRequest } from './requests/change-password.request';
+import { RefreshTokenRequest } from './requests/refresh-token.request';
+import { RefreshTokenResponse } from './responses/refresh-token.response';
 import { RegisterAuthRequest } from './requests/register-auth.request';
+import { RegisterProducerRequest } from './requests/register-producer.request';
 import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
 import { ValidateEmailResponse } from './responses/validate-email.response';
@@ -88,6 +91,20 @@ export class AuthController {
   }
 
   @ApiOperation({
+    summary: 'Refresh tokens',
+    description:
+      'Exchanges a valid refresh token for a new access + refresh pair (rotation). ' +
+      'Access tokens are short-lived (~15m); refresh lasts ~12h for web sessions.'
+  })
+  @Swagger(RefreshTokenRequest, RefreshTokenResponse)
+  @HttpCode(200)
+  @Post('refresh')
+  async refresh(@Body() request: RefreshTokenRequest): Promise<RefreshTokenResponse> {
+    const tokens = await this.authService.refreshTokens(request.refresh_token);
+    return Object.assign(new RefreshTokenResponse(), tokens);
+  }
+
+  @ApiOperation({
     summary: 'Verify 2FA code',
     description: 'Completes login after email/password when twoAuthentication is enabled. Consumes the 6-digit code from email.'
   })
@@ -113,7 +130,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Send reset password email',
     description:
-      'Sends an email with a link to /new-password so the user can set a new password.\n\n' +
+      'Sends a 6-digit code by email so the user can set a new password on /reset-password.\n\n' +
       '**Always returns 200**, whether or not the address belongs to an account. Answering ' +
       'differently would turn this public endpoint into an oracle for discovering which ' +
       'email addresses are registered.'
@@ -123,7 +140,7 @@ export class AuthController {
   @Post('send-reset-password')
   async sendResetPassword(@Body() request: SendResetPasswordRequest): Promise<{ message: string }> {
     await this.authService.sendResetPassword(request.email);
-    return { message: 'Si el correo está registrado, te enviamos las instrucciones para recuperar tu contraseña.' };
+    return { message: 'Si el correo está registrado, te enviamos un código para recuperar tu contraseña.' };
   }
 
   @ApiOperation({
@@ -142,13 +159,13 @@ export class AuthController {
   @ApiOperation({
     summary: 'Reset password',
     description:
-      'Sets a new password using the token from the reset email link (/new-password?token=...) plus email and password.'
+      'Sets a new password using the 6-digit code from the reset email, plus email and the new password.'
   })
   @Swagger(ResetPasswordRequest, null)
   @HttpCode(200)
   @Post('reset-password')
   async resetPassword(@Body() request: ResetPasswordRequest): Promise<void> {
-    await this.authService.resetPassword(request.email, request.password, request.token);
+    await this.authService.resetPassword(request.email, request.password, request.code);
   }
 
   @ApiOperation({
@@ -160,6 +177,26 @@ export class AuthController {
   @Post('register/client')
   async registerClient(@Body() request: RegisterAuthRequest): Promise<RegisterAuthResponse> {
     const result = await this.authService.registerAuth(request);
+    return new RegisterAuthResponse(result.email);
+  }
+
+  @ApiOperation({
+    summary: 'Register producer',
+    description:
+      'Creates a Productor account with a draft organization (validationStatus=draft_incomplete). ' +
+      'Sends email verification. Fiscal wizard is required before creating events (FP01).'
+  })
+  @Swagger(RegisterProducerRequest, RegisterAuthResponse)
+  @HttpCode(201)
+  @Post('register/producer')
+  async registerProducer(@Body() request: RegisterProducerRequest): Promise<RegisterAuthResponse> {
+    const result = await this.authService.registerProducer({
+      firstName: request.firstName,
+      lastName: request.lastName,
+      email: request.email,
+      password: request.password,
+      acceptedTerms: true
+    });
     return new RegisterAuthResponse(result.email);
   }
 
