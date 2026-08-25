@@ -12,6 +12,7 @@ export class User implements IUser {
   active: number;
   isDeleted: Date | null;
   termsAcceptedAt: Date | null;
+  twoAuthentication: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -32,6 +33,7 @@ export interface IUser {
   active: number;
   isDeleted: Date | null;
   termsAcceptedAt: Date | null;
+  twoAuthentication: boolean;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;

@@ -344,6 +344,7 @@ export class AuthService implements IAuthService {
     user.emailVerified = false;
     user.emailVerifiedAt = null;
     user.termsAcceptedAt = new Date();
+    user.twoAuthentication = false;
     user.isDeleted = null;
     await this.dbRepository.create({ entity: 'user', data: user });
 

@@ -335,7 +335,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/mine
+  // GET /api/v1/tickets/me
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetMyTicketsResponse)
@@ -349,7 +349,7 @@ export class TicketController {
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
   @HttpCode(200)
-  @Get('mine')
+  @Get('me')
   async getMyTickets(@PaginationParams() pagination: IPaginationParams, @User() userId: string): Promise<GetMyTicketsResponse> {
     const { page, limit } = pagination;
 

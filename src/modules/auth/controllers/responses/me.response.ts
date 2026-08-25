@@ -68,6 +68,14 @@ export class MeUserResponse {
   @ApiProperty({ name: 'dni', type: String, nullable: true })
   dni: string | null;
 
+  @ApiProperty({
+    name: 'documentType',
+    enum: ['DNI', 'Pasaporte', 'Documento extranjero', 'Otro'],
+    nullable: true,
+    required: false
+  })
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
+
   @ApiProperty({ name: 'gender', type: String, nullable: true })
   gender: string | null;
 
@@ -76,6 +84,12 @@ export class MeUserResponse {
 
   @ApiProperty({ name: 'emailVerified' })
   emailVerified: boolean;
+
+  @ApiProperty({ name: 'termsAcceptedAt', type: String, format: 'date-time', nullable: true, required: false })
+  termsAcceptedAt: Date | null;
+
+  @ApiProperty({ name: 'twoAuthentication' })
+  twoAuthentication: boolean;
 
   @ApiProperty({ name: 'active' })
   active: number;
@@ -92,9 +106,12 @@ export class MeUserResponse {
     this.username = data.username ?? null;
     this.phone = data.phone ?? null;
     this.dni = data.dni ?? null;
+    this.documentType = data.documentType ?? null;
     this.gender = data.gender ?? null;
     this.birthday = data.birthday ?? null;
     this.emailVerified = data.emailVerified;
+    this.termsAcceptedAt = data.termsAcceptedAt ?? null;
+    this.twoAuthentication = Boolean(data.twoAuthentication);
     this.active = data.active;
     this.imgProfile = new MeImgProfileResponse(profileFile?.path || '', profileFile?.type || '');
   }

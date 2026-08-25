@@ -71,6 +71,9 @@ export class UserEntity {
   @Column({ name: 'termsAcceptedAt', type: 'timestamp', precision: 3, nullable: true, default: null })
   termsAcceptedAt: Date | null;
 
+  @Column({ name: 'twoAuthentication', type: 'boolean', default: false })
+  twoAuthentication: boolean;
+
   @Column({ type: 'date', nullable: true, default: null })
   isDeleted: Date | null;
 
