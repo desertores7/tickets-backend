@@ -1,14 +1,17 @@
 export class User implements IUser {
   uuid: string;
   dni: string | null;
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
   firstName: string;
   lastName: string;
   email: string;
   gender: string | null;
   password: string;
+  googleId: string | null;
   birthday: Date | null;
   active: number;
   isDeleted: Date | null;
+  termsAcceptedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;
@@ -18,14 +21,17 @@ export class User implements IUser {
 export interface IUser {
   uuid: string;
   dni: string | null;
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
   firstName: string;
   lastName: string;
   email: string;
   gender: string | null;
   password: string;
+  googleId: string | null;
   birthday: Date | null;
   active: number;
   isDeleted: Date | null;
+  termsAcceptedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   createdBy: string | null;

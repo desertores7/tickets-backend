@@ -206,8 +206,11 @@ export class OrganizationService implements IOrganizationService {
     const { uuid: userUuid } = await this.authService.registerAuth({
       firstName: data.firstName,
       lastName: data.lastName,
+      documentType: data.documentType,
+      documentNumber: data.documentNumber,
       email: data.email,
-      password: data.password
+      password: data.password,
+      acceptedTerms: true
     });
 
     const existingAssignment = await this.dbRepository.findOne({

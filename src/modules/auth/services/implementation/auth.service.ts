@@ -108,6 +108,10 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedException('Usuario o contraseña incorrectos');
     }
 
+    if (!user.active) {
+      throw new UnauthorizedException('Usuario inactivo');
+    }
+
     if (!user.emailVerified && !this.isLocalEnvironment()) {
       throw new UnauthorizedException('Email no verificado. Verifique su bandeja de entrada.');
     }
@@ -332,11 +336,14 @@ export class AuthService implements IAuthService {
     user.uuid = uuidv4();
     user.firstName = request.firstName.trim();
     user.lastName = request.lastName.trim();
+    user.documentType = request.documentType;
+    user.dni = request.documentNumber.trim();
     user.email = request.email;
     user.password = await this.hash(request.password);
     user.active = 1;
     user.emailVerified = false;
     user.emailVerifiedAt = null;
+    user.termsAcceptedAt = new Date();
     user.isDeleted = null;
     await this.dbRepository.create({ entity: 'user', data: user });
 

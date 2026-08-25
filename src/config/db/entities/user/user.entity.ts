@@ -23,6 +23,15 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 30, nullable: true, default: null })
   dni: string | null;
 
+  @Column({
+    name: 'documentType',
+    type: 'enum',
+    enum: ['DNI', 'Pasaporte', 'Documento extranjero', 'Otro'],
+    nullable: true,
+    default: null
+  })
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
+
   @Column({ name: 'firstName', type: 'varchar', length: 255 })
   firstName: string;
 
@@ -44,6 +53,9 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 255 })
   password: string;
 
+  @Column({ name: 'googleId', type: 'varchar', length: 255, nullable: true, default: null })
+  googleId: string | null;
+
   @Column({ type: 'date', nullable: true, default: null })
   birthday: Date | null;
 
@@ -55,6 +67,9 @@ export class UserEntity {
 
   @Column({ name: 'emailVerifiedAt', type: 'timestamp', nullable: true, default: null })
   emailVerifiedAt: Date | null;
+
+  @Column({ name: 'termsAcceptedAt', type: 'timestamp', precision: 3, nullable: true, default: null })
+  termsAcceptedAt: Date | null;
 
   @Column({ type: 'date', nullable: true, default: null })
   isDeleted: Date | null;

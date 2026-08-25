@@ -81,7 +81,7 @@ modules/<nombre>/
 ## Decisiones de negocio tomadas (NO cambiar sin consultar)
 
 - **Sin split de pagos de Mercado Pago**: se investigó y se descartó. El pago completo entra a la cuenta única de la ticketera; al organizador se le factura la comisión por separado. No hay OAuth por organizador ni `marketplace_fee`.
-- **Service fee**: 10% del subtotal, mostrado como ítem separado en el checkout de MP
+- **Service fee**: 15% del subtotal, mostrado como ítem separado en el checkout de MP
 - **Tabla `event_fee_summary`**: resumen materializado de fees por evento, actualizado con `INSERT ... ON DUPLICATE KEY UPDATE` (atómico, a prueba de pagos concurrentes). Consultable en `GET /api/v1/events/:eventId/fee-summary` (solo organizador dueño o admin)
 - **QR firmado**: HMAC-SHA256 con `QR_SECRET`, formato `base64url(payload).base64url(signature)`. Nunca IDs secuenciales.
 - **Storage local**: los QR y PDFs viven en el volumen Docker, servidos via `/static/` con ServeStaticModule. La interfaz de `StorageService` (`saveFile`, `deleteFile`, `fileExists`) se mantiene para poder migrar a S3 después sin tocar el resto.

@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { IAssignUserOrganization } from '@modules/organization/services/core/organization';
+import { DOCUMENT_TYPES } from '@modules/auth/const/document-type.const';
 
 export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   @IsString()
@@ -17,6 +18,22 @@ export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   })
   lastName: string;
 
+  @IsString()
+  @IsIn([...DOCUMENT_TYPES])
+  @ApiProperty({
+    description: 'Document type',
+    enum: DOCUMENT_TYPES
+  })
+  documentType: (typeof DOCUMENT_TYPES)[number];
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(30)
+  @ApiProperty({
+    description: 'Document number'
+  })
+  documentNumber: string;
+
   @IsEmail()
   @ApiProperty({
     description: 'User email'
@@ -24,7 +41,10 @@ export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   email: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
+    message: 'La contraseña debe incluir letras, números y al menos un carácter especial'
+  })
   @ApiProperty({
     description: 'User password'
   })
@@ -33,6 +53,8 @@ export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   constructor(data: IAssignUserOrganization) {
     this.firstName = data.firstName;
     this.lastName = data.lastName;
+    this.documentType = data.documentType;
+    this.documentNumber = data.documentNumber;
     this.email = data.email;
     this.password = data.password;
   }
