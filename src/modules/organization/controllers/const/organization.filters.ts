@@ -7,5 +7,11 @@ export const organizationFilters = [
     type: String,
     required: false,
     enumValues: [...ORGANIZATION_VALIDATION_STATUSES]
+  },
+  {
+    name: 'bankChangePending',
+    type: String,
+    required: false,
+    enumValues: ['true', 'false']
   }
 ] as const satisfies IFilterData[];

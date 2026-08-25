@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ORGANIZATION_TAX_CONDITIONS,
   ORGANIZATION_VALIDATION_STATUSES,
+  organizationStatusName,
+  type OrganizationTaxCondition,
   type OrganizationValidationStatus
 } from '@modules/organization/const/organization-fiscal.const';
 import { TOrganizationResponseWithUserOrganizations } from '@modules/organization/services/contracts/iorganization.service';
@@ -40,6 +43,30 @@ export class GetAllOrganizationResponse {
   @ApiPropertyOptional({ type: String, nullable: true })
   taxId: string | null;
 
+  @ApiPropertyOptional({ enum: ORGANIZATION_TAX_CONDITIONS, nullable: true })
+  taxCondition: OrganizationTaxCondition | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  bankName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  cbu: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  bankAlias: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingBankName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingCbu: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingBankAlias: string | null;
+
+  @ApiProperty()
+  bankChangePending: boolean;
+
   @ApiPropertyOptional({ type: String, nullable: true })
   contactEmail: string | null;
 
@@ -62,17 +89,43 @@ export class GetAllOrganizationResponse {
   owner: OrganizationListOwnerResponse | null;
 
   constructor(data: TOrganizationResponseWithUserOrganizations) {
+    const row = data as TOrganizationResponseWithUserOrganizations & {
+      legalName?: string | null;
+      taxId?: string | null;
+      taxCondition?: OrganizationTaxCondition | null;
+      bankName?: string | null;
+      cbu?: string | null;
+      bankAlias?: string | null;
+      pendingBankName?: string | null;
+      pendingCbu?: string | null;
+      pendingBankAlias?: string | null;
+      bankChangeRequestedAt?: Date | null;
+      contactEmail?: string | null;
+      contactPhone?: string | null;
+      rejectionReason?: string | null;
+      validationSubmittedAt?: Date | null;
+    };
+
     this.uuid = data.uuid;
     this.name = data.name;
-    this.legalName = (data as { legalName?: string | null }).legalName ?? null;
-    this.taxId = (data as { taxId?: string | null }).taxId ?? null;
-    this.contactEmail = (data as { contactEmail?: string | null }).contactEmail ?? null;
-    this.contactPhone = (data as { contactPhone?: string | null }).contactPhone ?? null;
-    this.validationStatus = (data as { validationStatus: OrganizationValidationStatus }).validationStatus;
-    this.rejectionReason = (data as { rejectionReason?: string | null }).rejectionReason ?? null;
+    this.legalName = row.legalName ?? null;
+    this.taxId = row.taxId ?? null;
+    this.taxCondition = row.taxCondition ?? null;
+    this.bankName = row.bankName ?? null;
+    this.cbu = row.cbu ?? null;
+    this.bankAlias = row.bankAlias ?? null;
+    this.pendingBankName = row.pendingBankName ?? null;
+    this.pendingCbu = row.pendingCbu ?? null;
+    this.pendingBankAlias = row.pendingBankAlias ?? null;
+    this.bankChangePending = Boolean(
+      row.pendingBankName || row.pendingCbu || row.pendingBankAlias || row.bankChangeRequestedAt
+    );
+    this.contactEmail = row.contactEmail ?? null;
+    this.contactPhone = row.contactPhone ?? null;
+    this.validationStatus = organizationStatusName(data as any);
+    this.rejectionReason = row.rejectionReason ?? null;
     this.createdAt = data.createdAt;
-    this.validationSubmittedAt =
-      (data as { validationSubmittedAt?: Date | null }).validationSubmittedAt ?? null;
+    this.validationSubmittedAt = row.validationSubmittedAt ?? null;
 
     const firstMembership = data.userOrganizations?.[0];
     const user = firstMembership?.user as

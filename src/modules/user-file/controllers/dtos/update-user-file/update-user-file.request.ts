@@ -11,6 +11,6 @@ export class UpdateUserFileRequest {
   path: string;
 
   constructor(data: TEntityResponse<'file', undefined, undefined>) {
-    this.path = data.path;
+    this.path = data.path ?? '';
   }
 }

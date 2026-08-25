@@ -6,6 +6,7 @@ import { RoleEntityData } from '../entities/user/role.entity';
 import { UserTokenSessionEntityData } from '../entities/user/user_token_session.entity';
 import { FileTypeEntityData } from '../entities/user/file_type.entity';
 import { OrganizationEntityData } from '../entities/user/organization.entity';
+import { OrganizationStatusEntityData } from '../entities/user/organization-status.entity';
 import { PasswordResetCodeEntityData } from '../entities/user/password-reset-code.entity';
 import { UserOrganizationEntityData } from '../entities/user/user_organization.entity';
 import { SystemParameterEntityData } from '../entities/system/system_parameter.entity';
@@ -23,6 +24,8 @@ import { EventProducerEntityData } from '../entities/tickets/event_producer.enti
 import { EventValidatorEntityData } from '../entities/tickets/event_validator.entity';
 import { TicketTransferEntityData } from '../entities/tickets/ticket_transfer.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
+import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
+import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
 
 export const entitiesData = [
   UserTokenSessionEntityData,
@@ -34,6 +37,7 @@ export const entitiesData = [
   UserRoleEntityData,
   UserOrganizationEntityData,
   OrganizationEntityData,
+  OrganizationStatusEntityData,
   PasswordResetCodeEntityData,
   SystemParameterEntityData,
   UserSessionEntityData,
@@ -48,7 +52,9 @@ export const entitiesData = [
   EventFeeSummaryEntityData,
   EventProducerEntityData,
   EventValidatorEntityData,
-  TicketTransferEntityData
+  UserEventCashierEntityData,
+  TicketTransferEntityData,
+  OrganizationProducerInviteEntityData
 ] as const;
 
 export const entitiesObj = entitiesData.reduce(

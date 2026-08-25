@@ -122,6 +122,8 @@ export const entityRelations = {
   file: {
     user: 'user',
 
+    organization: 'organization',
+
     fileType: 'file_type'
   },
 
@@ -150,6 +152,8 @@ export const entityRelations = {
   organization: {
     userOrganizations: 'user_organization',
 
+    organizationStatus: 'organization_status',
+
     organizationConfigs: 'organization_config',
 
     organizationHours: 'organization_hour',
@@ -177,6 +181,10 @@ export const entityRelations = {
     patientDocuments: 'patient_document',
 
     messageTemplates: 'message_template'
+  },
+
+  organization_status: {
+    organizations: 'organization'
   },
 
   organization_patient: {
@@ -349,6 +357,17 @@ export const entityRelations = {
   event_validator: {
     event: 'event',
     user: 'user'
+  },
+
+  organization_producer_invite: {
+    organization: 'organization',
+    invitedBy: 'user'
+  },
+
+  user_event_cashier: {
+    user: 'user',
+    event: 'event',
+    organization: 'organization'
   },
 
   ticket_transfer: {

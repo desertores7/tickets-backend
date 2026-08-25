@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ORGANIZATION_TAX_CONDITIONS,
   ORGANIZATION_VALIDATION_STATUSES,
+  organizationStatusName,
   type OrganizationTaxCondition,
   type OrganizationValidationStatus
 } from '@modules/organization/const/organization-fiscal.const';
@@ -36,10 +37,46 @@ export class OrganizationMeResponse {
   contactEmail: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
-  verificationReference: string | null;
+  bankName: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
-  bankAccount: string | null;
+  cbu: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  bankAlias: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingBankName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingCbu: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingBankAlias: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  bankChangeRequestedAt: Date | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  bankChangeRejectionReason: string | null;
+
+  @ApiProperty()
+  bankChangePending: boolean;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  website: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  instagram: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  tiktok: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  facebook: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  socialX: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   rejectionReason: string | null;
@@ -54,14 +91,28 @@ export class OrganizationMeResponse {
     this.uuid = org.uuid;
     this.name = org.name;
     this.active = org.active;
-    this.validationStatus = org.validationStatus;
+    this.validationStatus = organizationStatusName(org);
     this.legalName = org.legalName ?? null;
     this.taxId = org.taxId ?? null;
     this.taxCondition = org.taxCondition ?? null;
     this.contactPhone = org.contactPhone ?? null;
     this.contactEmail = org.contactEmail ?? null;
-    this.verificationReference = org.verificationReference ?? null;
-    this.bankAccount = org.bankAccount ?? null;
+    this.bankName = org.bankName ?? null;
+    this.cbu = org.cbu ?? null;
+    this.bankAlias = org.bankAlias ?? null;
+    this.pendingBankName = org.pendingBankName ?? null;
+    this.pendingCbu = org.pendingCbu ?? null;
+    this.pendingBankAlias = org.pendingBankAlias ?? null;
+    this.bankChangeRequestedAt = org.bankChangeRequestedAt ?? null;
+    this.bankChangeRejectionReason = org.bankChangeRejectionReason ?? null;
+    this.bankChangePending = Boolean(
+      org.pendingBankName || org.pendingCbu || org.pendingBankAlias || org.bankChangeRequestedAt
+    );
+    this.website = org.website ?? null;
+    this.instagram = org.instagram ?? null;
+    this.tiktok = org.tiktok ?? null;
+    this.facebook = org.facebook ?? null;
+    this.socialX = org.socialX ?? null;
     this.rejectionReason = org.rejectionReason ?? null;
     this.validationSubmittedAt = org.validationSubmittedAt ?? null;
     this.validationResolvedAt = org.validationResolvedAt ?? null;

@@ -39,7 +39,7 @@ export class GetIdUserFileResponse {
 
   constructor(data: TEntityResponse<'file', undefined, undefined>) {
     this.uuid = data.uuid;
-    this.path = data.path;
+    this.path = data.path ?? '';
     this.isDeleted = data.isDeleted;
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;

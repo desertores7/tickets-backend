@@ -306,6 +306,29 @@ export class EmailService {
     );
   }
 
+  async sendOrganizationSubmittedEmail(data: {
+    firstName: string;
+    email: string;
+    organizationName: string;
+  }): Promise<void> {
+    const fiscalUrl = `${this.getFrontendUrl()}/producer/organization/fiscal`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.organizationSubmitted,
+      {
+        preheader: `Recibimos la solicitud de ${data.organizationName}. Te avisamos cuando esté revisada.`,
+        firstName: data.firstName,
+        organizationName: data.organizationName,
+        fiscalUrl
+      },
+      {
+        to: data.email,
+        subject: `Solicitud recibida — ${data.organizationName}`,
+        text: `Hola ${data.firstName}, recibimos los datos fiscales de ${data.organizationName}. En las próximas horas vas a recibir una confirmación. Estado: ${fiscalUrl}`
+      }
+    );
+  }
+
   async sendOrganizationApprovedEmail(data: {
     firstName: string;
     email: string;
@@ -350,6 +373,26 @@ export class EmailService {
         to: data.email,
         subject: `Validación rechazada — ${data.organizationName}`,
         text: `Hola ${data.firstName}, la productora ${data.organizationName} no fue aprobada. Motivo: ${data.rejectionReason}. Corregí los datos en: ${fiscalUrl}`
+      }
+    );
+  }
+
+  async sendProducerInviteEmail(data: {
+    email: string;
+    organizationName: string;
+    inviteUrl: string;
+  }): Promise<void> {
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.producerInvite,
+      {
+        preheader: `Te invitaron a unirte como Productor de ${data.organizationName}.`,
+        organizationName: data.organizationName,
+        inviteUrl: data.inviteUrl
+      },
+      {
+        to: data.email,
+        subject: `Invitación Productor — ${data.organizationName}`,
+        text: `Te invitaron a unirte como Productor de ${data.organizationName}. Creá tu contraseña en: ${data.inviteUrl}`
       }
     );
   }

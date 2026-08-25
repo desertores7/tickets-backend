@@ -1,5 +1,24 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseFilePipeBuilder,
+  Patch,
+  Post,
+  Put,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import { createReadStream } from 'fs';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
@@ -21,13 +40,24 @@ import {
 } from './dtos/get-id-organization/get-id-organization.response';
 import { OrganizationMeResponse } from './dtos/organization-me/organization-me.response';
 import { UpdateOrganizationMeRequest } from './dtos/organization-me/update-organization-me.request';
+import { RequestBankChangeRequest } from './dtos/organization-me/request-bank-change.request';
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
+import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
 import { organizationFilters } from './const/organization.filters';
+import { OrganizationStaffService } from '../services/implementation/organization-staff.service';
+import { CreateStaffRequest } from './dtos/organization-staff/create-staff.request';
+import { InviteProducerStaffRequest } from './dtos/organization-staff/invite-producer-staff.request';
+import { UpdateStaffRequest } from './dtos/organization-staff/update-staff.request';
+import { StaffListResponse, StaffMemberResponse } from './dtos/organization-staff/staff-member.response';
+import { ORGANIZATION_FISCAL_DOC_MAX_BYTES } from '@modules/organization/const/organization-fiscal.const';
 
 @ApiTags('Organizations')
 @Controller({ path: 'organizations', version: '1' })
 export class OrganizationController {
-  constructor(@Inject('IOrganizationService') public _organizationService: IOrganizationService) {}
+  constructor(
+    @Inject('IOrganizationService') public _organizationService: IOrganizationService,
+    private readonly organizationStaffService: OrganizationStaffService
+  ) {}
 
   @UserAuth(null, OrganizationMeResponse)
   @ApiOperation({
@@ -57,13 +87,176 @@ export class OrganizationController {
   @UserAuth(null, OrganizationMeResponse)
   @ApiOperation({
     summary: 'Submit organization for fiscal validation',
-    description: 'Requires all fiscal fields. Sets validationStatus to pending_review.'
+    description: 'Requires all fiscal + bank fields and minimum document pack. Sets pending_review.'
   })
   @HttpCode(200)
   @Post('me/submit-validation')
   async submitMyOrganizationValidation(@User() userId: string): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.submitMyOrganizationValidation(userId);
     return new OrganizationMeResponse(org);
+  }
+
+  @UserAuth(RequestBankChangeRequest, OrganizationMeResponse)
+  @ApiOperation({
+    summary: 'Request bank account change (approved producer)',
+    description:
+      'Queues banco/CBU/alias for admin review. Does not change validationStatus; producer stays operational.'
+  })
+  @HttpCode(200)
+  @Post('me/bank-change-request')
+  async requestBankAccountChange(
+    @User() userId: string,
+    @Body() body: RequestBankChangeRequest
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.requestBankAccountChange(userId, body);
+    return new OrganizationMeResponse(org);
+  }
+
+  @UserAuth(null, StaffListResponse)
+  @ApiOperation({
+    summary: 'List organization staff (producer)',
+    description: 'Productores, Validadores, Caja e invitaciones pendientes de la productora aprobada.'
+  })
+  @Get('me/staff')
+  async listMyStaff(@User() userId: string): Promise<StaffListResponse> {
+    const items = await this.organizationStaffService.listStaff(userId);
+    return new StaffListResponse(items);
+  }
+
+  @UserAuth(CreateStaffRequest, StaffMemberResponse)
+  @ApiOperation({
+    summary: 'Create Validador or Caja staff',
+    description: 'Producer defines email and password. Caja requires at least one assigned event.'
+  })
+  @HttpCode(201)
+  @Post('me/staff')
+  async createStaff(
+    @User() userId: string,
+    @Body() body: CreateStaffRequest
+  ): Promise<StaffMemberResponse> {
+    return this.organizationStaffService.createStaff(userId, body);
+  }
+
+  @UserAuth(InviteProducerStaffRequest, StaffMemberResponse)
+  @ApiOperation({
+    summary: 'Invite another Productor',
+    description: 'Sends email with link to set password and join the organization.'
+  })
+  @HttpCode(201)
+  @Post('me/staff/invite')
+  async inviteProducerStaff(
+    @User() userId: string,
+    @Body() body: InviteProducerStaffRequest
+  ): Promise<StaffMemberResponse> {
+    return this.organizationStaffService.inviteProducer(userId, body.email);
+  }
+
+  @UserAuth(UpdateStaffRequest, StaffMemberResponse)
+  @ApiOperation({
+    summary: 'Update staff member',
+    description: 'Toggle active status and/or update Caja event assignments.'
+  })
+  @Patch('me/staff/:userUuid')
+  async updateStaff(
+    @User() userId: string,
+    @Param('userUuid') targetUserUuid: string,
+    @Body() body: UpdateStaffRequest
+  ): Promise<StaffMemberResponse> {
+    return this.organizationStaffService.updateStaff(userId, targetUserUuid, body);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Remove staff member from organization',
+    description: 'Soft-deletes org membership. Does not delete the user account globally.'
+  })
+  @HttpCode(204)
+  @Delete('me/staff/:userUuid')
+  async removeStaff(@User() userId: string, @Param('userUuid') targetUserUuid: string): Promise<void> {
+    await this.organizationStaffService.removeStaff(userId, targetUserUuid);
+  }
+
+  @UserAuth(null, FiscalDocumentResponse, 'multipart/form-data')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload fiscal document (producer)',
+    description:
+      'Multipart field `file`. documentKind is optional (auto-assigned to fill pack mínimo). Max 10 files, 5MB, PDF/JPG/PNG/WebP. Blocked while pending_review.'
+  })
+  @UseInterceptors(FileInterceptor('file'))
+  @HttpCode(201)
+  @Post('me/fiscal-documents')
+  async uploadMyFiscalDocument(
+    @User() userId: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: ORGANIZATION_FISCAL_DOC_MAX_BYTES })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @Body('documentKind') documentKind?: string
+  ): Promise<FiscalDocumentResponse> {
+    const doc = await this._organizationService.uploadMyFiscalDocument(userId, file, documentKind);
+    return new FiscalDocumentResponse(doc);
+  }
+
+  @UserAuth(null, FiscalDocumentResponse)
+  @ApiOperation({ summary: 'List my fiscal documents' })
+  @Get('me/fiscal-documents')
+  async listMyFiscalDocuments(@User() userId: string): Promise<FiscalDocumentResponse[]> {
+    const docs = await this._organizationService.listMyFiscalDocuments(userId);
+    return docs.map(d => new FiscalDocumentResponse(d));
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({ summary: 'Download my fiscal document (authenticated stream)' })
+  @Get('me/fiscal-documents/:documentId/download')
+  async downloadMyFiscalDocument(
+    @User() userId: string,
+    @Param('documentId') documentId: string,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<StreamableFile> {
+    const file = await this._organizationService.getMyFiscalDocumentDownload(userId, documentId);
+    this.applyFiscalDownloadHeaders(res, file.mimeType, file.originalName);
+    return new StreamableFile(createReadStream(file.absolutePath));
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({ summary: 'Delete my fiscal document' })
+  @HttpCode(200)
+  @Delete('me/fiscal-documents/:documentId')
+  async deleteMyFiscalDocument(
+    @User() userId: string,
+    @Param('documentId') documentId: string
+  ): Promise<{ ok: true }> {
+    await this._organizationService.deleteMyFiscalDocument(userId, documentId);
+    return { ok: true };
+  }
+
+  @AdminAuth(null, FiscalDocumentResponse)
+  @ApiOperation({ summary: 'List fiscal documents for an organization (admin)' })
+  @Get(':organizationUuid/fiscal-documents')
+  async listOrganizationFiscalDocuments(
+    @Param('organizationUuid') organizationUuid: string
+  ): Promise<FiscalDocumentResponse[]> {
+    const docs = await this._organizationService.listOrganizationFiscalDocuments(organizationUuid);
+    return docs.map(d => new FiscalDocumentResponse(d));
+  }
+
+  @AdminAuth(null, null)
+  @ApiOperation({ summary: 'Download organization fiscal document (admin)' })
+  @Get(':organizationUuid/fiscal-documents/:documentId/download')
+  async downloadOrganizationFiscalDocument(
+    @Param('organizationUuid') organizationUuid: string,
+    @Param('documentId') documentId: string,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<StreamableFile> {
+    const file = await this._organizationService.getOrganizationFiscalDocumentDownload(
+      organizationUuid,
+      documentId
+    );
+    this.applyFiscalDownloadHeaders(res, file.mimeType, file.originalName);
+    return new StreamableFile(createReadStream(file.absolutePath));
   }
 
   @AdminAuth(null, OrganizationMeResponse)
@@ -88,6 +281,35 @@ export class OrganizationController {
     @Body() body: RejectOrganizationRequest
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.rejectOrganization(organizationUuid, adminId, body.reason);
+    return new OrganizationMeResponse(org);
+  }
+
+  @AdminAuth(null, OrganizationMeResponse)
+  @ApiOperation({ summary: 'Approve pending bank account change' })
+  @HttpCode(200)
+  @Post(':organizationUuid/approve-bank-change')
+  async approveBankAccountChange(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.approveBankAccountChange(organizationUuid, adminId);
+    return new OrganizationMeResponse(org);
+  }
+
+  @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
+  @ApiOperation({ summary: 'Reject pending bank account change' })
+  @HttpCode(200)
+  @Post(':organizationUuid/reject-bank-change')
+  async rejectBankAccountChange(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string,
+    @Body() body: RejectOrganizationRequest
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.rejectBankAccountChange(
+      organizationUuid,
+      adminId,
+      body.reason
+    );
     return new OrganizationMeResponse(org);
   }
 
@@ -243,5 +465,12 @@ export class OrganizationController {
   @Delete(':organizationUuid')
   async deleteOrganization(@Param('organizationUuid') organizationUuid: string): Promise<boolean> {
     return await this._organizationService.deleteOrganization(organizationUuid);
+  }
+
+  private applyFiscalDownloadHeaders(res: Response, mimeType: string, originalName: string): void {
+    const safeName = originalName.replace(/[^\w.\- ()áéíóúñÁÉÍÓÚÑ]/gi, '_').slice(0, 180);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
   }
 }

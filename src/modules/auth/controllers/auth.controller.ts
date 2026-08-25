@@ -1,5 +1,5 @@
 import { Swagger } from '@root/shared/decorators/swagger.decorator';
-import { Body, Controller, Get, HttpCode, Inject, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
@@ -19,6 +19,11 @@ import { RegisterProducerRequest } from './requests/register-producer.request';
 import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
 import { ValidateEmailResponse } from './responses/validate-email.response';
+import {
+  AcceptProducerInviteRequest,
+  AcceptProducerInviteResponse,
+  ProducerInviteValidationResponse
+} from './requests/producer-invite.request';
 import { ResendEmailVerificationRequest } from './requests/resend-email-verification.request';
 import { VerifyTwoFactorRequest } from './requests/verify-two-factor.request';
 import { ResendTwoFactorRequest } from './requests/resend-two-factor.request';
@@ -223,5 +228,28 @@ export class AuthController {
   async validateEmail(@Body() request: ValidateEmailRequest): Promise<ValidateEmailResponse> {
     const result = await this.authService.validateEmailAuth(request.token);
     return new ValidateEmailResponse(result.verified, result.alreadyVerified, result.message);
+  }
+
+  @ApiOperation({
+    summary: 'Validate producer invite token',
+    description: 'Public endpoint to check if a producer invitation link is still valid.'
+  })
+  @Get('producer-invite/:token')
+  async validateProducerInvite(@Param('token') token: string): Promise<ProducerInviteValidationResponse> {
+    const result = await this.authService.validateProducerInvite(token);
+    return new ProducerInviteValidationResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Accept producer invite',
+    description: 'Creates or links the invited user as Productor of the organization.'
+  })
+  @HttpCode(200)
+  @Post('accept-producer-invite')
+  async acceptProducerInvite(
+    @Body() request: AcceptProducerInviteRequest
+  ): Promise<AcceptProducerInviteResponse> {
+    const result = await this.authService.acceptProducerInvite(request);
+    return new AcceptProducerInviteResponse(result.message, result.email);
   }
 }

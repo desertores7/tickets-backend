@@ -1,6 +1,8 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { IsNull } from 'typeorm';
+import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
+import { UserNotificationEntity } from '@config/db/entities/user/user_notification.entity';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import {
   IUserNotificationService,
@@ -53,6 +55,25 @@ export class UserNotificationService implements IUserNotificationService {
     }
 
     return this.toItem(notification);
+  }
+
+  async create(userUuid: string, title: string, body: string): Promise<TUserNotificationItem> {
+    const entity = new UserNotificationEntity();
+    entity.uuid = uuidv4();
+    entity.userUuid = userUuid;
+    entity.title = title.trim();
+    entity.body = body.trim();
+    entity.readAt = null;
+    entity.isDeleted = null;
+    entity.createdAt = new Date();
+    entity.updatedAt = new Date();
+
+    await this.dbRepository.create({
+      entity: 'user_notification',
+      data: entity
+    });
+
+    return this.toItem(entity);
   }
 
   private toItem(n: {

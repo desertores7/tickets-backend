@@ -10,14 +10,16 @@ import {
   IUnassignUserOrganization
 } from '../core/organization';
 import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
+import { RequestBankChangeRequest } from '../../controllers/dtos/organization-me/request-bank-change.request';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { FileEntity } from '@config/db/entities/user/file.entity';
 import { organizationFilters } from '../../controllers/const/organization.filters';
 
 export type TOrganizationResponse = TEntityResponse<'organization', undefined, undefined>;
 
 export type TOrganizationResponseWithUserOrganizations = TEntityResponse<
   'organization',
-  { userOrganizations: { user: { userRoles: { role: true } } } },
+  { userOrganizations: { user: { userRoles: { role: true } } }; organizationStatus: true },
   undefined
 >;
 
@@ -54,6 +56,34 @@ export interface IOrganizationService {
   getMyOrganization(userUuid: string): Promise<OrganizationEntity>;
   updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity>;
   submitMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
+  requestBankAccountChange(
+    userUuid: string,
+    data: RequestBankChangeRequest
+  ): Promise<OrganizationEntity>;
+  approveBankAccountChange(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
+  rejectBankAccountChange(
+    organizationUuid: string,
+    adminUuid: string,
+    reason: string
+  ): Promise<OrganizationEntity>;
   approveOrganization(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
   rejectOrganization(organizationUuid: string, adminUuid: string, reason: string): Promise<OrganizationEntity>;
+
+  listMyFiscalDocuments(userUuid: string): Promise<FileEntity[]>;
+  uploadMyFiscalDocument(
+    userUuid: string,
+    file: Express.Multer.File,
+    documentKindRaw?: unknown
+  ): Promise<FileEntity>;
+  deleteMyFiscalDocument(userUuid: string, documentUuid: string): Promise<void>;
+  getMyFiscalDocumentDownload(
+    userUuid: string,
+    documentUuid: string
+  ): Promise<{ absolutePath: string; mimeType: string; originalName: string }>;
+
+  listOrganizationFiscalDocuments(organizationUuid: string): Promise<FileEntity[]>;
+  getOrganizationFiscalDocumentDownload(
+    organizationUuid: string,
+    documentUuid: string
+  ): Promise<{ absolutePath: string; mimeType: string; originalName: string }>;
 }

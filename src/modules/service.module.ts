@@ -9,6 +9,7 @@ import { AuthService } from './auth/services/implementation/auth.service';
 import { UserFileService } from './user-file/services/implementation/user-file.service';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { OrganizationService } from './organization/services/implementation/organization.service';
+import { OrganizationStaffService } from './organization/services/implementation/organization-staff.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
@@ -45,6 +46,7 @@ import { SupportService } from './support/services/implementation/support.servic
     { provide: 'IUserFileService', useClass: UserFileService },
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
+    OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },
@@ -68,6 +70,7 @@ import { SupportService } from './support/services/implementation/support.servic
     { provide: 'IUserFileService', useClass: UserFileService },
     { provide: 'IRoleService', useClass: RoleService },
     { provide: 'IOrganizationService', useClass: OrganizationService },
+    OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IOrderService', useClass: OrderService },

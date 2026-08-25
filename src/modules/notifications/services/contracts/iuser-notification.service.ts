@@ -18,4 +18,5 @@ export type TUserNotificationsPage = {
 export interface IUserNotificationService {
   listMine(userUuid: string, pagination: IPaginationParams): Promise<TUserNotificationsPage>;
   markRead(userUuid: string, notificationUuid: string): Promise<TUserNotificationItem>;
+  create(userUuid: string, title: string, body: string): Promise<TUserNotificationItem>;
 }

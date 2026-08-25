@@ -18,7 +18,7 @@ import { UserTokenSessionEntity } from '@config/db/entities/user/user_token_sess
 import { UserSessionEntity } from '@config/db/entities/user/user_session.entity';
 import { PasswordResetCodeEntity } from '@config/db/entities/user/password-reset-code.entity';
 import * as bcryptjs from 'bcryptjs';
-import { IsNull, MoreThan, QueryRunner } from 'typeorm';
+import { IsNull, MoreThan, QueryRunner, DataSource } from 'typeorm';
 import { TEntityResponse } from '@config/db/meta/db.types';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { RoleEntity } from '@config/db/entities/user/role.entity';
@@ -28,10 +28,12 @@ import { PROFILE_FILE_TYPE_NAME, PROFILE_FILE_TYPE_UUID } from '@config/db/const
 import { UserEntity } from '@config/db/entities/user/user.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
+import { OrganizationProducerInviteEntity } from '@config/db/entities/user/organization-producer-invite.entity';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
 import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register-auth.request';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
-import { PRODUCTOR_ROLE_UUID } from '@modules/organization/const/organization-fiscal.const';
+import { PRODUCTOR_ROLE_UUID, ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
+import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -42,7 +44,8 @@ export class AuthService implements IAuthService {
     protected readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly emailService: EmailService,
-    private readonly imageCompressionService: ImageCompressionService
+    private readonly imageCompressionService: ImageCompressionService,
+    private readonly dataSource: DataSource
   ) {}
 
   private readonly defaultRoleNames = ['Usuario', 'usuario', 'user', 'patient', 'clinic_admin'];
@@ -241,7 +244,7 @@ export class AuthService implements IAuthService {
           role: true
         },
         userOrganizations: {
-          organization: true
+          organization: { organizationStatus: true }
         }
       }
     });
@@ -250,7 +253,12 @@ export class AuthService implements IAuthService {
 
     const userWithRelations = reloadedUser as TEntityResponse<
       'user',
-      { files: true; userTokenSessions: true; userRoles: { role: true }; userOrganizations: { organization: true } },
+      {
+        files: true;
+        userTokenSessions: true;
+        userRoles: { role: true };
+        userOrganizations: { organization: { organizationStatus: true } };
+      },
       undefined
     >;
 
@@ -550,7 +558,7 @@ export class AuthService implements IAuthService {
     org.uuid = uuidv4();
     org.name = `Productora ${user.firstName} ${user.lastName}`.trim();
     org.active = 1;
-    org.validationStatus = 'draft_incomplete';
+    org.organizationStatusUuid = ORGANIZATION_STATUS.DRAFT_INCOMPLETE.uuid;
     org.isDeleted = null;
     org.createdBy = user.uuid;
     org.updatedBy = user.uuid;
@@ -786,7 +794,7 @@ export class AuthService implements IAuthService {
       relations: {
         files: true,
         userRoles: { role: true },
-        userOrganizations: { organization: true }
+        userOrganizations: { organization: { organizationStatus: true } }
       }
     });
 
@@ -936,5 +944,163 @@ export class AuthService implements IAuthService {
     });
 
     this.logger.log(`Cuenta desactivada: ${userUuid}`);
+  }
+
+  async validateProducerInvite(token: string): Promise<{
+    valid: boolean;
+    emailMasked?: string;
+    organizationName?: string;
+    expiresAt?: string;
+    message?: string;
+  }> {
+    const invite = await this.dbRepository.findOne({
+      entity: 'organization_producer_invite',
+      where: { token: token.trim(), isUsed: false },
+      relations: { organization: true } as any
+    });
+
+    if (!invite) {
+      return { valid: false, message: 'Invitación inválida o ya utilizada.' };
+    }
+
+    const row = invite as OrganizationProducerInviteEntity;
+    if (row.expiresAt && new Date(row.expiresAt) < new Date()) {
+      return { valid: false, message: 'La invitación expiró. Pedí una nueva al Productor.' };
+    }
+
+    const org = row.organization as OrganizationEntity | undefined;
+
+    return {
+      valid: true,
+      emailMasked: this.maskEmail(row.email),
+      organizationName: org?.name ?? 'Productora',
+      expiresAt: new Date(row.expiresAt).toISOString()
+    };
+  }
+
+  async acceptProducerInvite(request: {
+    token: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<{ message: string; email: string }> {
+    if (!PASSWORD_POLICY.test(request.password)) {
+      throw new BadRequestException(
+        'La contraseña debe tener al menos 8 caracteres, con letras, números y un carácter especial.'
+      );
+    }
+
+    const invite = await this.dbRepository.findOne({
+      entity: 'organization_producer_invite',
+      where: { token: request.token.trim(), isUsed: false }
+    });
+
+    if (!invite) {
+      throw new BadRequestException('Invitación inválida o ya utilizada.');
+    }
+
+    const row = invite as OrganizationProducerInviteEntity;
+    if (row.expiresAt && new Date(row.expiresAt) < new Date()) {
+      throw new BadRequestException('La invitación expiró. Pedí una nueva al Productor.');
+    }
+
+    const email = row.email.trim().toLowerCase();
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      let user = await queryRunner.manager.findOne(UserEntity, {
+        where: { email, isDeleted: IsNull() }
+      });
+
+      if (!user) {
+        user = new UserEntity();
+        user.uuid = uuidv4();
+        user.firstName = (request.firstName?.trim() || email.split('@')[0] || 'Productor').slice(0, 255);
+        user.lastName = (request.lastName?.trim() || 'Invitado').slice(0, 255);
+        user.email = email;
+        user.password = await this.hash(request.password);
+        user.active = 1;
+        user.emailVerified = true;
+        user.emailVerifiedAt = new Date();
+        user.twoAuthentication = false;
+        user.termsAcceptedAt = new Date();
+        user.isDeleted = null;
+        await queryRunner.manager.save(UserEntity, user);
+      } else {
+        user.password = await this.hash(request.password);
+        if (request.firstName?.trim()) user.firstName = request.firstName.trim();
+        if (request.lastName?.trim()) user.lastName = request.lastName.trim();
+        user.emailVerified = true;
+        user.emailVerifiedAt = user.emailVerifiedAt ?? new Date();
+        user.twoAuthentication = false;
+        await queryRunner.manager.save(UserEntity, user);
+      }
+
+      const existingRole = await queryRunner.manager.findOne(UserRoleEntity, {
+        where: { userUuid: user.uuid, roleUuid: this.roleProductorUuid }
+      });
+
+      if (!existingRole) {
+        const userRole = new UserRoleEntity();
+        userRole.uuid = uuidv4();
+        userRole.userUuid = user.uuid;
+        userRole.roleUuid = this.roleProductorUuid;
+        userRole.createdBy = row.invitedByUuid;
+        await queryRunner.manager.save(UserRoleEntity, userRole);
+      } else if (existingRole.isDeleted) {
+        await queryRunner.manager.update(
+          UserRoleEntity,
+          { uuid: existingRole.uuid },
+          { isDeleted: null, updatedBy: row.invitedByUuid }
+        );
+      }
+
+      const membership = await queryRunner.manager.findOne(UserOrganizationEntity, {
+        where: { userUuid: user.uuid, organizationUuid: row.organizationUuid }
+      });
+
+      if (!membership) {
+        const link = new UserOrganizationEntity();
+        link.uuid = uuidv4();
+        link.userUuid = user.uuid;
+        link.organizationUuid = row.organizationUuid;
+        link.isDeleted = null;
+        link.createdBy = row.invitedByUuid;
+        await queryRunner.manager.save(UserOrganizationEntity, link);
+      } else if (membership.isDeleted) {
+        await queryRunner.manager.update(
+          UserOrganizationEntity,
+          { uuid: membership.uuid },
+          { isDeleted: null, updatedBy: row.invitedByUuid }
+        );
+      }
+
+      await queryRunner.manager.update(
+        OrganizationProducerInviteEntity,
+        { uuid: row.uuid },
+        { isUsed: true, acceptedAt: new Date() }
+      );
+
+      await queryRunner.commitTransaction();
+
+      return {
+        message: 'Invitación aceptada. Ya podés iniciar sesión.',
+        email
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@');
+    if (!domain) return email;
+    const visible = local.slice(0, Math.min(2, local.length));
+    return `${visible}${local.length > 2 ? '***' : ''}@${domain}`;
   }
 }

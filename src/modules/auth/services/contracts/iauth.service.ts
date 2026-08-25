@@ -75,4 +75,17 @@ export interface IAuthService {
   getMe(userUuid: string): Promise<TMeResponse>;
   updateMe(authenticatedUserUuid: string, data: IUpdateMeData): Promise<TMeResponse>;
   deactivateAccount(userUuid: string): Promise<void>;
+  validateProducerInvite(token: string): Promise<{
+    valid: boolean;
+    emailMasked?: string;
+    organizationName?: string;
+    expiresAt?: string;
+    message?: string;
+  }>;
+  acceptProducerInvite(request: {
+    token: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<{ message: string; email: string }>;
 }

@@ -3,6 +3,7 @@ import { isProfileFile } from '@config/db/const/file-type.const';
 import { TUserLoginAuthResponse } from '@modules/auth/services/contracts/iauth.service';
 import { MeOrganizationResponse } from './me.response';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 
 export class UserResponse {
   @ApiProperty({ name: 'uuid' })
@@ -97,7 +98,7 @@ export class LoginAuthResponse {
             uuid: uo.organization.uuid,
             name: uo.organization.name,
             active: uo.organization.active,
-            validationStatus: uo.organization.validationStatus
+            validationStatus: organizationStatusName(uo.organization)
           })
       );
   }

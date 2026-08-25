@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { TMeResponse } from '@modules/auth/services/contracts/iauth.service';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 
 export class MeImgProfileResponse {
   @ApiProperty({ name: 'url' })
@@ -191,7 +192,7 @@ export class MeResponse {
             uuid: uo.organization.uuid,
             name: uo.organization.name,
             active: uo.organization.active,
-            validationStatus: uo.organization.validationStatus
+            validationStatus: organizationStatusName(uo.organization)
           })
       );
   }

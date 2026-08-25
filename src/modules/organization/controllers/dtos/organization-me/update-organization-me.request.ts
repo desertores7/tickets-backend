@@ -26,7 +26,7 @@ export class UpdateOrganizationMeRequest {
   @IsIn([...ORGANIZATION_TAX_CONDITIONS])
   taxCondition?: (typeof ORGANIZATION_TAX_CONDITIONS)[number];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Teléfono de la productora (sección Redes; opcional)' })
   @IsOptional()
   @IsString()
   @MaxLength(50)
@@ -38,15 +38,51 @@ export class UpdateOrganizationMeRequest {
   @MaxLength(255)
   contactEmail?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  verificationReference?: string;
-
-  @ApiPropertyOptional({ description: 'CBU o alias a nombre del mismo CUIT' })
+  @ApiPropertyOptional({ description: 'Nombre del banco' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  bankAccount?: string;
+  bankName?: string;
+
+  @ApiPropertyOptional({ description: 'CBU (22 dígitos)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  cbu?: string;
+
+  @ApiPropertyOptional({ description: 'Alias CBU' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  bankAlias?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  website?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  instagram?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  tiktok?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  facebook?: string;
+
+  @ApiPropertyOptional({ description: 'Perfil o handle en X (Twitter)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  socialX?: string;
 }

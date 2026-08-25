@@ -27,6 +27,7 @@ const ROLE_RANK: Record<string, number> = {
   Administrador: 40,
   Productor: 30,
   Validador: 20,
+  Caja: 15,
   Cliente: 10
 };
 
