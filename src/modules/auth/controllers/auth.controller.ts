@@ -42,7 +42,8 @@ export class AuthController {
   @ApiOperation({
     summary: 'Update authenticated user profile',
     description:
-      'Partial update of the current user profile. Accepts profile fields, password, and an optional profile image (image/*, stored as webp).'
+      'Partial update of the current user profile (name, phone, gender, address, billing, 2FA flag, image). ' +
+      'Email and document fields cannot be changed here (BR-AUTH-008) — contact support.'
   })
   @UserAuth(UpdateMeRequest, MeResponse, 'multipart/form-data')
   @Patch('me')
@@ -54,6 +55,20 @@ export class AuthController {
   ): Promise<MeResponse> {
     const result = await this.authService.updateMe(userId, { ...request, imgProfile: file });
     return new MeResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Deactivate own account',
+    description:
+      'Sets the authenticated user as inactive and invalidates all token sessions. ' +
+      'Subsequent logins are rejected with “Usuario inactivo”.'
+  })
+  @UserAuth(null, null)
+  @HttpCode(200)
+  @Post('deactivate')
+  async deactivateAccount(@User() userId: string): Promise<{ message: string }> {
+    await this.authService.deactivateAccount(userId);
+    return { message: 'Cuenta desactivada' };
   }
 
   @ApiOperation({

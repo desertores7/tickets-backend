@@ -22,10 +22,12 @@ import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary
 import { EventProducerEntityData } from '../entities/tickets/event_producer.entity';
 import { EventValidatorEntityData } from '../entities/tickets/event_validator.entity';
 import { TicketTransferEntityData } from '../entities/tickets/ticket_transfer.entity';
+import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 
 export const entitiesData = [
   UserTokenSessionEntityData,
   UserEntityData,
+  UserNotificationEntityData,
   FileEntityData,
   FileTypeEntityData,
   RoleEntityData,

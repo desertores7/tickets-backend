@@ -116,4 +116,21 @@ export class NotificationEmailService {
     await this.sendTemplate('ticket-transfer', params);
     this.logger.log(`Transfer offer email sent to ${params.to}`);
   }
+
+  /** Texto plano (soporte / alertas operativas) */
+  async sendPlainEmail(params: {
+    to: string;
+    subject: string;
+    text: string;
+    replyTo?: string;
+  }): Promise<void> {
+    await this.getTransporter().sendMail({
+      from: this.getFromAddress(),
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      replyTo: params.replyTo
+    });
+    this.logger.log(`Plain email sent to ${params.to}: ${params.subject}`);
+  }
 }

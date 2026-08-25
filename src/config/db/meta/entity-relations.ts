@@ -263,7 +263,13 @@ export const entityRelations = {
 
     professionalProfiles: 'professional_profile',
 
-    clinicalRecords: 'clinical_record'
+    clinicalRecords: 'clinical_record',
+
+    notifications: 'user_notification'
+  },
+
+  user_notification: {
+    user: 'user'
   },
 
   user_organization: {

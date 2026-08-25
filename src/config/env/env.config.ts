@@ -82,7 +82,10 @@ export const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM_NAME: z.string().optional(),
-  SMTP_FROM_EMAIL: z.string().optional()
+  SMTP_FROM_EMAIL: z.string().optional(),
+
+  /** Destino de formularios de contacto / soporte (BR-SUPPORT-002) */
+  SUPPORT_EMAIL: z.string().email().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

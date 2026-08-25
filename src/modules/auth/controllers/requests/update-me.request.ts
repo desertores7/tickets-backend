@@ -1,5 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf
+} from 'class-validator';
+import {
+  BILLING_ID_TYPES,
+  BILLING_VAT_CONDITIONS,
+  GENDERS
+} from '@modules/auth/const/billing.const';
 
 export class UpdateMeRequest {
   @IsOptional()
@@ -16,12 +30,6 @@ export class UpdateMeRequest {
 
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  @ApiProperty({ name: 'email', required: false })
-  email?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(100)
   @ApiProperty({ name: 'username', required: false })
   username?: string;
@@ -33,16 +41,10 @@ export class UpdateMeRequest {
   phone?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  @ApiProperty({ name: 'dni', required: false })
-  dni?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  @ApiProperty({ name: 'gender', required: false })
-  gender?: string;
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsIn([...GENDERS])
+  @ApiProperty({ name: 'gender', required: false, enum: GENDERS, nullable: true })
+  gender?: string | null;
 
   @IsOptional()
   @IsString()
@@ -51,8 +53,65 @@ export class UpdateMeRequest {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ name: 'password', required: false, description: 'New password (omit to keep current)' })
-  password?: string;
+  @MaxLength(255)
+  @ApiProperty({ name: 'address', required: false, nullable: true })
+  address?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsIn([...BILLING_ID_TYPES])
+  @ApiProperty({ name: 'billingIdType', required: false, enum: BILLING_ID_TYPES, nullable: true })
+  billingIdType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @ApiProperty({ name: 'billingIdNumber', required: false, nullable: true })
+  billingIdNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @ApiProperty({ name: 'billingLegalName', required: false, nullable: true })
+  billingLegalName?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsIn([...BILLING_VAT_CONDITIONS])
+  @ApiProperty({
+    name: 'billingVatCondition',
+    required: false,
+    enum: BILLING_VAT_CONDITIONS,
+    nullable: true
+  })
+  billingVatCondition?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @ApiProperty({ name: 'billingFiscalAddress', required: false, nullable: true })
+  billingFiscalAddress?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsEmail()
+  @MaxLength(100)
+  @ApiProperty({ name: 'billingEmail', required: false, nullable: true })
+  billingEmail?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true' || value === '1' || value === 1) return true;
+    if (value === false || value === 'false' || value === '0' || value === 0) return false;
+    return value;
+  })
+  @IsBoolean()
+  @ApiProperty({
+    name: 'twoAuthentication',
+    required: false,
+    description: 'Toggle 2FA flag (login challenge still pending)'
+  })
+  twoAuthentication?: boolean;
 
   @IsOptional()
   @ApiProperty({

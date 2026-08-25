@@ -28,13 +28,18 @@ export type TMeResponse = TEntityResponse<
 export interface IUpdateMeData {
   firstName?: string;
   lastName?: string;
-  email?: string;
   username?: string;
   phone?: string;
-  dni?: string;
-  gender?: string;
+  gender?: string | null;
   birthday?: string;
-  password?: string;
+  address?: string | null;
+  billingIdType?: string | null;
+  billingIdNumber?: string | null;
+  billingLegalName?: string | null;
+  billingVatCondition?: string | null;
+  billingFiscalAddress?: string | null;
+  billingEmail?: string | null;
+  twoAuthentication?: boolean;
   imgProfile?: Express.Multer.File;
 }
 
@@ -54,4 +59,5 @@ export interface IAuthService {
   ): Promise<void>;
   getMe(userUuid: string): Promise<TMeResponse>;
   updateMe(authenticatedUserUuid: string, data: IUpdateMeData): Promise<TMeResponse>;
+  deactivateAccount(userUuid: string): Promise<void>;
 }

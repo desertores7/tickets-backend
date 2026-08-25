@@ -82,6 +82,32 @@ export class MeUserResponse {
   @ApiProperty({ name: 'birthday', type: String, format: 'date-time', nullable: true })
   birthday: Date | null;
 
+  @ApiProperty({ name: 'address', type: String, nullable: true, required: false })
+  address: string | null;
+
+  @ApiProperty({ name: 'billingIdType', enum: ['DNI', 'CUIT/CUIL'], nullable: true, required: false })
+  billingIdType: 'DNI' | 'CUIT/CUIL' | null;
+
+  @ApiProperty({ name: 'billingIdNumber', type: String, nullable: true, required: false })
+  billingIdNumber: string | null;
+
+  @ApiProperty({ name: 'billingLegalName', type: String, nullable: true, required: false })
+  billingLegalName: string | null;
+
+  @ApiProperty({
+    name: 'billingVatCondition',
+    enum: ['Consumidor final', 'Monotributo', 'Responsable inscripto', 'Exento'],
+    nullable: true,
+    required: false
+  })
+  billingVatCondition: 'Consumidor final' | 'Monotributo' | 'Responsable inscripto' | 'Exento' | null;
+
+  @ApiProperty({ name: 'billingFiscalAddress', type: String, nullable: true, required: false })
+  billingFiscalAddress: string | null;
+
+  @ApiProperty({ name: 'billingEmail', type: String, nullable: true, required: false })
+  billingEmail: string | null;
+
   @ApiProperty({ name: 'emailVerified' })
   emailVerified: boolean;
 
@@ -109,6 +135,13 @@ export class MeUserResponse {
     this.documentType = data.documentType ?? null;
     this.gender = data.gender ?? null;
     this.birthday = data.birthday ?? null;
+    this.address = data.address ?? null;
+    this.billingIdType = data.billingIdType ?? null;
+    this.billingIdNumber = data.billingIdNumber ?? null;
+    this.billingLegalName = data.billingLegalName ?? null;
+    this.billingVatCondition = data.billingVatCondition ?? null;
+    this.billingFiscalAddress = data.billingFiscalAddress ?? null;
+    this.billingEmail = data.billingEmail ?? null;
     this.emailVerified = data.emailVerified;
     this.termsAcceptedAt = data.termsAcceptedAt ?? null;
     this.twoAuthentication = Boolean(data.twoAuthentication);

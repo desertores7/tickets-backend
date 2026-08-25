@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
 
 export class ChangePasswordRequest {
   @IsNotEmpty()
@@ -9,7 +9,13 @@ export class ChangePasswordRequest {
 
   @IsNotEmpty()
   @IsString()
-  @MinLength(6)
-  @ApiProperty({ description: 'Nueva contraseña (mínimo 6 caracteres)' })
+  @MinLength(8)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
+    message: 'La contraseña debe incluir letras, números y al menos un carácter especial'
+  })
+  @ApiProperty({
+    description: 'Nueva contraseña: letras, números y al menos un carácter especial (BR-AUTH-010)',
+    minLength: 8
+  })
   newPassword: string;
 }

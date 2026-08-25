@@ -13,6 +13,8 @@ import { EventController } from './event/controllers/event.controller';
 import { OrderController } from './orders/controllers/order.controller';
 import { PaymentController } from './payments/controllers/payment.controller';
 import { CheckInController } from './check-in/controllers/checkin.controller';
+import { UserNotificationController } from './notifications/controllers/user-notification.controller';
+import { SupportController } from './support/controllers/support.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -26,7 +28,9 @@ import { CheckInController } from './check-in/controllers/checkin.controller';
     EventController,
     OrderController,
     PaymentController,
-    CheckInController
+    CheckInController,
+    UserNotificationController,
+    SupportController
   ]
 })
 export class ControllerModule {}

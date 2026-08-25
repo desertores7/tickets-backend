@@ -599,16 +599,6 @@ export class AuthService implements IAuthService {
   async updateMe(authenticatedUserUuid: string, data: IUpdateMeData): Promise<TMeResponse> {
     await this.loadMeUser(authenticatedUserUuid);
 
-    if (data.email) {
-      const existingUser = await this.dbRepository.findOne({
-        entity: 'user',
-        where: { email: data.email, isDeleted: IsNull() }
-      });
-      if (existingUser && existingUser.uuid !== authenticatedUserUuid) {
-        throw new BadRequestException('El email ya se encuentra registrado');
-      }
-    }
-
     let usernameToSet: string | null | undefined = undefined;
     if (data.username !== undefined) {
       usernameToSet = data.username?.trim() ? data.username.trim() : null;
@@ -626,16 +616,34 @@ export class AuthService implements IAuthService {
     const userData: Partial<UserEntity> = {};
     if (data.firstName !== undefined) userData.firstName = data.firstName;
     if (data.lastName !== undefined) userData.lastName = data.lastName;
-    if (data.email !== undefined) userData.email = data.email;
     if (usernameToSet !== undefined) userData.username = usernameToSet;
     if (data.phone !== undefined) userData.phone = data.phone?.trim() || null;
-    if (data.dni !== undefined) userData.dni = data.dni?.trim() || null;
     if (data.gender !== undefined) userData.gender = data.gender?.trim() || null;
     if (data.birthday !== undefined) {
       userData.birthday = data.birthday?.trim() ? new Date(data.birthday) : null;
     }
-    if (data.password?.trim()) {
-      userData.password = await this.hash(data.password);
+    if (data.address !== undefined) userData.address = data.address?.trim() || null;
+    if (data.billingIdType !== undefined) {
+      userData.billingIdType = (data.billingIdType?.trim() || null) as UserEntity['billingIdType'];
+    }
+    if (data.billingIdNumber !== undefined) {
+      userData.billingIdNumber = data.billingIdNumber?.trim() || null;
+    }
+    if (data.billingLegalName !== undefined) {
+      userData.billingLegalName = data.billingLegalName?.trim() || null;
+    }
+    if (data.billingVatCondition !== undefined) {
+      userData.billingVatCondition = (data.billingVatCondition?.trim() ||
+        null) as UserEntity['billingVatCondition'];
+    }
+    if (data.billingFiscalAddress !== undefined) {
+      userData.billingFiscalAddress = data.billingFiscalAddress?.trim() || null;
+    }
+    if (data.billingEmail !== undefined) {
+      userData.billingEmail = data.billingEmail?.trim() || null;
+    }
+    if (data.twoAuthentication !== undefined) {
+      userData.twoAuthentication = data.twoAuthentication;
     }
 
     const hasUserFieldUpdates = Object.keys(userData).length > 0;
@@ -653,5 +661,26 @@ export class AuthService implements IAuthService {
     }
 
     return this.loadMeUser(authenticatedUserUuid);
+  }
+
+  /**
+   * Baja de cuenta: desactiva el usuario e invalida todas las sesiones de token.
+   * El login ya rechaza usuarios inactivos.
+   */
+  async deactivateAccount(userUuid: string): Promise<void> {
+    await this.loadMeUser(userUuid);
+
+    await this.dbRepository.update({
+      entity: 'user',
+      where: { uuid: userUuid },
+      data: { active: 0, updatedBy: userUuid }
+    });
+
+    await this.dbRepository.delete({
+      entity: 'user_token_session',
+      where: { userUuid }
+    });
+
+    this.logger.log(`Cuenta desactivada: ${userUuid}`);
   }
 }
