@@ -15,6 +15,11 @@ export type TUserLoginAuthResponse = TEntityResponse<
 > &
   IUserTokenSession & { imgProfile: object; roleUuid?: string; role?: string };
 
+/** Login completo o challenge 2FA (BR-AUTH-011) */
+export type TLoginAuthResult =
+  | { requiresTwoFactor: true; email: string }
+  | (TUserLoginAuthResponse & { requiresTwoFactor?: false });
+
 export type TMeResponse = TEntityResponse<
   'user',
   {
@@ -44,7 +49,9 @@ export interface IUpdateMeData {
 }
 
 export interface IAuthService {
-  userLoginAuth(email: string, password: string): Promise<TUserLoginAuthResponse>;
+  userLoginAuth(email: string, password: string): Promise<TLoginAuthResult>;
+  verifyTwoFactor(email: string, code: string): Promise<TUserLoginAuthResponse>;
+  resendTwoFactor(email: string): Promise<{ message: string }>;
   registerAuth(request: RegisterAuthRequest): Promise<{ email: string; uuid: string }>;
   resendEmailVerification(email: string): Promise<void>;
   validateEmailAuth(token: string): Promise<{ verified: boolean; alreadyVerified: boolean; message: string }>;

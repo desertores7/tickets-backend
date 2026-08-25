@@ -21,9 +21,6 @@ export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
   uuid: string;
 
-  @Column({ type: 'varchar', length: 30, nullable: true, default: null })
-  dni: string | null;
-
   @Column({
     name: 'documentType',
     type: 'enum',
@@ -32,6 +29,9 @@ export class UserEntity {
     default: null
   })
   documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro' | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true, default: null })
+  dni: string | null;
 
   @Column({ name: 'firstName', type: 'varchar', length: 255 })
   firstName: string;
@@ -53,6 +53,9 @@ export class UserEntity {
 
   @Column({ type: 'varchar', length: 50, nullable: true, default: null })
   gender: string | null;
+
+  @Column({ type: 'date', nullable: true, default: null })
+  birthday: Date | null;
 
   @Column({
     name: 'billingIdType',
@@ -89,9 +92,6 @@ export class UserEntity {
 
   @Column({ name: 'googleId', type: 'varchar', length: 255, nullable: true, default: null })
   googleId: string | null;
-
-  @Column({ type: 'date', nullable: true, default: null })
-  birthday: Date | null;
 
   @Column()
   active: number;

@@ -109,7 +109,7 @@ export class UpdateMeRequest {
   @ApiProperty({
     name: 'twoAuthentication',
     required: false,
-    description: 'Toggle 2FA flag (login challenge still pending)'
+    description: 'Toggle 2FA flag — when true, login sends a 6-digit email code (BR-AUTH-011)'
   })
   twoAuthentication?: boolean;
 

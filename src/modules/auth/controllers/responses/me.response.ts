@@ -65,8 +65,16 @@ export class MeUserResponse {
   @ApiProperty({ name: 'phone', type: String, nullable: true })
   phone: string | null;
 
-  @ApiProperty({ name: 'dni', type: String, nullable: true })
+  @ApiProperty({ name: 'dni', type: String, nullable: true, description: 'Número de documento (columna user.dni)' })
   dni: string | null;
+
+  @ApiProperty({
+    name: 'documentNumber',
+    type: String,
+    nullable: true,
+    description: 'Alias de dni — número de documento de identidad'
+  })
+  documentNumber: string | null;
 
   @ApiProperty({
     name: 'documentType',
@@ -132,6 +140,7 @@ export class MeUserResponse {
     this.username = data.username ?? null;
     this.phone = data.phone ?? null;
     this.dni = data.dni ?? null;
+    this.documentNumber = data.dni ?? null;
     this.documentType = data.documentType ?? null;
     this.gender = data.gender ?? null;
     this.birthday = data.birthday ?? null;

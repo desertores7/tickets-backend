@@ -9,14 +9,15 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { DBRepository } from '@config/db/db.repository';
-import { IAuthService, IUpdateMeData, TUserLoginAuthResponse, TMeResponse } from '../contracts/iauth.service';
+import { IAuthService, IUpdateMeData, TUserLoginAuthResponse, TMeResponse, TLoginAuthResult } from '../contracts/iauth.service';
 import { v4 as uuidv4 } from 'uuid';
 import { IUser, IUserTokenSession } from '@modules/user/services/core/user';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserTokenSessionEntity } from '@config/db/entities/user/user_token_session.entity';
+import { UserSessionEntity } from '@config/db/entities/user/user_session.entity';
 import * as bcryptjs from 'bcryptjs';
-import { IsNull, QueryRunner } from 'typeorm';
+import { IsNull, MoreThan, QueryRunner } from 'typeorm';
 import { TEntityResponse } from '@config/db/meta/db.types';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { RoleEntity } from '@config/db/entities/user/role.entity';
@@ -262,9 +263,114 @@ export class AuthService implements IAuthService {
     };
   }
 
-  async userLoginAuth(emailOrUsername: string, password: string): Promise<TUserLoginAuthResponse> {
+  async userLoginAuth(emailOrUsername: string, password: string): Promise<TLoginAuthResult> {
     const user = await this.authenticateUserByCredentials(emailOrUsername, password);
+
+    if (user.twoAuthentication) {
+      await this.issueTwoFactorCode(user.uuid, user.email, user.firstName || 'Usuario');
+      return { requiresTwoFactor: true, email: user.email };
+    }
+
     return this.buildLoginResponse(user);
+  }
+
+  async verifyTwoFactor(email: string, code: string): Promise<TUserLoginAuthResponse> {
+    const normalizedEmail = email.trim();
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { email: normalizedEmail, isDeleted: IsNull() },
+      relations: {
+        files: true,
+        userTokenSessions: true,
+        userRoles: { role: true }
+      }
+    });
+
+    if (!user || !user.active || !user.twoAuthentication) {
+      throw new UnauthorizedException('Código inválido o expirado');
+    }
+
+    const session = await this.dbRepository.findOne({
+      entity: 'user_session',
+      where: {
+        userUuid: user.uuid,
+        code: code.trim(),
+        isUsed: false,
+        expiresAt: MoreThan(new Date())
+      },
+      other: { order: { createdAt: 'DESC' } }
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Código inválido o expirado');
+    }
+
+    await this.dbRepository.update({
+      entity: 'user_session',
+      where: { uuid: session.uuid },
+      data: { isUsed: true }
+    });
+
+    return this.buildLoginResponse(user);
+  }
+
+  async resendTwoFactor(email: string): Promise<{ message: string }> {
+    const normalizedEmail = email.trim();
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { email: normalizedEmail, isDeleted: IsNull() }
+    });
+
+    // Anti-enumeración: misma respuesta siempre
+    const message = 'Si corresponde, te enviamos un nuevo código';
+
+    if (user?.active && user.twoAuthentication) {
+      await this.issueTwoFactorCode(user.uuid, user.email, user.firstName || 'Usuario');
+    }
+
+    return { message };
+  }
+
+  private generateSixDigitCode(): string {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
+  private async issueTwoFactorCode(userUuid: string, email: string, firstName: string): Promise<void> {
+    // Invalidar códigos previos no usados
+    const pending = await this.dbRepository.findMany({
+      entity: 'user_session',
+      where: { userUuid, isUsed: false }
+    });
+    for (const s of pending) {
+      await this.dbRepository.update({
+        entity: 'user_session',
+        where: { uuid: s.uuid },
+        data: { isUsed: true }
+      });
+    }
+
+    const code = this.generateSixDigitCode();
+    const session = new UserSessionEntity();
+    session.uuid = uuidv4();
+    session.userUuid = userUuid;
+    session.code = code;
+    session.isUsed = false;
+    session.expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.dbRepository.create({ entity: 'user_session', data: session });
+
+    try {
+      await this.emailService.initializeSmtp();
+      await this.emailService.sendLoginCodeEmail({ firstName, email, code });
+      this.logger.log(`Código 2FA enviado a ${email}`);
+    } catch (error) {
+      this.logger.error(`No se pudo enviar código 2FA a ${email}: ${(error as Error).message}`);
+      if (this.isLocalEnvironment()) {
+        this.logger.warn(`[local] Código 2FA para ${email}: ${code}`);
+      } else {
+        throw new BadRequestException('No se pudo enviar el código de verificación. Intentá de nuevo.');
+      }
+    }
   }
 
   private getFrontendUrl(): string {

@@ -4,7 +4,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
-import { IAuthService, TUserLoginAuthResponse } from '../services/contracts/iauth.service';
+import { IAuthService, TLoginAuthResult } from '../services/contracts/iauth.service';
 import { LoginAuthResponse } from './responses/login-auth.response';
 import { MeResponse } from './responses/me.response';
 import { LoginAuthRequest } from './requests/login-auth.request';
@@ -17,6 +17,8 @@ import { RegisterAuthResponse } from './responses/register-auth.response';
 import { ValidateEmailRequest } from './requests/validate-email.request';
 import { ValidateEmailResponse } from './responses/validate-email.response';
 import { ResendEmailVerificationRequest } from './requests/resend-email-verification.request';
+import { VerifyTwoFactorRequest } from './requests/verify-two-factor.request';
+import { ResendTwoFactorRequest } from './requests/resend-two-factor.request';
 import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 
 @ApiTags('Auth')
@@ -24,7 +26,7 @@ import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 export class AuthController {
   constructor(@Inject('IAuthService') public authService: IAuthService) {}
 
-  private toLoginAuthResponse(result: TUserLoginAuthResponse): LoginAuthResponse {
+  private toLoginAuthResponse(result: TLoginAuthResult): LoginAuthResponse {
     return new LoginAuthResponse(result);
   }
 
@@ -73,7 +75,9 @@ export class AuthController {
 
   @ApiOperation({
     summary: 'Login',
-    description: 'Validate credentials and return JWT access and refresh tokens plus user data.'
+    description:
+      'Validate credentials. If 2FA is enabled, returns `{ requiresTwoFactor: true, email }` and sends a 6-digit code by email. ' +
+      'Otherwise returns JWT access and refresh tokens plus user data.'
   })
   @Swagger(LoginAuthRequest, LoginAuthResponse, CONTENT_TYPE.FORM_URLENCODED)
   @HttpCode(200)
@@ -81,6 +85,29 @@ export class AuthController {
   async loginAuth(@Body() request: LoginAuthRequest): Promise<LoginAuthResponse> {
     const result = await this.authService.userLoginAuth(request.email, request.password);
     return this.toLoginAuthResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Verify 2FA code',
+    description: 'Completes login after email/password when twoAuthentication is enabled. Consumes the 6-digit code from email.'
+  })
+  @Swagger(VerifyTwoFactorRequest, LoginAuthResponse)
+  @HttpCode(200)
+  @Post('verify')
+  async verifyTwoFactor(@Body() request: VerifyTwoFactorRequest): Promise<LoginAuthResponse> {
+    const result = await this.authService.verifyTwoFactor(request.email, request.code);
+    return this.toLoginAuthResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Resend 2FA code',
+    description: 'Resends a new 6-digit login code. Always returns 200 to avoid email enumeration.'
+  })
+  @Swagger(ResendTwoFactorRequest, null)
+  @HttpCode(200)
+  @Post('resend')
+  async resendTwoFactor(@Body() request: ResendTwoFactorRequest): Promise<{ message: string }> {
+    return this.authService.resendTwoFactor(request.email);
   }
 
   @ApiOperation({
