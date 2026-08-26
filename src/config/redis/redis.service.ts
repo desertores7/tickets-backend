@@ -174,6 +174,23 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return result === 1;
   }
 
+  /**
+   * Contador con TTL (rate limit). Devuelve el valor tras INCR.
+   * Si la key es nueva, setea EXPIRE; si ya existía, no renueva la ventana.
+   */
+  async incrWithExpire(key: string, ttlSeconds: number): Promise<number> {
+    const count = await this.redis.incr(key);
+    if (count === 1) {
+      await this.redis.expire(key, ttlSeconds);
+    }
+    return count;
+  }
+
+  async getCounter(key: string): Promise<number> {
+    const v = await this.redis.get(key);
+    return v ? Number(v) || 0 : 0;
+  }
+
   async deleteKey(key: string): Promise<void> {
     await this.redis.del(key);
   }

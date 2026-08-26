@@ -409,8 +409,17 @@ export class EventService implements IEventService {
     await this.redisService.setStock(`stock:${ticketTypeUuid}`, 0);
   }
 
-  async getEventMedia(eventUuid: string, loggedUser: string): Promise<TEventMediaItem[]> {
-    await this.assertOwnership(eventUuid, loggedUser);
+  async getEventMedia(eventUuid: string, loggedUser?: string | null): Promise<TEventMediaItem[]> {
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: eventUuid, isActive: true }
+    });
+    if (!event) throw new BadRequestException('Evento no encontrado');
+
+    if (!event.isPublished) {
+      if (!loggedUser) throw new BadRequestException('Evento no encontrado');
+      await this.assertOwnership(eventUuid, loggedUser);
+    }
 
     const rows = await this.dbRepository.findMany({
       entity: 'event_media',
@@ -560,8 +569,14 @@ export class EventService implements IEventService {
     let processed: Buffer;
     try {
       processed = await sharp(file.buffer)
-        .resize({ width: spec.width, height: spec.height, fit: 'cover', position: 'centre', withoutEnlargement: true })
-        .webp({ quality: 82 })
+        .resize({
+          width: spec.width,
+          height: spec.height,
+          fit: 'cover',
+          position: 'centre',
+          withoutEnlargement: false
+        })
+        .webp({ quality: 85 })
         .toBuffer();
     } catch {
       throw new BadRequestException('El archivo no es una imagen válida');
@@ -877,11 +892,21 @@ export class EventService implements IEventService {
   private async attachSoldOut(events: TEventResponse[]): Promise<TEventListItem[]> {
     if (events.length === 0) return [];
 
-    const ticketTypes = await this.dbRepository.findMany({
-      entity: 'ticket_type',
-      where: { eventUuid: In(events.map(e => e.uuid)), isActive: true },
-      select: { eventUuid: true, availableQuantity: true }
-    });
+    const eventUuids = events.map(e => e.uuid);
+
+    const [ticketTypes, galleryImages] = await Promise.all([
+      this.dbRepository.findMany({
+        entity: 'ticket_type',
+        where: { eventUuid: In(eventUuids), isActive: true },
+        select: { eventUuid: true, availableQuantity: true }
+      }),
+      this.dbRepository.findMany({
+        entity: 'event_media',
+        where: { eventUuid: In(eventUuids), isDeleted: IsNull(), kind: 'image' },
+        other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } },
+        select: { eventUuid: true, url: true, sortOrder: true }
+      })
+    ]);
 
     const withStock = new Set<string>();
     for (const tt of ticketTypes) {
@@ -892,9 +917,18 @@ export class EventService implements IEventService {
     // llegó a estar a la venta. Publicar en ese estado ya está bloqueado.
     const withAnyType = new Set(ticketTypes.map(tt => tt.eventUuid));
 
+    // Primera imagen de galería por evento = flyer principal (sortOrder ASC)
+    const coverByEvent = new Map<string, string>();
+    for (const row of galleryImages) {
+      if (!coverByEvent.has(row.eventUuid) && row.url) {
+        coverByEvent.set(row.eventUuid, row.url);
+      }
+    }
+
     return events.map(event => ({
       ...event,
-      soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid)
+      soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid),
+      coverUrl: coverByEvent.get(event.uuid) ?? null
     }));
   }
 

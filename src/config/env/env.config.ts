@@ -86,7 +86,20 @@ export const envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().optional(),
 
   /** Destino de formularios de contacto / soporte (BR-SUPPORT-002) */
-  SUPPORT_EMAIL: z.string().email().optional()
+  SUPPORT_EMAIL: z.string().email().optional(),
+
+  /** Gemini — análisis de flyers + generación de hero (opcional en local) */
+  GEMINI_API_KEY: z.string().optional(),
+  /** Modelo multimodal para extracción JSON */
+  EVENT_AI_EXTRACT_MODEL: z.string().default('gemini-3.5-flash'),
+  /** Modelo de imagen (3.6-flash no genera imágenes; usar Flash Image) */
+  EVENT_AI_IMAGE_MODEL: z.string().default('gemini-3.1-flash-image'),
+  /** Fallback si el primario responde 503 high-demand (modelo más estable) */
+  EVENT_AI_IMAGE_FALLBACK_MODEL: z.string().default('gemini-2.5-flash-image'),
+  /** Tope de análisis IA por usuario / hora (Redis) */
+  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  /** Tope de análisis IA por usuario / día (Redis) */
+  EVENT_AI_MAX_PER_DAY: z.coerce.number().int().min(1).max(500).default(15)
 });
 
 export type Env = z.infer<typeof envSchema>;

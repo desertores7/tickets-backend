@@ -17,8 +17,12 @@ export type TEventMediaResponse = TEntityResponse<'event_media', undefined, unde
 /**
  * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
  * el listado para no obligar al frontend a pedir el detalle de cada tarjeta.
+ * `coverUrl` = primera imagen de galería (flyer principal), si existe.
  */
-export type TEventListItem = TEventResponse & { soldOut: boolean };
+export type TEventListItem = TEventResponse & {
+  soldOut: boolean;
+  coverUrl: string | null;
+};
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
 
@@ -85,7 +89,7 @@ export interface IEventService {
 
   deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void>;
 
-  getEventMedia(eventUuid: string, loggedUser: string): Promise<TEventMediaItem[]>;
+  getEventMedia(eventUuid: string, loggedUser?: string | null): Promise<TEventMediaItem[]>;
 
   uploadEventMedia(eventUuid: string, file: Express.Multer.File, loggedUser: string): Promise<TEventMediaItem>;
 

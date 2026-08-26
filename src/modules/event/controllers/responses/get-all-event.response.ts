@@ -13,6 +13,11 @@ export class GetAllEventResponse {
     example: { desktop: '…/desktop-1.webp', mobile: '…/mobile-1.webp', thumbnail: '…/thumbnail-1.webp' }
   })
   bannerImages: Record<string, string> | null;
+  @ApiProperty({
+    nullable: true,
+    description: 'URL del flyer principal (primera imagen de galería). Preferida para cards del listado.'
+  })
+  coverUrl: string | null;
   @ApiProperty() startDate: Date;
   @ApiProperty() endDate: Date;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
@@ -46,6 +51,7 @@ export class GetAllEventResponse {
     this.slug = data.slug;
     this.bannerUrl = data.bannerUrl;
     this.bannerImages = data.bannerImages ?? null;
+    this.coverUrl = data.coverUrl ?? null;
     this.startDate = data.startDate;
     this.endDate = data.endDate;
     this.saleStartDate = data.saleStartDate;

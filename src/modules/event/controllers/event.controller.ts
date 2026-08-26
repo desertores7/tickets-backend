@@ -12,9 +12,10 @@ import {
   Post,
   Query,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
@@ -45,11 +46,16 @@ import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
+import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
+import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
 @ApiTags('Events')
 @Controller({ path: 'events', version: '1' })
 export class EventController {
-  constructor(@Inject('IEventService') private readonly _eventService: IEventService) {}
+  constructor(
+    @Inject('IEventService') private readonly _eventService: IEventService,
+    @Inject('IEventAiService') private readonly _eventAiService: IEventAiService
+  ) {}
 
   @UserAuth(CreateEventRequest, null)
   @ApiOperation({ summary: 'Create event', description: 'Creates a new event for an organization. Requester must be a member of the organization.' })
@@ -60,6 +66,48 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<{ uuid: string }> {
     return this._eventService.createEvent(data, loggedUser);
+  }
+
+  @UserAuth(null, AnalyzeFlyersResponse, 'multipart/form-data')
+  @ApiOperation({
+    summary: 'Analyze flyers with AI (Gemini)',
+    description:
+      'Accepts 1–2 flyer images (multipart field `flyers`), extracts event fields via Gemini Flash, ' +
+      'and generates one 16:9 hero (Flash Image, 1K). Requires GEMINI_API_KEY.\n\n' +
+      'Cost guards: max 2 Gemini calls per request (no retries/loops), per-user hourly/daily Redis quotas, ' +
+      '8MB/file. Hero timeout 5 min; if hero fails, extraction is still returned.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        flyers: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+          maxItems: 2
+        }
+      },
+      required: ['flyers']
+    }
+  })
+  @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
+  @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
+  @ApiResponse({ status: 429, description: 'Hourly/daily AI quota exceeded.' })
+  @ApiResponse({ status: 503, description: 'GEMINI_API_KEY missing or Gemini error.' })
+  @UseInterceptors(
+    FilesInterceptor('flyers', 2, {
+      limits: { fileSize: 8 * 1024 * 1024 }
+    })
+  )
+  @HttpCode(200)
+  @Post('ai/from-flyers')
+  async analyzeFromFlyers(
+    @UploadedFiles() files: Express.Multer.File[],
+    @User() loggedUser: string
+  ): Promise<AnalyzeFlyersResponse> {
+    const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser);
+    return new AnalyzeFlyersResponse(result);
   }
 
   @OptionalUserAuth(null, GetAllEventResponse)
@@ -173,14 +221,14 @@ export class EventController {
     description:
       'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
       '**Variants and target sizes:**\n' +
-      '- `desktop` — 1920x640 (3:1), hero web. Also syncs the legacy `bannerUrl` field.\n' +
+      '- `desktop` — 1080x1440 (3:4), composición de talento para el hero (lado derecho).\n' +
       '- `mobile` — 1080x1350 (4:5), portrait for phones.\n' +
       '- `thumbnail` — 800x450 (16:9), cards and listings.\n\n' +
       'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
       'cropped centred to the target aspect ratio. Files are stored per event in ' +
       '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
       'Only members of the owning organization or an admin can upload.\n\n' +
-      'Max upload size is 4MB — kept under the 4.5MB body limit of the frontend proxy (Vercel).'
+      'Max upload size is 8MB (heroes IA); the image is then normalized to webp.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -193,7 +241,7 @@ export class EventController {
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'variant', enum: BANNER_VARIANT_NAMES, description: 'Platform variant.' })
   @ApiResponse({ status: 200, description: 'Banner uploaded. Returns the variant URL and the full `bannerImages` map.' })
-  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 4MB).' })
+  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 8MB).' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @UseInterceptors(FileInterceptor('banner'))
@@ -203,9 +251,9 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @Param('variant') variant: string,
     @UploadedFile(
-      // 4MB: por debajo del límite de body (4.5MB) del proxy del frontend en Vercel
+      // 8MB: permite heroes IA (luego sharp los comprime a webp)
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 4 * 1024 * 1024 })
+        .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
         .build({ fileIsRequired: true })
     )
     file: Express.Multer.File,
@@ -241,17 +289,18 @@ export class EventController {
     return this._eventService.deleteBanner(eventUuid, variant, loggedUser);
   }
 
-  @UserAuth(null, EventMediaResponse)
+  @OptionalUserAuth(null, EventMediaResponse)
   @ApiOperation({
     summary: 'List event gallery media',
-    description: 'Returns up to 4 gallery items (images/videos) for the event. Owner only.'
+    description:
+      'Returns up to 4 gallery items. Published events are public; drafts require ownership token.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @HttpCode(200)
   @Get(':eventUuid/media')
   async getEventMedia(
     @Param('eventUuid') eventUuid: string,
-    @User() loggedUser: string
+    @OptionalUser() loggedUser: string | null
   ): Promise<EventMediaResponse[]> {
     const items = await this._eventService.getEventMedia(eventUuid, loggedUser);
     return items.map(item => new EventMediaResponse(item));

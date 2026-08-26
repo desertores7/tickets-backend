@@ -13,6 +13,7 @@ import { OrganizationStaffService } from './organization/services/implementation
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
+import { EventAiService } from './event/services/implementation/event-ai.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -49,6 +50,7 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
@@ -73,6 +75,7 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
