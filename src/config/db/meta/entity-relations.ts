@@ -312,7 +312,12 @@ export const entityRelations = {
 
   event: {
     organization: 'organization',
-    ticketTypes: 'ticket_type'
+    ticketTypes: 'ticket_type',
+    media: 'event_media'
+  },
+
+  event_media: {
+    event: 'event'
   },
 
   ticket_type: {

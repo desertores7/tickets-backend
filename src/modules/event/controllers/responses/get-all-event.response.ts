@@ -26,6 +26,8 @@ export class GetAllEventResponse {
   @ApiProperty() venueAddress: string;
   @ApiProperty() venueCity: string;
   @ApiProperty() venueCountry: string;
+  @ApiProperty({ nullable: true, description: 'Link de Google Maps para Cómo llegar' })
+  googleMapsUrl: string | null;
   @ApiProperty() maxCapacity: number;
   @ApiProperty({
     description:
@@ -56,6 +58,7 @@ export class GetAllEventResponse {
     this.venueAddress = data.venueAddress;
     this.venueCity = data.venueCity;
     this.venueCountry = data.venueCountry;
+    this.googleMapsUrl = data.googleMapsUrl ?? null;
     this.maxCapacity = data.maxCapacity;
     this.soldOut = data.soldOut;
     this.createdAt = data.createdAt;

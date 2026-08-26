@@ -4,6 +4,7 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
+import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
@@ -11,6 +12,7 @@ import { eventFilters } from '../../controllers/const/event.filters';
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
 export type TTicketTypeResponse = TEntityResponse<'ticket_type', undefined, undefined>;
+export type TEventMediaResponse = TEntityResponse<'event_media', undefined, undefined>;
 
 /**
  * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
@@ -41,6 +43,16 @@ export type TUserSummary = {
   email: string;
 };
 
+export type TEventMediaItem = {
+  uuid: string;
+  eventUuid: string;
+  sortOrder: number;
+  kind: EventMediaKind;
+  url: string;
+  mimeType: string;
+  createdAt: Date;
+};
+
 export interface IEventService {
   getEvents(
     pagination: IPaginationParams,
@@ -52,7 +64,7 @@ export interface IEventService {
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
 
-  createEvent(data: IEventCreate, loggedUser: string): Promise<boolean>;
+  createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }>;
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
 
@@ -64,7 +76,20 @@ export interface IEventService {
 
   createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse>;
 
-  updateTicketType(eventUuid: string, ticketTypeUuid: string, data: ITicketTypeUpdate, loggedUser: string): Promise<TTicketTypeResponse>;
+  updateTicketType(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    data: ITicketTypeUpdate,
+    loggedUser: string
+  ): Promise<TTicketTypeResponse>;
+
+  deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void>;
+
+  getEventMedia(eventUuid: string, loggedUser: string): Promise<TEventMediaItem[]>;
+
+  uploadEventMedia(eventUuid: string, file: Express.Multer.File, loggedUser: string): Promise<TEventMediaItem>;
+
+  deleteEventMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<void>;
 
   getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null>;
 

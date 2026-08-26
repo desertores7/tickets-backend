@@ -10,6 +10,7 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
+import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
 import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
@@ -26,6 +27,7 @@ import {
 import {
   IEventService,
   TEventFilters,
+  TEventMediaItem,
   TEventProducer,
   TEventValidator,
   TUserSummary,
@@ -37,6 +39,9 @@ import {
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 
 const BANNERS_BASE_PATH = 'events/banners';
+const GALLERY_BASE_PATH = 'events/gallery';
+const MAX_GALLERY_ITEMS = 4;
+const MAX_GALLERY_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 @Injectable()
 export class EventService implements IEventService {
@@ -138,7 +143,7 @@ export class EventService implements IEventService {
     return event as TEventWithTicketTypesResponse;
   }
 
-  async createEvent(data: IEventCreate, loggedUser: string): Promise<boolean> {
+  async createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }> {
     const org = await this.dbRepository.findOne({
       entity: 'organization',
       where: { uuid: data.organizationUuid, isDeleted: IsNull() }
@@ -181,10 +186,11 @@ export class EventService implements IEventService {
     event.venueAddress = data.venueAddress;
     event.venueCity = data.venueCity;
     event.venueCountry = data.venueCountry;
+    event.googleMapsUrl = data.googleMapsUrl ?? null;
     event.maxCapacity = data.maxCapacity;
 
     await this.dbRepository.create({ entity: 'event', data: event });
-    return true;
+    return { uuid: event.uuid };
   }
 
   async updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void> {
@@ -219,7 +225,20 @@ export class EventService implements IEventService {
     if (data.venueAddress !== undefined) patch.venueAddress = data.venueAddress;
     if (data.venueCity !== undefined) patch.venueCity = data.venueCity;
     if (data.venueCountry !== undefined) patch.venueCountry = data.venueCountry;
+    if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
+
+    if (data.slug !== undefined && data.slug !== event.slug) {
+      if (event.isPublished) {
+        throw new BadRequestException('No se puede cambiar el slug de un evento publicado');
+      }
+      const slugTaken = await this.dbRepository.findOne({
+        entity: 'event',
+        where: { slug: data.slug }
+      });
+      if (slugTaken) throw new BadRequestException('El slug ya está en uso');
+      patch.slug = data.slug;
+    }
 
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
   }
@@ -313,17 +332,15 @@ export class EventService implements IEventService {
     data: ITicketTypeUpdate,
     loggedUser: string
   ): Promise<TTicketTypeResponse> {
-    const event = await this.assertOwnership(eventUuid, loggedUser);
-
-    if (event.isPublished) {
-      throw new BadRequestException('No se puede modificar el precio de un evento ya publicado');
-    }
+    await this.assertOwnership(eventUuid, loggedUser);
 
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
     });
     if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    const soldCount = ticketType.quantity - ticketType.availableQuantity;
 
     const patch: Partial<TicketTypeEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -334,12 +351,182 @@ export class EventService implements IEventService {
     if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
     if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
 
+    if (data.price !== undefined) {
+      if (soldCount > 0) {
+        throw new BadRequestException(
+          'No se puede cambiar el precio de una tanda con ventas. Agotá la tanda y creá una nueva.'
+        );
+      }
+      patch.price = data.price;
+    }
+
+    if (data.quantity !== undefined) {
+      if (data.quantity < soldCount) {
+        throw new BadRequestException(
+          `El stock no puede ser menor a lo ya vendido (${soldCount})`
+        );
+      }
+      const delta = data.quantity - ticketType.quantity;
+      patch.quantity = data.quantity;
+      patch.availableQuantity = ticketType.availableQuantity + delta;
+    }
+
     await this.dbRepository.update({ entity: 'ticket_type', where: { uuid: ticketTypeUuid }, data: patch });
+
+    if (data.quantity !== undefined && patch.availableQuantity !== undefined) {
+      await this.redisService.setStock(`stock:${ticketTypeUuid}`, patch.availableQuantity);
+    }
 
     return this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid }
     }) as Promise<TTicketTypeResponse>;
+  }
+
+  async deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    if (event.isPublished) {
+      throw new BadRequestException('No se pueden eliminar tipos de entrada de un evento publicado');
+    }
+
+    const ticketType = await this.dbRepository.findOne({
+      entity: 'ticket_type',
+      where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
+    });
+    if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    const soldCount = ticketType.quantity - ticketType.availableQuantity;
+    if (soldCount > 0) {
+      throw new BadRequestException('No se puede eliminar una tanda con ventas');
+    }
+
+    await this.dbRepository.update({
+      entity: 'ticket_type',
+      where: { uuid: ticketTypeUuid },
+      data: { isActive: false, availableQuantity: 0 }
+    });
+    await this.redisService.setStock(`stock:${ticketTypeUuid}`, 0);
+  }
+
+  async getEventMedia(eventUuid: string, loggedUser: string): Promise<TEventMediaItem[]> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_media',
+      where: { eventUuid, isDeleted: IsNull() },
+      other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
+    });
+
+    return rows.map(row => ({
+      uuid: row.uuid,
+      eventUuid: row.eventUuid,
+      sortOrder: row.sortOrder,
+      kind: row.kind,
+      url: row.url,
+      mimeType: row.mimeType,
+      createdAt: row.createdAt
+    }));
+  }
+
+  async uploadEventMedia(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMediaItem> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No se recibió ningún archivo');
+    }
+    if (file.size > MAX_GALLERY_UPLOAD_BYTES) {
+      throw new BadRequestException('El archivo supera el máximo de 20 MB');
+    }
+
+    const isImage = file.mimetype?.startsWith('image/');
+    const isVideo = file.mimetype?.startsWith('video/');
+    if (!isImage && !isVideo) {
+      throw new BadRequestException('Solo se permiten imágenes o videos');
+    }
+
+    const activeCount = await this.dbRepository.count({
+      entity: 'event_media',
+      where: { eventUuid: event.uuid, isDeleted: IsNull() }
+    });
+    if (activeCount >= MAX_GALLERY_ITEMS) {
+      throw new BadRequestException(`La galería admite hasta ${MAX_GALLERY_ITEMS} archivos`);
+    }
+
+    const relativePath = `${GALLERY_BASE_PATH}/${event.uuid}`;
+    let url: string;
+    let mimeType = file.mimetype;
+    let kind: 'image' | 'video' = isVideo ? 'video' : 'image';
+
+    if (isImage) {
+      let processed: Buffer;
+      try {
+        processed = await sharp(file.buffer)
+          .resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+      } catch {
+        throw new BadRequestException('El archivo no es una imagen válida');
+      }
+      const filename = `gallery-${Date.now()}.webp`;
+      ({ url } = await this.storageService.saveFile({ buffer: processed, relativePath, filename }));
+      mimeType = 'image/webp';
+    } else {
+      const ext = (file.originalname.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+      const filename = `gallery-${Date.now()}.${ext}`;
+      ({ url } = await this.storageService.saveFile({ buffer: file.buffer, relativePath, filename }));
+    }
+
+    const media = new EventMediaEntity();
+    media.uuid = uuidv4();
+    media.eventUuid = event.uuid;
+    media.sortOrder = activeCount;
+    media.kind = kind;
+    media.url = url;
+    media.mimeType = mimeType;
+    media.isDeleted = null;
+    media.createdBy = loggedUser;
+
+    await this.dbRepository.create({ entity: 'event_media', data: media });
+
+    return {
+      uuid: media.uuid,
+      eventUuid: media.eventUuid,
+      sortOrder: media.sortOrder,
+      kind: media.kind,
+      url: media.url,
+      mimeType: media.mimeType,
+      createdAt: media.createdAt ?? new Date()
+    };
+  }
+
+  async deleteEventMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const media = await this.dbRepository.findOne({
+      entity: 'event_media',
+      where: { uuid: mediaUuid, eventUuid, isDeleted: IsNull() }
+    });
+    if (!media) throw new BadRequestException('Archivo de galería no encontrado');
+
+    await this.dbRepository.update({
+      entity: 'event_media',
+      where: { uuid: mediaUuid },
+      data: { isDeleted: new Date() }
+    });
+
+    if (media.url?.includes(`/static/${GALLERY_BASE_PATH}/${eventUuid}/`)) {
+      const filename = media.url.split('/').pop();
+      if (filename) {
+        await this.storageService.deleteFile(
+          this.storageService.resolveAbsolutePath(`${GALLERY_BASE_PATH}/${eventUuid}`, filename)
+        );
+      }
+    }
   }
 
   async getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null> {

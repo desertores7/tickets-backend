@@ -44,6 +44,7 @@ import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
+import { EventMediaResponse } from './responses/event-media.response';
 
 @ApiTags('Events')
 @Controller({ path: 'events', version: '1' })
@@ -54,7 +55,10 @@ export class EventController {
   @ApiOperation({ summary: 'Create event', description: 'Creates a new event for an organization. Requester must be a member of the organization.' })
   @HttpCode(201)
   @Post()
-  async createEvent(@Body() data: CreateEventRequest, @User() loggedUser: string): Promise<boolean> {
+  async createEvent(
+    @Body() data: CreateEventRequest,
+    @User() loggedUser: string
+  ): Promise<{ uuid: string }> {
     return this._eventService.createEvent(data, loggedUser);
   }
 
@@ -215,7 +219,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete event banner variant',
+    summary: 'Delete banner variant',
     description: 'Removes the image of a specific platform variant and deletes the file from storage.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
@@ -235,6 +239,69 @@ export class EventController {
       throw new BadRequestException(`Variante inválida. Valores permitidos: ${BANNER_VARIANT_NAMES.join(', ')}`);
     }
     return this._eventService.deleteBanner(eventUuid, variant, loggedUser);
+  }
+
+  @UserAuth(null, EventMediaResponse)
+  @ApiOperation({
+    summary: 'List event gallery media',
+    description: 'Returns up to 4 gallery items (images/videos) for the event. Owner only.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(200)
+  @Get(':eventUuid/media')
+  async getEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventMediaResponse[]> {
+    const items = await this._eventService.getEventMedia(eventUuid, loggedUser);
+    return items.map(item => new EventMediaResponse(item));
+  }
+
+  @UserAuth(null, EventMediaResponse)
+  @ApiOperation({
+    summary: 'Upload gallery media',
+    description:
+      'Uploads one gallery file (multipart field `media`). Max 4 active items per event. ' +
+      'Images are compressed to WebP; videos are stored as-is (transcode pending). Max 20 MB.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { media: { type: 'string', format: 'binary' } },
+      required: ['media']
+    }
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @UseInterceptors(FileInterceptor('media'))
+  @HttpCode(201)
+  @Post(':eventUuid/media')
+  async uploadEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 20 * 1024 * 1024 })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<EventMediaResponse> {
+    const item = await this._eventService.uploadEventMedia(eventUuid, file, loggedUser);
+    return new EventMediaResponse(item);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({ summary: 'Delete gallery media item' })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'mediaUuid', description: 'Media UUID.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/media/:mediaUuid')
+  async deleteEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @Param('mediaUuid') mediaUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    return this._eventService.deleteEventMedia(eventUuid, mediaUuid, loggedUser);
   }
 
   @UserAuth(null, null)
@@ -417,5 +484,20 @@ export class EventController {
   ): Promise<TicketTypeResponse> {
     const ticketType = await this._eventService.createTicketType(eventUuid, data, loggedUser);
     return new TicketTypeResponse(ticketType);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Delete ticket type (soft)',
+    description: 'Deactivates a ticket type on a draft event. Not allowed if the type has sales or the event is published.'
+  })
+  @HttpCode(200)
+  @Delete(':eventUuid/ticket-types/:ticketTypeUuid')
+  async deleteTicketType(
+    @Param('eventUuid') eventUuid: string,
+    @Param('ticketTypeUuid') ticketTypeUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    return this._eventService.deleteTicketType(eventUuid, ticketTypeUuid, loggedUser);
   }
 }

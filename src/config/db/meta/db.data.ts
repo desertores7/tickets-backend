@@ -13,6 +13,7 @@ import { SystemParameterEntityData } from '../entities/system/system_parameter.e
 import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
 import { EventEntityData } from '../entities/tickets/event.entity';
+import { EventMediaEntityData } from '../entities/tickets/event_media.entity';
 import { TicketTypeEntityData } from '../entities/tickets/ticket_type.entity';
 import { OrderEntityData } from '../entities/tickets/order.entity';
 import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
@@ -43,6 +44,7 @@ export const entitiesData = [
   UserSessionEntityData,
   EmailEntityData,
   EventEntityData,
+  EventMediaEntityData,
   TicketTypeEntityData,
   OrderEntityData,
   OrderItemEntityData,
