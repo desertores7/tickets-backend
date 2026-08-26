@@ -10,6 +10,7 @@ import {
   ParseFilePipeBuilder,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UploadedFiles,
@@ -27,7 +28,7 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { IEventService, TEventProducer, TEventValidator, TUserSummary } from '../services/contracts/ievent.service';
+import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
 import { eventFilters } from './const/event.filters';
 import {
   BANNER_VARIANT_NAMES,
@@ -47,6 +48,12 @@ import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
+import { EventMapResponse, EventMapSectorResponse } from './responses/event-map.response';
+import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
+import {
+  SetMapBaseFromMediaRequest,
+  UpsertEventMapRequest
+} from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
 @ApiTags('Events')
@@ -213,6 +220,118 @@ export class EventController {
   @Post(':eventUuid/publish')
   async publishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.publishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, EventMapResponse)
+  @ApiOperation({ summary: 'Get event map', description: 'Returns the seating/sector map for the event, or null if not created yet.' })
+  @HttpCode(200)
+  @Get(':eventUuid/map')
+  async getEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse | null> {
+    const map = await this._eventService.getEventMap(eventUuid, loggedUser);
+    if (!map) return null;
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(UpsertEventMapRequest, EventMapResponse)
+  @ApiOperation({
+    summary: 'Create or replace event map sectors',
+    description: 'Upserts map metadata and replaces the full sector list (GA sectors linked to ticket types).'
+  })
+  @HttpCode(200)
+  @Put(':eventUuid/map')
+  async upsertEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: UpsertEventMapRequest,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.upsertEventMap(
+      eventUuid,
+      body as unknown as TUpsertEventMap,
+      loggedUser
+    );
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(null, EventMapResponse)
+  @ApiOperation({ summary: 'Upload map base image', description: 'Multipart field `baseImage`. Max 8MB.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { baseImage: { type: 'string', format: 'binary' } },
+      required: ['baseImage']
+    }
+  })
+  @UseInterceptors(FileInterceptor('baseImage'))
+  @HttpCode(200)
+  @Post(':eventUuid/map/base-image')
+  async uploadMapBaseImage(
+    @Param('eventUuid') eventUuid: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.uploadMapBaseImage(eventUuid, file, loggedUser);
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(SetMapBaseFromMediaRequest, EventMapResponse)
+  @ApiOperation({
+    summary: 'Use gallery image as map base',
+    description: 'Sets baseImageUrl from an existing event gallery image (e.g. flyer de precios).'
+  })
+  @HttpCode(200)
+  @Post(':eventUuid/map/base-from-media')
+  async setMapBaseFromMedia(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: SetMapBaseFromMediaRequest,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.setMapBaseFromMedia(eventUuid, body.mediaUuid, loggedUser);
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(null, SuggestMapSectorsResponse)
+  @ApiOperation({
+    summary: 'Suggest map sectors (soft-fail)',
+    description:
+      'Proposes sector rectangles from ticket types (+ optional flyer). Always returns a usable list; warning if AI failed.'
+  })
+  @HttpCode(200)
+  @Post(':eventUuid/map/suggest-sectors')
+  async suggestMapSectors(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<SuggestMapSectorsResponse> {
+    const ticketTypes = await this._eventService.getTicketTypes(eventUuid);
+    // ownership check via getEventMap path
+    await this._eventService.getEventMap(eventUuid, loggedUser);
+    const media = await this._eventService.getEventMedia(eventUuid, loggedUser);
+    const priceFlyer = media.find(m => m.kind === 'image');
+    const result = await this._eventAiService.suggestMapSectors({
+      ticketTypes: ticketTypes.map(t => ({ uuid: t.uuid, name: t.name })),
+      flyerUrl: priceFlyer?.url ?? null
+    });
+    return new SuggestMapSectorsResponse(result.sectors, result.warning);
   }
 
   @UserAuth(null, null)

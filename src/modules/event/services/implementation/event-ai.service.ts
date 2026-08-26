@@ -13,7 +13,8 @@ import { HERO_FROM_FLYER_PROMPT } from '../../const/hero-from-flyer.prompt';
 import {
   AnalyzeFlyersResult,
   FlyerEventExtraction,
-  IEventAiService
+  IEventAiService,
+  SuggestMapSectorsResult
 } from '../contracts/ievent-ai.service';
 
 const MAX_FLYERS = 2;
@@ -446,4 +447,129 @@ export class EventAiService implements IEventAiService {
     }
     return null;
   }
+
+  /**
+   * Soft-fail: siempre devuelve sectores utilizables.
+   * Layout heurístico por tandas; Gemini opcional (si falla, warning + heurística).
+   */
+  async suggestMapSectors(input: {
+    ticketTypes: Array<{ uuid: string; name: string }>;
+    flyerUrl?: string | null;
+  }): Promise<SuggestMapSectorsResult> {
+    const heuristic = this.heuristicSectors(input.ticketTypes);
+    if (!input.ticketTypes.length) {
+      return { sectors: [], warning: 'No hay tandas para sugerir sectores.' };
+    }
+
+    const apiKey = this.envService.get('GEMINI_API_KEY');
+    if (!apiKey?.trim()) {
+      return {
+        sectors: heuristic,
+        warning: 'Sin GEMINI_API_KEY: sectores sugeridos en grilla. Ajustalos a mano sobre el plano.'
+      };
+    }
+
+    try {
+      const client = new GoogleGenAI({ apiKey });
+      const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
+      const names = input.ticketTypes.map(t => t.name).join(', ');
+      const response = await this.withTransientRetry('map-sectors', () =>
+        client.models.generateContent({
+          model,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text:
+                    `Suggest rectangle sectors for an event floor-plan editor.\n` +
+                    `Ticket types (link each sector to the matching names): ${names}\n` +
+                    `Return ONLY JSON: { "sectors": [{ "name": string, "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 }] }\n` +
+                    `Rects must stay within [0,1], not overlap heavily, names should match ticket types when possible.`
+                }
+              ]
+            }
+          ],
+          config: {
+            responseMimeType: 'application/json',
+            httpOptions: { timeout: 45_000 }
+          }
+        })
+      );
+
+      const text =
+        typeof response.text === 'string'
+          ? response.text
+          : (response.candidates?.[0]?.content?.parts ?? [])
+              .map(p => ('text' in p && typeof p.text === 'string' ? p.text : ''))
+              .join('');
+      const parsed = JSON.parse(text) as { sectors?: Array<Record<string, unknown>> };
+      if (!Array.isArray(parsed.sectors) || !parsed.sectors.length) {
+        return {
+          sectors: heuristic,
+          warning: 'La IA no devolvió sectores útiles; usamos una grilla automática.'
+        };
+      }
+
+      const sectors = parsed.sectors.map((raw, i) => {
+        const name = String(raw.name ?? input.ticketTypes[i % input.ticketTypes.length]?.name ?? `Sector ${i + 1}`);
+        const match = input.ticketTypes.find(
+          t => t.name.toLowerCase() === name.toLowerCase()
+        );
+        const tt = match ?? input.ticketTypes[i % input.ticketTypes.length];
+        return {
+          name,
+          x: clamp01(Number(raw.x) || 0.05),
+          y: clamp01(Number(raw.y) || 0.05),
+          w: Math.max(0.08, Math.min(0.9, Number(raw.w) || 0.25)),
+          h: Math.max(0.08, Math.min(0.9, Number(raw.h) || 0.2)),
+          color: SECTOR_COLORS[i % SECTOR_COLORS.length],
+          ticketTypeUuids: tt ? [tt.uuid] : []
+        };
+      });
+
+      return { sectors, warning: null };
+    } catch (err) {
+      this.logger.warn(
+        `suggestMapSectors soft-fail: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return {
+        sectors: heuristic,
+        warning: 'No se pudo sugerir con IA; usamos una grilla automática. Podés mover los sectores a mano.'
+      };
+    }
+  }
+
+  private heuristicSectors(
+    ticketTypes: Array<{ uuid: string; name: string }>
+  ): SuggestMapSectorsResult['sectors'] {
+    const n = ticketTypes.length;
+    if (!n) return [];
+    const cols = Math.min(3, n);
+    const rows = Math.ceil(n / cols);
+    const gap = 0.04;
+    const cellW = (1 - gap * (cols + 1)) / cols;
+    const cellH = (1 - gap * (rows + 1)) / rows;
+
+    return ticketTypes.map((tt, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      return {
+        name: tt.name,
+        x: gap + col * (cellW + gap),
+        y: gap + row * (cellH + gap),
+        w: cellW,
+        h: cellH,
+        color: SECTOR_COLORS[i % SECTOR_COLORS.length],
+        ticketTypeUuids: [tt.uuid]
+      };
+    });
+  }
+}
+
+const SECTOR_COLORS = ['#ff2bd6', '#3ddc97', '#ffb020', '#8b5cf6', '#4da3ff', '#ff4d6d'];
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
 }

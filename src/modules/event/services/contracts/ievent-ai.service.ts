@@ -26,6 +26,26 @@ export type AnalyzeFlyersResult = {
   heroWarning?: string | null;
 };
 
+export type SuggestMapSectorItem = {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color?: string;
+  ticketTypeUuids: string[];
+};
+
+export type SuggestMapSectorsResult = {
+  sectors: SuggestMapSectorItem[];
+  warning: string | null;
+};
+
 export interface IEventAiService {
   analyzeFromFlyers(files: Express.Multer.File[], userId: string): Promise<AnalyzeFlyersResult>;
+
+  suggestMapSectors(input: {
+    ticketTypes: Array<{ uuid: string; name: string }>;
+    flyerUrl?: string | null;
+  }): Promise<SuggestMapSectorsResult>;
 }

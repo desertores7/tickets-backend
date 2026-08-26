@@ -5,6 +5,7 @@ import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
+import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
@@ -13,6 +14,44 @@ export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
 export type TTicketTypeResponse = TEntityResponse<'ticket_type', undefined, undefined>;
 export type TEventMediaResponse = TEntityResponse<'event_media', undefined, undefined>;
+
+export type TEventMapSector = {
+  uuid: string;
+  name: string;
+  geometry: EventMapSectorGeometry;
+  sortOrder: number;
+  isNumbered: boolean;
+  capacity: number | null;
+  ticketTypeUuids: string[];
+};
+
+export type TEventMap = {
+  uuid: string;
+  eventUuid: string;
+  name: string;
+  baseImageUrl: string | null;
+  canvasWidth: number;
+  canvasHeight: number;
+  sectors: TEventMapSector[];
+};
+
+export type TUpsertEventMapSector = {
+  uuid?: string;
+  name: string;
+  geometry: EventMapSectorGeometry;
+  sortOrder?: number;
+  isNumbered?: boolean;
+  capacity?: number | null;
+  ticketTypeUuids: string[];
+};
+
+export type TUpsertEventMap = {
+  name?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  baseImageUrl?: string | null;
+  sectors: TUpsertEventMapSector[];
+};
 
 /**
  * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
@@ -105,6 +144,18 @@ export interface IEventService {
   ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }>;
 
   deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
+
+  getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null>;
+
+  upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
+
+  uploadMapBaseImage(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMap>;
+
+  setMapBaseFromMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<TEventMap>;
 
   getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]>;
 

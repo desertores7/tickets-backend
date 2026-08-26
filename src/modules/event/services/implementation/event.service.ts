@@ -28,6 +28,9 @@ import {
   IEventService,
   TEventFilters,
   TEventMediaItem,
+  TEventMap,
+  TEventMapSector,
+  TUpsertEventMap,
   TEventProducer,
   TEventValidator,
   TUserSummary,
@@ -37,11 +40,19 @@ import {
   TTicketTypeResponse
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
+import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
+import {
+  EventMapSectorEntity,
+  EventMapSectorGeometry
+} from '@config/db/entities/tickets/event_map_sector.entity';
+import { EventMapSectorTicketTypeEntity } from '@config/db/entities/tickets/event_map_sector_ticket_type.entity';
 
 const BANNERS_BASE_PATH = 'events/banners';
 const GALLERY_BASE_PATH = 'events/gallery';
+const MAPS_BASE_PATH = 'events/maps';
 const MAX_GALLERY_ITEMS = 4;
 const MAX_GALLERY_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_MAP_BASE_BYTES = 8 * 1024 * 1024;
 
 @Injectable()
 export class EventService implements IEventService {
@@ -299,10 +310,6 @@ export class EventService implements IEventService {
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
 
-    if (event.isPublished) {
-      throw new BadRequestException('No se pueden agregar tipos de entrada a un evento ya publicado');
-    }
-
     const ticketType = new TicketTypeEntity();
     ticketType.uuid = uuidv4();
     ticketType.eventUuid = event.uuid;
@@ -384,11 +391,7 @@ export class EventService implements IEventService {
   }
 
   async deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void> {
-    const event = await this.assertOwnership(eventUuid, loggedUser);
-
-    if (event.isPublished) {
-      throw new BadRequestException('No se pueden eliminar tipos de entrada de un evento publicado');
-    }
+    await this.assertOwnership(eventUuid, loggedUser);
 
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
@@ -638,6 +641,316 @@ export class EventService implements IEventService {
     await this.removeStoredBanner(event.uuid, targetUrl);
 
     return { bannerImages };
+  }
+
+  async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    const map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid }
+    });
+    if (!map) return null;
+    return this.loadEventMap(map);
+  }
+
+  async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    await this.validateSectorTicketTypes(event.uuid, data.sectors);
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = data.name?.trim() || 'Mapa del evento';
+      created.baseImageUrl = data.baseImageUrl ?? null;
+      created.canvasWidth = data.canvasWidth ?? 1000;
+      created.canvasHeight = data.canvasHeight ?? 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      const patch: Partial<EventMapEntity> = {};
+      if (data.name !== undefined) patch.name = data.name.trim() || map.name;
+      if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
+      if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
+      if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
+      if (Object.keys(patch).length) {
+        await this.dbRepository.update({
+          entity: 'event_map',
+          where: { uuid: map.uuid },
+          data: patch
+        });
+        map = { ...map, ...patch };
+      }
+    }
+
+    await this.replaceMapSectors(map.uuid, data.sectors);
+    return this.loadEventMap(map);
+  }
+
+  async uploadMapBaseImage(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    if (!file?.buffer?.length) throw new BadRequestException('No se recibió ningún archivo');
+    if (file.size > MAX_MAP_BASE_BYTES) {
+      throw new BadRequestException('El plano supera el máximo de 8 MB');
+    }
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Solo se permiten imágenes para el plano');
+    }
+
+    let processed: Buffer;
+    try {
+      processed = await sharp(file.buffer).webp({ quality: 82 }).toBuffer();
+    } catch {
+      throw new BadRequestException('El archivo no es una imagen válida');
+    }
+
+    const relativePath = `${MAPS_BASE_PATH}/${event.uuid}`;
+    const filename = `base-${Date.now()}.webp`;
+    const { url } = await this.storageService.saveFile({
+      buffer: processed,
+      relativePath,
+      filename
+    });
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+    const previousUrl = map?.baseImageUrl ?? null;
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = 'Mapa del evento';
+      created.baseImageUrl = url;
+      created.canvasWidth = 1000;
+      created.canvasHeight = 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      await this.dbRepository.update({
+        entity: 'event_map',
+        where: { uuid: map.uuid },
+        data: { baseImageUrl: url }
+      });
+      map = { ...map, baseImageUrl: url };
+    }
+
+    await this.removeStoredMapBase(event.uuid, previousUrl ?? undefined);
+    return this.loadEventMap(map);
+  }
+
+  async setMapBaseFromMedia(
+    eventUuid: string,
+    mediaUuid: string,
+    loggedUser: string
+  ): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    const media = await this.dbRepository.findOne({
+      entity: 'event_media',
+      where: { uuid: mediaUuid, eventUuid: event.uuid, isDeleted: IsNull() }
+    });
+    if (!media || media.kind !== 'image') {
+      throw new BadRequestException('Imagen de galería no encontrada');
+    }
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = 'Mapa del evento';
+      created.baseImageUrl = media.url;
+      created.canvasWidth = 1000;
+      created.canvasHeight = 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      await this.dbRepository.update({
+        entity: 'event_map',
+        where: { uuid: map.uuid },
+        data: { baseImageUrl: media.url }
+      });
+      map = { ...map, baseImageUrl: media.url };
+    }
+
+    return this.loadEventMap(map);
+  }
+
+  private async loadEventMap(map: {
+    uuid: string;
+    eventUuid: string;
+    name: string;
+    baseImageUrl: string | null;
+    canvasWidth: number;
+    canvasHeight: number;
+  }): Promise<TEventMap> {
+    const sectors = await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid: map.uuid },
+      other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
+    });
+
+    const sectorUuids = sectors.map(s => s.uuid);
+    const links =
+      sectorUuids.length === 0
+        ? []
+        : await this.dbRepository.findMany({
+            entity: 'event_map_sector_ticket_type',
+            where: { sectorUuid: In(sectorUuids) }
+          });
+
+    const bySector = new Map<string, string[]>();
+    for (const link of links) {
+      const arr = bySector.get(link.sectorUuid) ?? [];
+      arr.push(link.ticketTypeUuid);
+      bySector.set(link.sectorUuid, arr);
+    }
+
+    const mappedSectors: TEventMapSector[] = sectors.map(s => ({
+      uuid: s.uuid,
+      name: s.name,
+      geometry: s.geometry,
+      sortOrder: s.sortOrder,
+      isNumbered: !!s.isNumbered,
+      capacity: s.capacity ?? null,
+      ticketTypeUuids: bySector.get(s.uuid) ?? []
+    }));
+
+    return {
+      uuid: map.uuid,
+      eventUuid: map.eventUuid,
+      name: map.name,
+      baseImageUrl: map.baseImageUrl,
+      canvasWidth: map.canvasWidth,
+      canvasHeight: map.canvasHeight,
+      sectors: mappedSectors
+    };
+  }
+
+  private async validateSectorTicketTypes(
+    eventUuid: string,
+    sectors: TUpsertEventMap['sectors']
+  ): Promise<void> {
+    const allTt = new Set(
+      sectors.flatMap(s => s.ticketTypeUuids ?? []).filter(Boolean)
+    );
+    if (allTt.size === 0) return;
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: {
+        eventUuid,
+        isActive: true,
+        uuid: In([...allTt])
+      },
+      select: { uuid: true }
+    });
+    if (rows.length !== allTt.size) {
+      throw new BadRequestException(
+        'Una o más tandas asociadas a sectores no pertenecen a este evento'
+      );
+    }
+  }
+
+  private async replaceMapSectors(
+    mapUuid: string,
+    sectors: TUpsertEventMap['sectors']
+  ): Promise<void> {
+    const existing = await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid }
+    });
+    const existingUuids = existing.map(s => s.uuid);
+    if (existingUuids.length) {
+      await this.dbRepository.delete({
+        entity: 'event_map_sector_ticket_type',
+        where: { sectorUuid: In(existingUuids) } as any
+      });
+      await this.dbRepository.delete({
+        entity: 'event_map_sector',
+        where: { mapUuid } as any
+      });
+    }
+
+    for (let i = 0; i < sectors.length; i++) {
+      const src = sectors[i];
+      const sector = new EventMapSectorEntity();
+      sector.uuid = src.uuid?.trim() || uuidv4();
+      sector.mapUuid = mapUuid;
+      sector.name = src.name.trim();
+      sector.geometry = this.normalizeSectorGeometry(src.geometry);
+      sector.sortOrder = src.sortOrder ?? i;
+      sector.isNumbered = src.isNumbered ?? false;
+      sector.capacity = src.capacity ?? null;
+      await this.dbRepository.create({ entity: 'event_map_sector', data: sector });
+
+      for (const ttUuid of src.ticketTypeUuids ?? []) {
+        const link = new EventMapSectorTicketTypeEntity();
+        link.uuid = uuidv4();
+        link.sectorUuid = sector.uuid;
+        link.ticketTypeUuid = ttUuid;
+        await this.dbRepository.create({ entity: 'event_map_sector_ticket_type', data: link });
+      }
+    }
+  }
+
+  private normalizeSectorGeometry(raw: EventMapSectorGeometry): EventMapSectorGeometry {
+    const color = raw.color?.trim() || undefined;
+    if (raw.type === 'polygon') {
+      const points = (raw.points ?? [])
+        .map(p => ({
+          x: Math.min(1, Math.max(0, Number(p.x))),
+          y: Math.min(1, Math.max(0, Number(p.y)))
+        }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (points.length < 3) {
+        throw new BadRequestException('Un polígono necesita al menos 3 puntos');
+      }
+      return { type: 'polygon', points, ...(color ? { color } : {}) };
+    }
+
+    const x = Math.min(1, Math.max(0, Number(raw.x)));
+    const y = Math.min(1, Math.max(0, Number(raw.y)));
+    const w = Math.min(1, Math.max(0.01, Number(raw.w)));
+    const h = Math.min(1, Math.max(0.01, Number(raw.h)));
+    if (![x, y, w, h].every(Number.isFinite)) {
+      throw new BadRequestException('Geometría de sector inválida');
+    }
+    return {
+      type: raw.type === 'ellipse' ? 'ellipse' : 'rect',
+      x,
+      y,
+      w,
+      h,
+      ...(color ? { color } : {})
+    };
+  }
+
+  private async removeStoredMapBase(eventUuid: string, url: string | undefined): Promise<void> {
+    if (!url?.includes(`/static/${MAPS_BASE_PATH}/${eventUuid}/`)) return;
+    const filename = url.split('/').pop();
+    if (!filename) return;
+    await this.storageService.deleteFile(
+      this.storageService.resolveAbsolutePath(`${MAPS_BASE_PATH}/${eventUuid}`, filename)
+    );
   }
 
   /** Borra del volumen una imagen previa, solo si es un archivo servido por nosotros. */

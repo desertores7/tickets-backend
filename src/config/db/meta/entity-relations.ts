@@ -320,6 +320,21 @@ export const entityRelations = {
     event: 'event'
   },
 
+  event_map: {
+    event: 'event',
+    sectors: 'event_map_sector'
+  },
+
+  event_map_sector: {
+    map: 'event_map',
+    ticketTypeLinks: 'event_map_sector_ticket_type'
+  },
+
+  event_map_sector_ticket_type: {
+    sector: 'event_map_sector',
+    ticketType: 'ticket_type'
+  },
+
   ticket_type: {
     event: 'event'
   },
