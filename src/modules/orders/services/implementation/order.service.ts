@@ -35,6 +35,9 @@ import {
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
 /** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
+/** BR-SALE-006: tope de entradas por transacción */
+const MAX_TICKETS_PER_ORDER = 20;
+
 const SERVICE_FEE_RATE = 0.15;
 const IDEMPOTENCY_TTL_SECONDS = 86400;
 
@@ -58,6 +61,18 @@ export class OrderService implements IOrderService {
   // ---------------------------------------------------------------------------
 
   async createOrder(userId: string, dto: ICreateOrder): Promise<Order> {
+    // Reglas sobre el comprador y el carrito, antes de tocar evento o stock.
+    // Se valida en el backend y no solo en el front: el tope por tipo del DTO
+    // (10) por 5 tipos permitiría 50 entradas en una sola llamada directa.
+    const totalTickets = dto.items.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalTickets > MAX_TICKETS_PER_ORDER) {
+      throw new UnprocessableEntityException(
+        `No se pueden comprar más de ${MAX_TICKETS_PER_ORDER} entradas en una misma operación`
+      );
+    }
+
+    await this.assertBuyerCanPurchase(userId);
+
     // 1. Validate event
     const event = await this.dbRepository.findOne({
       entity: 'event',
@@ -528,5 +543,25 @@ export class OrderService implements IOrderService {
       })
     );
     return order;
+  }
+
+  /**
+   * BR-AUTH-003: en producción hace falta el email verificado para comprar.
+   * Fuera de producción se omite, igual que en el login, para no frenar las
+   * pruebas con cuentas descartables.
+   */
+  private async assertBuyerCanPurchase(userId: string): Promise<void> {
+    if (String(process.env.NODE_ENV ?? '').toLowerCase() !== 'production') return;
+
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userId }
+    });
+
+    if (!user?.emailVerified) {
+      throw new UnprocessableEntityException(
+        'Tenés que verificar tu correo antes de comprar. Revisá tu bandeja de entrada.'
+      );
+    }
   }
 }

@@ -178,7 +178,9 @@ export class EventController {
   @ApiOperation({
     summary: 'Get event fee summary',
     description:
-      'Returns the accumulated fee summary for an event (paid orders, tickets sold, gross/ticket/service-fee amounts). ' +
+      'Returns the accumulated fee summary for an event. ' +
+      '**BR-REPORT-001**: `serviceFeeAmount` and `grossAmount` are returned ONLY to an `Administrador`. ' +
+      'A producer never sees the service fee — the payload omits those fields entirely. ' +
       'Only the organizer that owns the event or an admin can access it. ' +
       'If the event has no paid sales yet, all numeric fields are returned as 0 (not 404).'
   })
@@ -189,9 +191,13 @@ export class EventController {
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @HttpCode(200)
   @Get(':eventUuid/fee-summary')
-  async getFeeSummary(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<GetFeeSummaryResponse> {
+  async getFeeSummary(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string,
+    @UserRole() role: string | null
+  ): Promise<GetFeeSummaryResponse> {
     const summary = await this._eventService.getFeeSummary(eventUuid, loggedUser);
-    return new GetFeeSummaryResponse(summary);
+    return new GetFeeSummaryResponse(summary, { includeServiceFee: role === 'Administrador' });
   }
 
   @UserAuth(UpdateEventRequest, null)
