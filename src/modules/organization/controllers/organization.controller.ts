@@ -52,7 +52,7 @@ import { StaffListResponse, StaffMemberResponse } from './dtos/organization-staf
 import { ORGANIZATION_FISCAL_DOC_MAX_BYTES } from '@modules/organization/const/organization-fiscal.const';
 
 @ApiTags('Organizations')
-@Controller({ path: 'organizations', version: '1' })
+@Controller('organizations')
 export class OrganizationController {
   constructor(
     @Inject('IOrganizationService') public _organizationService: IOrganizationService,

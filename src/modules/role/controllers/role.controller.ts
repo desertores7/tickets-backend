@@ -12,7 +12,7 @@ import { User } from '@root/shared/auth/decorator/user.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 
 @ApiTags('Roles')
-@Controller({ path: 'roles', version: '1' })
+@Controller('roles')
 export class RoleController {
   constructor(@Inject('IRoleService') public _roleService: IRoleService) {}
 

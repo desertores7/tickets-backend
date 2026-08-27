@@ -20,7 +20,6 @@ import { FeeSummaryService } from '@modules/orders/services/implementation/fee-s
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import {
-  BANNER_VARIANTS,
   BannerImages,
   BannerVariant
 } from '../../controllers/const/banner-variant.const';
@@ -609,33 +608,27 @@ export class EventService implements IEventService {
       throw new BadRequestException('Solo se permiten imágenes (jpg, png, webp, etc.)');
     }
 
-    const spec = BANNER_VARIANTS[variant];
-
-    // Normalizar a webp con la relación de aspecto de la variante.
-    // `cover` recorta centrado en lugar de deformar; `withoutEnlargement` evita
-    // escalar hacia arriba una imagen chica (quedaría pixelada).
-    let processed: Buffer;
+    // Validar que sea imagen real; NO redimensionar ni croppear — se guarda
+    // el mismo buffer que llegó (p. ej. hero 16:9 de la IA) para no perder composición.
+    let meta: sharp.Metadata;
     try {
-      processed = await sharp(file.buffer)
-        .resize({
-          width: spec.width,
-          height: spec.height,
-          fit: 'cover',
-          position: 'centre',
-          withoutEnlargement: false
-        })
-        .webp({ quality: 85 })
-        .toBuffer();
+      meta = await sharp(file.buffer).metadata();
     } catch {
       throw new BadRequestException('El archivo no es una imagen válida');
     }
+    if (!meta.width || !meta.height) {
+      throw new BadRequestException('El archivo no es una imagen válida');
+    }
 
-    // Un directorio por evento; nombre versionado por timestamp para invalidar cache
-    // del browser/CDN al reemplazar una variante.
+    const ext = this.bannerFileExtension(file.mimetype, meta.format);
     const relativePath = `${BANNERS_BASE_PATH}/${event.uuid}`;
-    const filename = `${variant}-${Date.now()}.webp`;
+    const filename = `${variant}-${Date.now()}.${ext}`;
 
-    const { url } = await this.storageService.saveFile({ buffer: processed, relativePath, filename });
+    const { url } = await this.storageService.saveFile({
+      buffer: file.buffer,
+      relativePath,
+      filename
+    });
 
     const current: BannerImages = (event.bannerImages as BannerImages) ?? {};
     const previousUrl = current[variant];
@@ -655,6 +648,19 @@ export class EventService implements IEventService {
     await this.removeStoredBanner(event.uuid, previousUrl);
 
     return { variant, url, bannerImages };
+  }
+
+  /** Extensión de archivo alineada al mime/format detectado (sin re-encode). */
+  private bannerFileExtension(
+    mimeType: string | undefined,
+    format: string | undefined
+  ): 'png' | 'webp' | 'jpg' | 'gif' {
+    const mime = (mimeType ?? '').toLowerCase();
+    if (mime.includes('png') || format === 'png') return 'png';
+    if (mime.includes('webp') || format === 'webp') return 'webp';
+    if (mime.includes('gif') || format === 'gif') return 'gif';
+    if (mime.includes('jpeg') || mime.includes('jpg') || format === 'jpeg') return 'jpg';
+    return 'png';
   }
 
   async deleteBanner(

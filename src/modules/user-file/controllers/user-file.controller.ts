@@ -10,7 +10,7 @@ import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 
 @ApiTags('User File')
 @ApiExcludeController()
-@Controller({ path: 'user-file', version: '1' })
+@Controller('user-file')
 export class UserFileController {
   constructor(@Inject('IUserFileService') public _userFileService: IUserFileService) {}
 

@@ -1,8 +1,8 @@
-import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
 import { ApiExcludeController, ApiTags } from '@nestjs/swagger';
 
-@Controller({ version: VERSION_NEUTRAL })
+@Controller()
 @ApiExcludeController()
 @ApiTags('App')
 export class AppController {

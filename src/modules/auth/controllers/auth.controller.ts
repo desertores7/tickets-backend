@@ -30,7 +30,7 @@ import { ResendTwoFactorRequest } from './requests/resend-two-factor.request';
 import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 
 @ApiTags('Auth')
-@Controller({ path: 'auth', version: '1' })
+@Controller('auth')
 export class AuthController {
   constructor(@Inject('IAuthService') public authService: IAuthService) {}
 

@@ -47,7 +47,7 @@ import { GetMyTicketsResponse, TicketSummaryData, TicketSummaryResponse } from '
 // ── User-facing ticket endpoints ─────────────────────────────────────────────
 
 @ApiTags('Tickets')
-@Controller({ path: 'tickets', version: '1' })
+@Controller('tickets')
 export class TicketController {
   private readonly logger = new Logger(TicketController.name);
 
@@ -58,7 +58,7 @@ export class TicketController {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/tickets/:ticketId/transfer
+  // POST /api/tickets/:ticketId/transfer
   // ---------------------------------------------------------------------------
 
   @UserAuth(TransferTicketRequest, null)
@@ -157,7 +157,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/transfers/pending
+  // GET /api/tickets/transfers/pending
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, null)
@@ -186,7 +186,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/tickets/transfers/:transferId/accept
+  // POST /api/tickets/transfers/:transferId/accept
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, null)
@@ -266,7 +266,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/tickets/transfers/:transferId/reject
+  // POST /api/tickets/transfers/:transferId/reject
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, null)
@@ -283,7 +283,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // DELETE /api/v1/tickets/transfers/:transferId
+  // DELETE /api/tickets/transfers/:transferId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, null)
@@ -335,7 +335,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/me
+  // GET /api/tickets/me
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetMyTicketsResponse)
@@ -395,7 +395,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/:ticketId
+  // GET /api/tickets/:ticketId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetTicketResponse)
@@ -461,7 +461,7 @@ export class TicketController {
 // ── Admin ticket endpoints ────────────────────────────────────────────────────
 
 @ApiTags('Admin — Tickets')
-@Controller({ path: 'admin/tickets', version: '1' })
+@Controller('admin/tickets')
 export class AdminTicketController {
   private readonly logger = new Logger(AdminTicketController.name);
 
@@ -472,7 +472,7 @@ export class AdminTicketController {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/admin/tickets/:ticketId/regenerate-qr
+  // POST /api/admin/tickets/:ticketId/regenerate-qr
   // ---------------------------------------------------------------------------
 
   @AdminAuth(null, null)

@@ -57,7 +57,7 @@ import {
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
 @ApiTags('Events')
-@Controller({ path: 'events', version: '1' })
+@Controller('events')
 export class EventController {
   constructor(
     @Inject('IEventService') private readonly _eventService: IEventService,
@@ -82,7 +82,7 @@ export class EventController {
       'Accepts 1 flyer image (multipart field `flyers` — flyer principal only), extracts event fields via OpenAI vision, ' +
       'and generates one 16:9 ShowPass-style hero background via images.edit ' +
       '(flyer + prompt → gpt-image-2 by default, size/quality/format from env). Requires OPENIA_API_KEY.\n\n' +
-      'Cost guards: extract + hero calls per request, per-user hourly/daily Redis quotas, ' +
+      'Cost guards: extract + hero calls per request, per-user hourly Redis quota, ' +
       '8MB/file. Hero timeout 5 min; if hero fails, extraction is still returned.'
   })
   @ApiConsumes('multipart/form-data')
@@ -101,7 +101,7 @@ export class EventController {
   })
   @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
-  @ApiResponse({ status: 429, description: 'Hourly/daily AI quota exceeded.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
   @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
   @UseInterceptors(
     FilesInterceptor('flyers', 1, {
@@ -403,15 +403,12 @@ export class EventController {
     summary: 'Upload event banner (per platform)',
     description:
       'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
-      '**Variants and target sizes:**\n' +
-      '- `desktop` — 1080x1440 (3:4), composición de talento para el hero (lado derecho).\n' +
-      '- `mobile` — 1080x1350 (4:5), portrait for phones.\n' +
-      '- `thumbnail` — 800x450 (16:9), cards and listings.\n\n' +
-      'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
-      'cropped centred to the target aspect ratio. Files are stored per event in ' +
-      '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
+      '**Variants:** `desktop` (hero), `mobile`, `thumbnail`.\n\n' +
+      'The file is stored **as uploaded** (same pixels/format) — no resize or crop. ' +
+      'Use the AI 16:9 hero (or any art) and let the frontend adapt with CSS. ' +
+      'Files live under `/static/events/banners/{eventUuid}/`; the previous file of that variant is deleted. ' +
       'Only members of the owning organization or an admin can upload.\n\n' +
-      'Max upload size is 8MB (heroes IA); the image is then normalized to webp.'
+      'Max upload size is 8MB.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -434,7 +431,7 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @Param('variant') variant: string,
     @UploadedFile(
-      // 8MB: permite heroes IA (luego sharp los comprime a webp)
+      // 8MB: permite heroes IA a resolución nativa (sin resize en servidor)
       new ParseFilePipeBuilder()
         .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
         .build({ fileIsRequired: true })

@@ -29,7 +29,6 @@ const EXTRACT_TIMEOUT_MS = 90_000;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
-const DAY_TTL_SEC = 24 * 60 * 60;
 /** Reintentos ante 429/5xx de OpenAI (no bucles infinitos). */
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BASE_DELAY_MS = 2_500;
@@ -49,7 +48,11 @@ type HeroGenerationResult = {
   usage: HeroImageUsage | null;
 };
 
-const EXTRACTION_SYSTEM = `You extract structured event data from one promotional flyer image for an Argentine ticketing platform.
+function buildExtractionSystemPrompt(now = new Date()): string {
+  const year = now.getFullYear();
+  const todayIso = now.toISOString().slice(0, 10);
+
+  return `You extract structured event data from one promotional flyer image for an Argentine ticketing platform.
 
 CRITICAL COST / BEHAVIOR RULES:
 - Do exactly ONE extraction. Do not ask follow-up questions.
@@ -73,11 +76,74 @@ Return ONLY a JSON object with this exact shape:
 Rules:
 - title: event name as shown on the flyer (never invent a URL slug).
 - description: 2–4 short sentences in Spanish; include artists if visible.
-- startDate / endDate: prefer ISO 8601 (YYYY-MM-DDTHH:mm:ss). If only a date is shown, assume start 20:00 and end 23:00. If year missing, assume next occurrence from today. If end missing, start + 3 hours.
+- Today is ${todayIso}. The current calendar year is ${year}.
+- startDate / endDate: prefer ISO 8601 (YYYY-MM-DDTHH:mm:ss). If only a date is shown, assume start 20:00 and end 23:00. If end missing, start + 3 hours (or next day if overnight, e.g. OPEN 22HRS → end ~01:00).
+- YEAR RULE (critical): Argentine flyers often show day+month only (e.g. "10 SAB OCT") with NO year. When the year is missing or ambiguous, you MUST use ${year}. Never default to 2023, 2024, or any year before ${year} unless that exact year is printed on the flyer.
 - venueCountry default "Argentina".
 - googleMapsQuery: best single Maps search string.
 - ticketTypes only if prices/sectors appear; price in ARS number; quantity null if unknown.
 - artistsLineup: comma-separated names or null.`;
+}
+
+/**
+ * Si el modelo inventa un año pasado (p. ej. 2023) porque el flyer no lo trae,
+ * fuerza el año corriente. El productor puede editar después.
+ */
+function coerceExtractionDateYear(value: string, now = new Date()): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return '';
+
+  const currentYear = now.getFullYear();
+  const parsed = parseFlexibleDate(trimmed);
+  if (!parsed) return trimmed;
+
+  if (parsed.getFullYear() >= currentYear) {
+    return formatIsoLocal(parsed);
+  }
+
+  parsed.setFullYear(currentYear);
+  return formatIsoLocal(parsed);
+}
+
+function parseFlexibleDate(value: string): Date | null {
+  const m = value.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+  if (m) {
+    const d = new Date(
+      Number(m[3]),
+      Number(m[2]) - 1,
+      Number(m[1]),
+      Number(m[4] ?? 20),
+      Number(m[5] ?? 0),
+      Number(m[6] ?? 0)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const iso = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
+  );
+  if (iso) {
+    const d = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3]),
+      Number(iso[4] ?? 20),
+      Number(iso[5] ?? 0),
+      Number(iso[6] ?? 0)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatIsoLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 
 @Injectable()
 export class EventAiService implements IEventAiService {
@@ -165,14 +231,11 @@ export class EventAiService implements IEventAiService {
 
   private async assertWithinQuota(userId: string): Promise<void> {
     const maxHour = this.envService.get('EVENT_AI_MAX_PER_HOUR');
-    const maxDay = this.envService.get('EVENT_AI_MAX_PER_DAY');
-    const hourKey = `event-ai:hour:${userId}`;
-    const dayKey = `event-ai:day:${userId}`;
+    // 0 = sin límite horario
+    if (!maxHour || maxHour <= 0) return;
 
-    const [usedHour, usedDay] = await Promise.all([
-      this.redisService.getCounter(hourKey),
-      this.redisService.getCounter(dayKey)
-    ]);
+    const hourKey = `event-ai:hour:${userId}`;
+    const usedHour = await this.redisService.getCounter(hourKey);
 
     if (usedHour >= maxHour) {
       throw new HttpException(
@@ -180,19 +243,12 @@ export class EventAiService implements IEventAiService {
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
-    if (usedDay >= maxDay) {
-      throw new HttpException(
-        `Límite de IA alcanzado: máximo ${maxDay} análisis por día.`,
-        HttpStatus.TOO_MANY_REQUESTS
-      );
-    }
   }
 
   private async consumeQuota(userId: string): Promise<void> {
-    await Promise.all([
-      this.redisService.incrWithExpire(`event-ai:hour:${userId}`, HOUR_TTL_SEC),
-      this.redisService.incrWithExpire(`event-ai:day:${userId}`, DAY_TTL_SEC)
-    ]);
+    const maxHour = this.envService.get('EVENT_AI_MAX_PER_HOUR');
+    if (!maxHour || maxHour <= 0) return;
+    await this.redisService.incrWithExpire(`event-ai:hour:${userId}`, HOUR_TTL_SEC);
   }
 
   private validateFiles(files: Express.Multer.File[] | undefined): Express.Multer.File[] {
@@ -306,7 +362,7 @@ export class EventAiService implements IEventAiService {
           max_tokens: EXTRACT_MAX_OUTPUT_TOKENS,
           response_format: { type: 'json_object' },
           messages: [
-            { role: 'system', content: EXTRACTION_SYSTEM },
+            { role: 'system', content: buildExtractionSystemPrompt() },
             {
               role: 'user',
               content: [{ type: 'text', text: userText }, ...this.flyerDataUrlParts(flyers)]
@@ -356,8 +412,8 @@ export class EventAiService implements IEventAiService {
       description: String(raw.description ?? '')
         .trim()
         .slice(0, 4000),
-      startDate: String(raw.startDate ?? '').trim(),
-      endDate: String(raw.endDate ?? '').trim(),
+      startDate: coerceExtractionDateYear(String(raw.startDate ?? '').trim()),
+      endDate: coerceExtractionDateYear(String(raw.endDate ?? '').trim()),
       venueName: String(raw.venueName ?? '')
         .trim()
         .slice(0, 200),
@@ -526,7 +582,10 @@ export class EventAiService implements IEventAiService {
     const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
     const prompt =
       `${HERO_FROM_FLYER_PROMPT}\n\n` +
-      'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.';
+      'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.\n' +
+      'Reminder: TOP empty air is the reference — BOTTOM empty air under names/title MUST match it exactly (shift the whole block UP if names sit near the bottom). ' +
+      'RIGHT empty gap should be ~50% smaller: keep the cluster close to the right edge with only a small safe pad (~60–120px). ' +
+      'LEFT third stays dark empty space with ZERO logos/seals/venue marks.';
 
     const response = await this.withTransientRetry(label, async () => {
       // Flyer ORIGINAL como input visual del edit (no JSON de gpt-4o)

@@ -12,7 +12,7 @@ import { GetPaymentResponse } from './dtos/get-payment/get-payment.response';
 import { MercadoPagoWebhookRequest } from './dtos/webhook/mercadopago-webhook.request';
 
 @ApiTags('Payments')
-@Controller({ path: 'payments', version: '1' })
+@Controller('payments')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);
 
@@ -22,7 +22,7 @@ export class PaymentController {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/payments/initialize/:orderId
+  // POST /api/payments/initialize/:orderId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, InitializePaymentResponse)
@@ -57,7 +57,7 @@ export class PaymentController {
   }
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/payments/webhook/mercadopago
+  // POST /api/payments/webhook/mercadopago
   // ---------------------------------------------------------------------------
 
   @Swagger(MercadoPagoWebhookRequest, null)
@@ -153,7 +153,7 @@ export class PaymentController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/payments/orders/:orderId
+  // GET /api/payments/orders/:orderId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetPaymentResponse)

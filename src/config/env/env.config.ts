@@ -110,10 +110,8 @@ export const envSchema = z.object({
   EVENT_AI_IMAGE_FORMAT: z.enum(['png', 'webp', 'jpeg']).default('webp'),
   /** Compresión 0–100 (solo webp/jpeg; OpenAI ignora en png) */
   EVENT_AI_IMAGE_COMPRESSION: z.coerce.number().int().min(0).max(100).default(80),
-  /** Tope de análisis IA por usuario / hora (Redis) */
-  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
-  /** Tope de análisis IA por usuario / día (Redis) */
-  EVENT_AI_MAX_PER_DAY: z.coerce.number().int().min(1).max(500).default(15)
+  /** Tope de análisis IA por usuario / hora (Redis). `0` = sin límite. */
+  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(0).max(1000).default(0)
 });
 
 export type Env = z.infer<typeof envSchema>;

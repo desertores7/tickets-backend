@@ -7,12 +7,12 @@ import { ValidateQrRequest } from './dtos/validate-qr.request';
 import { ValidateQrResponse } from './dtos/validate-qr.response';
 
 @ApiTags('Check-In')
-@Controller({ path: 'check-in', version: '1' })
+@Controller('check-in')
 export class CheckInController {
   constructor(@Inject('ICheckInService') private readonly checkInService: ICheckInService) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/check-in/validate
+  // POST /api/check-in/validate
   // ---------------------------------------------------------------------------
 
   @ValidatorAuth(ValidateQrRequest, ValidateQrResponse)

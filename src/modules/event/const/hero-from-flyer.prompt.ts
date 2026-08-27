@@ -1,67 +1,45 @@
-/**
- * Prompt ShowPass: hero full-width 16:9 a partir del flyer.
- * La imagen es el fondo del hero web; el texto/UI lo pone el frontend con HTML.
- * `quality` se configura en la API (EVENT_AI_IMAGE_QUALITY), no en este texto.
- */
-export const HERO_FROM_FLYER_PROMPT = `Transform the attached event flyer into a premium cinematic ShowPass hero image.
+export const HERO_FROM_FLYER_PROMPT = `
+Transform the attached flyer into a premium cinematic 16:9 ShowPass hero background.
 
-FORMAT
-- horizontal 16:9 website hero
-- dark, clean negative space on the left for HTML text
-- main event visual composition on the right
-- smooth atmospheric transition across the entire image
-- premium, cinematic, editorial and immersive
-- preserve the original event color identity
-- Keep all faces, heads, artist logos and essential visual identity safely inside the central composition area, with generous breathing room from the top, bottom and right edges, so the image can be cropped responsively into shorter landscape banners without cutting important subjects.
+COMPOSITION — MOST IMPORTANT
+- Keep the LEFT 40% dark, clean and empty for HTML text.
+- Place ALL people + essential event/artist logo as ONE SINGLE GROUP on the RIGHT.
+- Make that entire group MUCH SMALLER than in the original flyer.
+- The full group must occupy MAXIMUM 50% of the image height.
+- Vertically CENTER the group.
+- Leave VERY LARGE visible empty atmospheric space ABOVE and BELOW the group.
+- Top and bottom empty margins must be similar.
+- Do NOT let heads approach the top edge.
+- Do NOT let logos, titles or names approach the bottom edge.
+- If necessary, shrink the whole group further. NEVER sacrifice the empty margins.
 
-SOURCE OF TRUTH
-The attached flyer is authoritative.
+Think of the composition as:
+LEFT = empty dark atmosphere.
+RIGHT CENTER = compact artist/event group surrounded by empty space.
 
-Preserve with maximum fidelity:
-- every original person
+PRESERVE
+- exact same people
 - exact number of people
 - faces and identity
-- clothing, hairstyle and distinctive accessories
-- original relative left-to-right order
-- visual hierarchy between artists
-- association between each artist and their logo
+- clothing, hairstyle and accessories
+- original left-to-right order
+- important artist/band/event logo
+- original event colors and mood
 
 Never add, remove, replace, mirror, swap or reorder people.
-
-LOGOS
-If the flyer contains an artist, band or event logo/wordmark, ALWAYS preserve it.
-Do not redesign, rewrite, simplify or omit it.
-Maintain the correct association between each logo and its artist.
+Do not redesign or invent artist/event logos.
 
 REMOVE
-Remove all non-essential flyer information:
-- dates
-- times
-- prices
-- phone numbers
-- addresses
-- ticketing logos
-- sponsors
-- production companies
-- social handles
-- promotional copy
-- secondary informational text
-
-Only artist/band/event logos may remain as text-based graphics.
+Dates, times, prices, addresses, phone numbers, social handles, sponsors, production logos, ticketing logos, venue logos and promotional text.
 
 BACKGROUND
-Rebuild the background freely into a cleaner cinematic atmosphere.
-Do not reproduce unnecessary background details from the flyer.
-Use mainly its colors, lighting mood and event atmosphere.
-Prefer abstract depth, haze, soft lighting, shadows and subtle environmental texture over detailed reconstruction.
+Rebuild the background freely.
+Use the original flyer only as inspiration for color and mood.
+Prefer simple cinematic atmosphere, haze, shadows, light and depth instead of detailed reconstruction.
 
-PRIORITIES
-1. person identity
-2. number and order of people
-3. artist/logo association
-4. preservation of event logos
-5. ShowPass composition
-6. cinematic background
+STYLE
+Dark, premium, cinematic, elegant, editorial and immersive.
+Not a flyer. Not a poster. No UI.
 
-Generate only the hero background.
-No ShowPass logo, UI, navigation, buttons or website text.`;
+Generate only the hero background image.
+`;
