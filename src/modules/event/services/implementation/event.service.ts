@@ -154,6 +154,22 @@ export class EventService implements IEventService {
     return event as TEventWithTicketTypesResponse;
   }
 
+  async getEventBySlug(slug: string, role?: string | null): Promise<TEventWithTicketTypesResponse> {
+    const normalized = (slug ?? '').trim();
+    if (!normalized) throw new BadRequestException('Evento no encontrado');
+
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { slug: normalized, isActive: true },
+      relations: { ticketTypes: true }
+    });
+
+    if (!event) throw new BadRequestException('Evento no encontrado');
+    if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
+
+    return event as TEventWithTicketTypesResponse;
+  }
+
   async createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }> {
     const org = await this.dbRepository.findOne({
       entity: 'organization',
@@ -289,6 +305,35 @@ export class EventService implements IEventService {
       entity: 'event',
       where: { uuid: event.uuid },
       data: { isPublished: true, publishedAt: new Date() }
+    });
+    return true;
+  }
+
+  async unpublishEvent(uuid: string, loggedUser: string): Promise<boolean> {
+    const event = await this.assertOwnership(uuid, loggedUser);
+
+    if (!event.isPublished) {
+      throw new BadRequestException('El evento ya está en borrador');
+    }
+
+    // availableQuantity baja al confirmar pago: si quantity > available hay venta real.
+    // No se permite ocultar el evento (parecería una estafa para quien ya compró).
+    const ticketTypes = (await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { eventUuid: event.uuid }
+    })) as TicketTypeEntity[];
+
+    const hasSales = ticketTypes.some((tt) => tt.quantity > tt.availableQuantity);
+    if (hasSales) {
+      throw new BadRequestException(
+        'No se puede pasar a borrador: ya hay entradas vendidas. El evento debe seguir público.'
+      );
+    }
+
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: { isPublished: false, publishedAt: null }
     });
     return true;
   }
@@ -645,6 +690,29 @@ export class EventService implements IEventService {
 
   async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
     await this.assertOwnership(eventUuid, loggedUser);
+    const map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid }
+    });
+    if (!map) return null;
+    return this.loadEventMap(map);
+  }
+
+  async getEventMapPublic(
+    eventUuid: string,
+    opts?: { loggedUser?: string | null; role?: string | null }
+  ): Promise<TEventMap | null> {
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: eventUuid, isActive: true }
+    });
+    if (!event) throw new BadRequestException('Evento no encontrado');
+
+    if (!event.isPublished) {
+      if (!opts?.loggedUser) throw new BadRequestException('Evento no encontrado');
+      await this.assertOwnership(eventUuid, opts.loggedUser);
+    }
+
     const map = await this.dbRepository.findOne({
       entity: 'event_map',
       where: { eventUuid }

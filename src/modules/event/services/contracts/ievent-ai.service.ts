@@ -18,12 +18,36 @@ export type FlyerEventExtraction = {
   artistsLineup?: string | null;
 };
 
+export type HeroImageUsage = {
+  input_tokens: number | null;
+  input_tokens_details: {
+    image_tokens: number | null;
+    text_tokens: number | null;
+  };
+  output_tokens: number | null;
+  total_tokens: number | null;
+};
+
+export type HeroImageMimeType = 'image/png' | 'image/webp' | 'image/jpeg';
+
 export type AnalyzeFlyersResult = {
   extraction: FlyerEventExtraction;
   /** null si la generación del hero falló/timeout; la extracción igual se aplica */
   heroImageBase64: string | null;
-  heroMimeType: 'image/png';
+  heroMimeType: HeroImageMimeType;
   heroWarning?: string | null;
+  /** Modelo que produjo el hero (null si no se generó) */
+  imageModelUsed?: string | null;
+  /** quality enviada a images.edit (null si no se generó) */
+  generationQuality?: 'low' | 'medium' | 'high' | null;
+  /** size enviada a images.edit (null si no se generó) */
+  generationSize?: string | null;
+  /** output_format enviado a images.edit (null si no se generó) */
+  generationFormat?: 'png' | 'webp' | 'jpeg' | null;
+  /** true si se usó EVENT_AI_IMAGE_FALLBACK_MODEL */
+  fallbackUsed?: boolean;
+  /** Usage reportado por OpenAI images.edit (null si no hubo hero / sin usage) */
+  heroUsage?: HeroImageUsage | null;
 };
 
 export type SuggestMapSectorItem = {

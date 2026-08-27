@@ -77,11 +77,12 @@ export class EventController {
 
   @UserAuth(null, AnalyzeFlyersResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Analyze flyers with AI (Gemini)',
+    summary: 'Analyze flyer with AI (OpenAI)',
     description:
-      'Accepts 1–2 flyer images (multipart field `flyers`), extracts event fields via Gemini Flash, ' +
-      'and generates one 16:9 hero (Flash Image, 1K). Requires GEMINI_API_KEY.\n\n' +
-      'Cost guards: max 2 Gemini calls per request (no retries/loops), per-user hourly/daily Redis quotas, ' +
+      'Accepts 1 flyer image (multipart field `flyers` — flyer principal only), extracts event fields via OpenAI vision, ' +
+      'and generates one 16:9 ShowPass-style hero background via images.edit ' +
+      '(flyer + prompt → gpt-image-2 by default, size/quality/format from env). Requires OPENIA_API_KEY.\n\n' +
+      'Cost guards: extract + hero calls per request, per-user hourly/daily Redis quotas, ' +
       '8MB/file. Hero timeout 5 min; if hero fails, extraction is still returned.'
   })
   @ApiConsumes('multipart/form-data')
@@ -90,9 +91,9 @@ export class EventController {
       type: 'object',
       properties: {
         flyers: {
-          type: 'array',
-          items: { type: 'string', format: 'binary' },
-          maxItems: 2
+          type: 'string',
+          format: 'binary',
+          description: 'Flyer principal (única imagen usada para extracción + banner)'
         }
       },
       required: ['flyers']
@@ -101,9 +102,9 @@ export class EventController {
   @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
   @ApiResponse({ status: 429, description: 'Hourly/daily AI quota exceeded.' })
-  @ApiResponse({ status: 503, description: 'GEMINI_API_KEY missing or Gemini error.' })
+  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
   @UseInterceptors(
-    FilesInterceptor('flyers', 2, {
+    FilesInterceptor('flyers', 1, {
       limits: { fileSize: 8 * 1024 * 1024 }
     })
   )
@@ -155,6 +156,24 @@ export class EventController {
       meta: result.meta,
       items: result.items.map(item => new GetAllEventResponse(item))
     };
+  }
+
+  @OptionalUserAuth(null, GetIdEventResponse)
+  @ApiOperation({
+    summary: 'Get event by slug',
+    description:
+      'Returns event details including ticket types, resolved by public slug. ' +
+      'Unpublished drafts are only visible to authenticated users.'
+  })
+  @ApiParam({ name: 'slug', description: 'Event URL slug' })
+  @HttpCode(200)
+  @Get('by-slug/:slug')
+  async getEventBySlug(
+    @Param('slug') slug: string,
+    @UserRole() role: string | null
+  ): Promise<GetIdEventResponse> {
+    const event = await this._eventService.getEventBySlug(slug, role);
+    return new GetIdEventResponse(event);
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -226,6 +245,45 @@ export class EventController {
   @Post(':eventUuid/publish')
   async publishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.publishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Unpublish event (draft)',
+    description:
+      'Sets the event back to draft (hidden from public catalog). ' +
+      'Not allowed if any ticket type already has confirmed sales (quantity > availableQuantity).'
+  })
+  @ApiResponse({ status: 200, description: 'Event unpublished' })
+  @ApiResponse({ status: 400, description: 'Already draft, or event has confirmed sales' })
+  @HttpCode(200)
+  @Post(':eventUuid/unpublish')
+  async unpublishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
+    return this._eventService.unpublishEvent(eventUuid, loggedUser);
+  }
+
+  @OptionalUserAuth(null, EventMapResponse)
+  @ApiOperation({
+    summary: 'Get event map (public read)',
+    description:
+      'Read-only seating/sector map. Published events are public; drafts require ownership.'
+  })
+  @HttpCode(200)
+  @Get(':eventUuid/map/public')
+  async getEventMapPublic(
+    @Param('eventUuid') eventUuid: string,
+    @OptionalUser() loggedUser: string | null,
+    @UserRole() role: string | null
+  ): Promise<EventMapResponse | null> {
+    const map = await this._eventService.getEventMapPublic(eventUuid, {
+      loggedUser,
+      role
+    });
+    if (!map) return null;
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
   }
 
   @UserAuth(null, EventMapResponse)

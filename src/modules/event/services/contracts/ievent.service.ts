@@ -107,6 +107,8 @@ export interface IEventService {
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
 
+  getEventBySlug(slug: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
+
   createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }>;
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
@@ -114,6 +116,9 @@ export interface IEventService {
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
 
   publishEvent(uuid: string, loggedUser: string): Promise<boolean>;
+
+  /** Vuelve el evento a borrador. Bloqueado si ya hay entradas vendidas (pago confirmado). */
+  unpublishEvent(uuid: string, loggedUser: string): Promise<boolean>;
 
   getTicketTypes(eventUuid: string): Promise<TTicketTypeResponse[]>;
 
@@ -146,6 +151,12 @@ export interface IEventService {
   deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
 
   getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null>;
+
+  /** Mapa de solo lectura: publicado = público; borrador = dueño/admin. */
+  getEventMapPublic(
+    eventUuid: string,
+    opts?: { loggedUser?: string | null; role?: string | null }
+  ): Promise<TEventMap | null>;
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
 
