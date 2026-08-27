@@ -93,11 +93,6 @@ export class NotificationEmailService {
     this.logger.log(`Order tickets email sent to ${params.to} (${params.attachments.length} attachments)`);
   }
 
-  async sendTransferOfferEmail(params: SendOrderTicketsEmailParams): Promise<void> {
-    await this.sendTemplate(EMAIL_TEMPLATES.ticketTransfer, params);
-    this.logger.log(`Transfer offer email sent to ${params.to}`);
-  }
-
   /** Texto plano (soporte / alertas operativas) */
   async sendPlainEmail(params: {
     to: string;

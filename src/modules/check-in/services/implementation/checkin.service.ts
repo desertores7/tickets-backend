@@ -54,8 +54,8 @@ export class CheckInService implements ICheckInService {
     }
 
     // 3. El token vigente es el guardado en el ticket. Una firma válida no
-    // alcanza: si el QR se regeneró (por una transferencia aceptada o por el
-    // endpoint de admin), las copias anteriores quedan revocadas.
+    // alcanza: si el QR se regeneró desde el endpoint de admin, las copias
+    // anteriores quedan revocadas.
     if (ticket.qrCode !== qrCode) {
       this.logger.warn(`Check-in rechazado: QR reemplazado (ticket=${ticket.uuid} scannedBy=${scannedBy})`);
       await this.writeLog({

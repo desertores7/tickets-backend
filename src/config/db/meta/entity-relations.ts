@@ -389,9 +389,4 @@ export const entityRelations = {
     event: 'event',
     organization: 'organization'
   },
-
-  ticket_transfer: {
-    ticket: 'ticket',
-    fromUser: 'user'
-  }
 } as const;
