@@ -48,6 +48,7 @@ import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
+import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
 import { EventMapResponse, EventMapSectorResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import {
@@ -116,6 +117,47 @@ export class EventController {
   ): Promise<AnalyzeFlyersResponse> {
     const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser);
     return new AnalyzeFlyersResponse(result);
+  }
+
+  @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
+  @ApiOperation({
+    summary: 'Replicate sales map from image (OpenAI vision)',
+    description:
+      'Accepts 1 sales map image (multipart field `mapImage`). Digitizes sellable zones and ticket tiers ' +
+      'visible in the image — bounding boxes + pricing from the same file. Does NOT extract event metadata or generate images. ' +
+      'Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        mapImage: {
+          type: 'string',
+          format: 'binary',
+          description: 'Mapa de ventas / plano con precios'
+        }
+      },
+      required: ['mapImage']
+    }
+  })
+  @ApiResponse({ status: 200, type: AnalyzeFromMapResponse })
+  @ApiResponse({ status: 400, description: 'Missing/invalid file.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
+  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
+  @UseInterceptors(
+    FileInterceptor('mapImage', {
+      limits: { fileSize: 8 * 1024 * 1024 }
+    })
+  )
+  @HttpCode(200)
+  @Post('ai/from-map')
+  async analyzeFromMap(
+    @UploadedFile() file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<AnalyzeFromMapResponse> {
+    const result = await this._eventAiService.analyzeFromMapImage(file, loggedUser);
+    return new AnalyzeFromMapResponse(result);
   }
 
   @OptionalUserAuth(null, GetAllEventResponse)

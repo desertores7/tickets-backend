@@ -65,8 +65,36 @@ export type SuggestMapSectorsResult = {
   warning: string | null;
 };
 
+export type MapReplicateTicketType = {
+  name: string;
+  description?: string;
+  price: number;
+  quantity: number;
+  color?: string;
+};
+
+export type MapReplicateSector = {
+  name: string;
+  shape: 'rect' | 'ellipse';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color?: string;
+  ticketTypeName: string;
+  sellable: boolean;
+};
+
+export type AnalyzeMapResult = {
+  ticketTypes: MapReplicateTicketType[];
+  sectors: MapReplicateSector[];
+  warning: string | null;
+};
+
 export interface IEventAiService {
   analyzeFromFlyers(files: Express.Multer.File[], userId: string): Promise<AnalyzeFlyersResult>;
+
+  analyzeFromMapImage(file: Express.Multer.File, userId: string): Promise<AnalyzeMapResult>;
 
   suggestMapSectors(input: {
     ticketTypes: Array<{ uuid: string; name: string }>;
