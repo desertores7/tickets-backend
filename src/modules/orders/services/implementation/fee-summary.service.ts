@@ -87,4 +87,105 @@ export class FeeSummaryService {
       updatedAt: entity.updatedAt
     };
   }
+
+  async aggregateByOrganization(organizationUuid: string): Promise<{
+    totalTicketsSold: number;
+    ticketAmount: number;
+    grossAmount: number;
+    serviceFeeAmount: number;
+    currency: string;
+  }> {
+    const rows = await this.dbRepository.query(
+      `
+        SELECT
+          COALESCE(SUM(efs.totalTicketsSold), 0) AS totalTicketsSold,
+          COALESCE(SUM(efs.ticketAmount), 0) AS ticketAmount,
+          COALESCE(SUM(efs.grossAmount), 0) AS grossAmount,
+          COALESCE(SUM(efs.serviceFeeAmount), 0) AS serviceFeeAmount,
+          COALESCE(MAX(efs.currency), 'ARS') AS currency
+        FROM event e
+        INNER JOIN event_fee_summary efs ON efs.eventUuid = e.uuid
+        WHERE e.organizationUuid = ? AND e.isActive = 1
+      `,
+      [organizationUuid]
+    );
+
+    const row = rows?.[0] ?? {};
+    return {
+      totalTicketsSold: Number(row.totalTicketsSold ?? 0),
+      ticketAmount: Number(row.ticketAmount ?? 0),
+      grossAmount: Number(row.grossAmount ?? 0),
+      serviceFeeAmount: Number(row.serviceFeeAmount ?? 0),
+      currency: row.currency ?? 'ARS'
+    };
+  }
+
+  async aggregatePlatform(): Promise<{
+    totalTicketsSold: number;
+    ticketAmount: number;
+    grossAmount: number;
+    serviceFeeAmount: number;
+    currency: string;
+  }> {
+    const rows = await this.dbRepository.query(
+      `
+        SELECT
+          COALESCE(SUM(efs.totalTicketsSold), 0) AS totalTicketsSold,
+          COALESCE(SUM(efs.ticketAmount), 0) AS ticketAmount,
+          COALESCE(SUM(efs.grossAmount), 0) AS grossAmount,
+          COALESCE(SUM(efs.serviceFeeAmount), 0) AS serviceFeeAmount,
+          COALESCE(MAX(efs.currency), 'ARS') AS currency
+        FROM event e
+        INNER JOIN event_fee_summary efs ON efs.eventUuid = e.uuid
+        WHERE e.isActive = 1
+      `
+    );
+
+    const row = rows?.[0] ?? {};
+    return {
+      totalTicketsSold: Number(row.totalTicketsSold ?? 0),
+      ticketAmount: Number(row.ticketAmount ?? 0),
+      grossAmount: Number(row.grossAmount ?? 0),
+      serviceFeeAmount: Number(row.serviceFeeAmount ?? 0),
+      currency: row.currency ?? 'ARS'
+    };
+  }
+
+  async topEventsByOrganization(
+    organizationUuid: string,
+    limit = 5
+  ): Promise<
+    Array<{
+      eventUuid: string;
+      name: string;
+      totalTicketsSold: number;
+      ticketAmount: number;
+      lastOrderPaidAt: Date | null;
+    }>
+  > {
+    const rows = await this.dbRepository.query(
+      `
+        SELECT
+          e.uuid AS eventUuid,
+          e.name AS name,
+          COALESCE(efs.totalTicketsSold, 0) AS totalTicketsSold,
+          COALESCE(efs.ticketAmount, 0) AS ticketAmount,
+          efs.lastOrderPaidAt AS lastOrderPaidAt
+        FROM event e
+        LEFT JOIN event_fee_summary efs ON efs.eventUuid = e.uuid
+        WHERE e.organizationUuid = ? AND e.isActive = 1
+        ORDER BY COALESCE(efs.ticketAmount, 0) DESC, e.startDate DESC
+        LIMIT ?
+      `,
+      [organizationUuid, limit]
+    );
+
+    return (rows ?? []).map((row: Record<string, unknown>) => ({
+      eventUuid: String(row.eventUuid),
+      name: String(row.name),
+      totalTicketsSold: Number(row.totalTicketsSold ?? 0),
+      ticketAmount: Number(row.ticketAmount ?? 0),
+      lastOrderPaidAt: row.lastOrderPaidAt ? new Date(row.lastOrderPaidAt as string) : null
+    }));
+  }
 }

@@ -27,6 +27,7 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
 import { SupportService } from './support/services/implementation/support.service';
+import { DashboardService } from './dashboard/services/implementation/dashboard.service';
 
 @Module({
   imports: [
@@ -64,7 +65,8 @@ import { SupportService } from './support/services/implementation/support.servic
     AuthService,
     RoleGuard,
     InternalTokenGuard,
-    UserPermissionService
+    UserPermissionService,
+    DashboardService
   ],
   exports: [
     { provide: 'IAuthService', useClass: AuthService },
@@ -91,7 +93,8 @@ import { SupportService } from './support/services/implementation/support.servic
     InternalTokenGuard,
     UserPermissionService,
     QrGenerationModule,
-    NotificationsModule
+    NotificationsModule,
+    DashboardService
   ]
 })
 export class ServiceModule {}
