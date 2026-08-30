@@ -374,6 +374,11 @@ export const entityRelations = {
     user: 'user'
   },
 
+  event_expense: {
+    event: 'event',
+    creator: 'user'
+  },
+
   event_validator: {
     event: 'event',
     user: 'user'

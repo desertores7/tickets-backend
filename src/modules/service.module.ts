@@ -27,6 +27,8 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
 import { SupportService } from './support/services/implementation/support.service';
+import { ReportingService } from './reporting/services/implementation/reporting.service';
+import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 
 @Module({
   imports: [
@@ -50,6 +52,8 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
@@ -75,6 +79,8 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },

@@ -15,6 +15,8 @@ import { PaymentController } from './payments/controllers/payment.controller';
 import { CheckInController } from './check-in/controllers/checkin.controller';
 import { UserNotificationController } from './notifications/controllers/user-notification.controller';
 import { SupportController } from './support/controllers/support.controller';
+import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
+import { BackofficeDashboardController } from './reporting/controllers/backoffice-dashboard.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -26,6 +28,8 @@ import { SupportController } from './support/controllers/support.controller';
     RoleController,
     SystemParameterController,
     EventController,
+    ProducerSalesController,
+    BackofficeDashboardController,
     OrderController,
     PaymentController,
     CheckInController,

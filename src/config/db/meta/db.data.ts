@@ -26,6 +26,7 @@ import { CheckInLogEntityData } from '../entities/tickets/check_in_log.entity';
 import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary.entity';
 import { EventProducerEntityData } from '../entities/tickets/event_producer.entity';
 import { EventValidatorEntityData } from '../entities/tickets/event_validator.entity';
+import { EventExpenseEntityData } from '../entities/tickets/event_expense.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
@@ -59,6 +60,7 @@ export const entitiesData = [
   EventFeeSummaryEntityData,
   EventProducerEntityData,
   EventValidatorEntityData,
+  EventExpenseEntityData,
   UserEventCashierEntityData,
   OrganizationProducerInviteEntityData
 ] as const;

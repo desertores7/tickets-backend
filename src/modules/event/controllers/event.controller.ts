@@ -42,6 +42,13 @@ import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import { AssignProducerRequest } from './requests/assign-producer.request';
 import { AssignValidatorRequest } from './requests/assign-validator.request';
+import { CreateExpenseRequest, UpdateExpenseRequest } from './requests/upsert-expense.request';
+import { EXPENSE_CATEGORIES } from './const/expense-category.const';
+import {
+  EventExpenseResponse,
+  EventExpensesResponse,
+  ExpenseCategoryTotalResponse
+} from './responses/event-expense.response';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
@@ -673,5 +680,88 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<void> {
     return this._eventService.deleteTicketType(eventUuid, ticketTypeUuid, loggedUser);
+  }
+
+  // ── Gastos del evento (FP08 / BR-BACKOFFICE-006) ──────────────────────────
+  // Visibilidad: Productor dueño o Administrador. El Cliente nunca.
+
+  @UserAuth(null, EventExpensesResponse)
+  @ApiOperation({
+    summary: 'List event expenses',
+    description:
+      'Cost lines of the event plus the per-category aggregate used by the dashboard. ' +
+      'Filters narrow `items`, but `byCategory` always reflects the WHOLE event: the dashboard ' +
+      'breakdown must not change with the table filter.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiQuery({ name: 'category', required: false, enum: EXPENSE_CATEGORIES })
+  @ApiQuery({ name: 'supplier', required: false, description: 'Partial match.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Get(':eventUuid/expenses')
+  async getExpenses(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string,
+    @Query('category') category?: string,
+    @Query('supplier') supplier?: string
+  ): Promise<EventExpensesResponse> {
+    const result = await this._eventService.getExpenses(eventUuid, loggedUser, { category, supplier });
+    return new EventExpensesResponse(
+      result.items.map(item => new EventExpenseResponse(item)),
+      result.byCategory.map(c => new ExpenseCategoryTotalResponse(c.category as never, c.total))
+    );
+  }
+
+  @UserAuth(CreateExpenseRequest, EventExpenseResponse)
+  @ApiOperation({
+    summary: 'Create expense line',
+    description: 'Adds a cost line. `totalAmount` is computed as quantity × unitCost — never sent by the client.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(201)
+  @Post(':eventUuid/expenses')
+  async createExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: CreateExpenseRequest,
+    @User() loggedUser: string
+  ): Promise<EventExpenseResponse> {
+    return new EventExpenseResponse(await this._eventService.createExpense(eventUuid, data, loggedUser));
+  }
+
+  @UserAuth(UpdateExpenseRequest, EventExpenseResponse)
+  @ApiOperation({
+    summary: 'Update expense line',
+    description: 'Partial update. Changing quantity or unitCost recomputes `totalAmount`.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
+  @HttpCode(200)
+  @Patch(':eventUuid/expenses/:expenseUuid')
+  async updateExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Param('expenseUuid') expenseUuid: string,
+    @Body() data: UpdateExpenseRequest,
+    @User() loggedUser: string
+  ): Promise<EventExpenseResponse> {
+    return new EventExpenseResponse(
+      await this._eventService.updateExpense(eventUuid, expenseUuid, data, loggedUser)
+    );
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Delete expense line',
+    description: 'Logical delete: the cost history is kept for auditing.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/expenses/:expenseUuid')
+  async deleteExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Param('expenseUuid') expenseUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.deleteExpense(eventUuid, expenseUuid, loggedUser);
   }
 }

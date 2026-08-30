@@ -14,6 +14,7 @@ import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
 import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
+import { EventExpenseEntity } from '@config/db/entities/tickets/event_expense.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
@@ -27,6 +28,9 @@ import {
 import {
   IEventService,
   TEventFilters,
+  TEventExpense,
+  IExpenseCreate,
+  IExpenseUpdate,
   TEventMediaItem,
   TEventMap,
   TEventMapSector,
@@ -1382,5 +1386,127 @@ export class EventService implements IEventService {
       where: { userUuid: loggedUser, organizationUuid, isDeleted: IsNull() } as any
     });
     if (!membership) throw new ForbiddenException('No pertenecés a esta organización');
+  }
+
+  // ── Gastos del evento (FP08) ───────────────────────────────────────────────
+
+  async getExpenses(
+    eventUuid: string,
+    loggedUser: string,
+    filters?: { category?: string; supplier?: string }
+  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const where: Record<string, unknown> = { eventUuid, isDeleted: IsNull() };
+    if (filters?.category) where.category = filters.category;
+    if (filters?.supplier) where.supplier = ILike(`%${filters.supplier}%`);
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_expense',
+      where: where as any,
+      other: { order: { expenseDate: 'DESC', createdAt: 'DESC' } }
+    });
+
+    // El agregado se calcula SIN los filtros: el desglose por categoría del
+    // dashboard tiene que reflejar el total del evento, no la vista filtrada.
+    const all = filters?.category || filters?.supplier
+      ? await this.dbRepository.findMany({ entity: 'event_expense', where: { eventUuid, isDeleted: IsNull() } as any })
+      : rows;
+
+    const totals = new Map<string, number>();
+    for (const row of all as any[]) {
+      totals.set(row.category, (totals.get(row.category) ?? 0) + Number(row.totalAmount));
+    }
+
+    return {
+      items: rows as unknown as TEventExpense[],
+      byCategory: [...totals.entries()]
+        .map(([category, total]) => ({ category, total: Math.round(total * 100) / 100 }))
+        .sort((a, b) => b.total - a.total)
+    };
+  }
+
+  async createExpense(eventUuid: string, data: IExpenseCreate, loggedUser: string): Promise<TEventExpense> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const expense = new EventExpenseEntity();
+    expense.uuid = uuidv4();
+    expense.eventUuid = eventUuid;
+    expense.category = data.category;
+    expense.concept = data.concept.trim();
+    expense.supplier = data.supplier.trim();
+    expense.quantity = data.quantity;
+    expense.unitCost = data.unitCost;
+    expense.totalAmount = this.computeTotal(data.quantity, data.unitCost);
+    // La fecha viaja como string YYYY-MM-DD y se guarda tal cual
+    expense.expenseDate = data.expenseDate as unknown as Date;
+    expense.notes = data.notes?.trim() || null;
+    expense.createdBy = loggedUser;
+
+    await this.dbRepository.create({ entity: 'event_expense', data: expense });
+    return expense as unknown as TEventExpense;
+  }
+
+  async updateExpense(
+    eventUuid: string,
+    expenseUuid: string,
+    data: IExpenseUpdate,
+    loggedUser: string
+  ): Promise<TEventExpense> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    const current = await this.findExpenseOrFail(eventUuid, expenseUuid);
+
+    const patch: Record<string, unknown> = {};
+    if (data.category !== undefined) patch.category = data.category;
+    if (data.concept !== undefined) patch.concept = data.concept.trim();
+    if (data.supplier !== undefined) patch.supplier = data.supplier.trim();
+    if (data.quantity !== undefined) patch.quantity = data.quantity;
+    if (data.unitCost !== undefined) patch.unitCost = data.unitCost;
+    if (data.expenseDate !== undefined) patch.expenseDate = data.expenseDate;
+    if (data.notes !== undefined) patch.notes = data.notes?.trim() || null;
+
+    // El total se recalcula si cambió cualquiera de los dos factores, aunque
+    // solo haya venido uno: si no, quedaría desalineado con el detalle.
+    if (data.quantity !== undefined || data.unitCost !== undefined) {
+      patch.totalAmount = this.computeTotal(
+        data.quantity ?? Number(current.quantity),
+        data.unitCost ?? Number(current.unitCost)
+      );
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await this.dbRepository.update({
+        entity: 'event_expense',
+        where: { uuid: expenseUuid } as any,
+        data: patch as any
+      });
+    }
+
+    return this.findExpenseOrFail(eventUuid, expenseUuid);
+  }
+
+  /** Baja lógica: el histórico de costos se conserva para auditoría. */
+  async deleteExpense(eventUuid: string, expenseUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    await this.findExpenseOrFail(eventUuid, expenseUuid);
+    await this.dbRepository.update({
+      entity: 'event_expense',
+      where: { uuid: expenseUuid } as any,
+      data: { isDeleted: new Date() } as any
+    });
+  }
+
+  /** Redondeo a 2 decimales para que la suma de líneas cierre con el total. */
+  private computeTotal(quantity: number, unitCost: number): number {
+    return Math.round(quantity * unitCost * 100) / 100;
+  }
+
+  private async findExpenseOrFail(eventUuid: string, expenseUuid: string): Promise<TEventExpense> {
+    const expense = await this.dbRepository.findOne({
+      entity: 'event_expense',
+      where: { uuid: expenseUuid, eventUuid, isDeleted: IsNull() } as any
+    });
+    if (!expense) throw new BadRequestException('Gasto no encontrado');
+    return expense as unknown as TEventExpense;
   }
 }
