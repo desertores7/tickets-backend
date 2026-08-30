@@ -379,6 +379,10 @@ export const entityRelations = {
     creator: 'user'
   },
 
+  org_mp_account: {
+    organization: 'organization'
+  },
+
   event_validator: {
     event: 'event',
     user: 'user'
