@@ -10,11 +10,13 @@ import {
   ParseFilePipeBuilder,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
@@ -26,7 +28,7 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { IEventService, TEventProducer, TEventValidator, TUserSummary } from '../services/contracts/ievent.service';
+import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
 import { eventFilters } from './const/event.filters';
 import {
   BANNER_VARIANT_NAMES,
@@ -40,22 +42,86 @@ import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import { AssignProducerRequest } from './requests/assign-producer.request';
 import { AssignValidatorRequest } from './requests/assign-validator.request';
+import { CreateExpenseRequest, UpdateExpenseRequest } from './requests/upsert-expense.request';
+import { EXPENSE_CATEGORIES } from './const/expense-category.const';
+import {
+  EventExpenseResponse,
+  EventExpensesResponse,
+  ExpenseCategoryTotalResponse
+} from './responses/event-expense.response';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
+import { EventMediaResponse } from './responses/event-media.response';
+import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
+import { EventMapResponse, EventMapSectorResponse } from './responses/event-map.response';
+import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
+import {
+  SetMapBaseFromMediaRequest,
+  UpsertEventMapRequest
+} from './requests/upsert-event-map.request';
+import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
 @ApiTags('Events')
 @Controller({ path: 'events', version: '1' })
 export class EventController {
-  constructor(@Inject('IEventService') private readonly _eventService: IEventService) {}
+  constructor(
+    @Inject('IEventService') private readonly _eventService: IEventService,
+    @Inject('IEventAiService') private readonly _eventAiService: IEventAiService
+  ) {}
 
   @UserAuth(CreateEventRequest, null)
   @ApiOperation({ summary: 'Create event', description: 'Creates a new event for an organization. Requester must be a member of the organization.' })
   @HttpCode(201)
   @Post()
-  async createEvent(@Body() data: CreateEventRequest, @User() loggedUser: string): Promise<boolean> {
+  async createEvent(
+    @Body() data: CreateEventRequest,
+    @User() loggedUser: string
+  ): Promise<{ uuid: string }> {
     return this._eventService.createEvent(data, loggedUser);
+  }
+
+  @UserAuth(null, AnalyzeFlyersResponse, 'multipart/form-data')
+  @ApiOperation({
+    summary: 'Analyze flyers with AI (Gemini)',
+    description:
+      'Accepts 1–2 flyer images (multipart field `flyers`), extracts event fields via Gemini Flash, ' +
+      'and generates one 16:9 hero (Flash Image, 1K). Requires GEMINI_API_KEY.\n\n' +
+      'Cost guards: max 2 Gemini calls per request (no retries/loops), per-user hourly/daily Redis quotas, ' +
+      '8MB/file. Hero timeout 5 min; if hero fails, extraction is still returned.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        flyers: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+          maxItems: 2
+        }
+      },
+      required: ['flyers']
+    }
+  })
+  @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
+  @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
+  @ApiResponse({ status: 429, description: 'Hourly/daily AI quota exceeded.' })
+  @ApiResponse({ status: 503, description: 'GEMINI_API_KEY missing or Gemini error.' })
+  @UseInterceptors(
+    FilesInterceptor('flyers', 2, {
+      limits: { fileSize: 8 * 1024 * 1024 }
+    })
+  )
+  @HttpCode(200)
+  @Post('ai/from-flyers')
+  async analyzeFromFlyers(
+    @UploadedFiles() files: Express.Multer.File[],
+    @User() loggedUser: string
+  ): Promise<AnalyzeFlyersResponse> {
+    const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser);
+    return new AnalyzeFlyersResponse(result);
   }
 
   @OptionalUserAuth(null, GetAllEventResponse)
@@ -119,7 +185,9 @@ export class EventController {
   @ApiOperation({
     summary: 'Get event fee summary',
     description:
-      'Returns the accumulated fee summary for an event (paid orders, tickets sold, gross/ticket/service-fee amounts). ' +
+      'Returns the accumulated fee summary for an event. ' +
+      '**BR-REPORT-001**: `serviceFeeAmount` and `grossAmount` are returned ONLY to an `Administrador`. ' +
+      'A producer never sees the service fee — the payload omits those fields entirely. ' +
       'Only the organizer that owns the event or an admin can access it. ' +
       'If the event has no paid sales yet, all numeric fields are returned as 0 (not 404).'
   })
@@ -130,9 +198,13 @@ export class EventController {
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @HttpCode(200)
   @Get(':eventUuid/fee-summary')
-  async getFeeSummary(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<GetFeeSummaryResponse> {
+  async getFeeSummary(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string,
+    @UserRole() role: string | null
+  ): Promise<GetFeeSummaryResponse> {
     const summary = await this._eventService.getFeeSummary(eventUuid, loggedUser);
-    return new GetFeeSummaryResponse(summary);
+    return new GetFeeSummaryResponse(summary, { includeServiceFee: role === 'Administrador' });
   }
 
   @UserAuth(UpdateEventRequest, null)
@@ -163,20 +235,132 @@ export class EventController {
     return this._eventService.publishEvent(eventUuid, loggedUser);
   }
 
+  @UserAuth(null, EventMapResponse)
+  @ApiOperation({ summary: 'Get event map', description: 'Returns the seating/sector map for the event, or null if not created yet.' })
+  @HttpCode(200)
+  @Get(':eventUuid/map')
+  async getEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse | null> {
+    const map = await this._eventService.getEventMap(eventUuid, loggedUser);
+    if (!map) return null;
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(UpsertEventMapRequest, EventMapResponse)
+  @ApiOperation({
+    summary: 'Create or replace event map sectors',
+    description: 'Upserts map metadata and replaces the full sector list (GA sectors linked to ticket types).'
+  })
+  @HttpCode(200)
+  @Put(':eventUuid/map')
+  async upsertEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: UpsertEventMapRequest,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.upsertEventMap(
+      eventUuid,
+      body as unknown as TUpsertEventMap,
+      loggedUser
+    );
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(null, EventMapResponse)
+  @ApiOperation({ summary: 'Upload map base image', description: 'Multipart field `baseImage`. Max 8MB.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { baseImage: { type: 'string', format: 'binary' } },
+      required: ['baseImage']
+    }
+  })
+  @UseInterceptors(FileInterceptor('baseImage'))
+  @HttpCode(200)
+  @Post(':eventUuid/map/base-image')
+  async uploadMapBaseImage(
+    @Param('eventUuid') eventUuid: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.uploadMapBaseImage(eventUuid, file, loggedUser);
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(SetMapBaseFromMediaRequest, EventMapResponse)
+  @ApiOperation({
+    summary: 'Use gallery image as map base',
+    description: 'Sets baseImageUrl from an existing event gallery image (e.g. flyer de precios).'
+  })
+  @HttpCode(200)
+  @Post(':eventUuid/map/base-from-media')
+  async setMapBaseFromMedia(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: SetMapBaseFromMediaRequest,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.setMapBaseFromMedia(eventUuid, body.mediaUuid, loggedUser);
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
+  @UserAuth(null, SuggestMapSectorsResponse)
+  @ApiOperation({
+    summary: 'Suggest map sectors (soft-fail)',
+    description:
+      'Proposes sector rectangles from ticket types (+ optional flyer). Always returns a usable list; warning if AI failed.'
+  })
+  @HttpCode(200)
+  @Post(':eventUuid/map/suggest-sectors')
+  async suggestMapSectors(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<SuggestMapSectorsResponse> {
+    const ticketTypes = await this._eventService.getTicketTypes(eventUuid);
+    // ownership check via getEventMap path
+    await this._eventService.getEventMap(eventUuid, loggedUser);
+    const media = await this._eventService.getEventMedia(eventUuid, loggedUser);
+    const priceFlyer = media.find(m => m.kind === 'image');
+    const result = await this._eventAiService.suggestMapSectors({
+      ticketTypes: ticketTypes.map(t => ({ uuid: t.uuid, name: t.name })),
+      flyerUrl: priceFlyer?.url ?? null
+    });
+    return new SuggestMapSectorsResponse(result.sectors, result.warning);
+  }
+
   @UserAuth(null, null)
   @ApiOperation({
     summary: 'Upload event banner (per platform)',
     description:
       'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
       '**Variants and target sizes:**\n' +
-      '- `desktop` — 1920x640 (3:1), hero web. Also syncs the legacy `bannerUrl` field.\n' +
+      '- `desktop` — 1080x1440 (3:4), composición de talento para el hero (lado derecho).\n' +
       '- `mobile` — 1080x1350 (4:5), portrait for phones.\n' +
       '- `thumbnail` — 800x450 (16:9), cards and listings.\n\n' +
       'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
       'cropped centred to the target aspect ratio. Files are stored per event in ' +
       '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
       'Only members of the owning organization or an admin can upload.\n\n' +
-      'Max upload size is 4MB — kept under the 4.5MB body limit of the frontend proxy (Vercel).'
+      'Max upload size is 8MB (heroes IA); the image is then normalized to webp.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -189,7 +373,7 @@ export class EventController {
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'variant', enum: BANNER_VARIANT_NAMES, description: 'Platform variant.' })
   @ApiResponse({ status: 200, description: 'Banner uploaded. Returns the variant URL and the full `bannerImages` map.' })
-  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 4MB).' })
+  @ApiResponse({ status: 400, description: 'Unknown variant, missing file, not an image, or file too large (max 8MB).' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @UseInterceptors(FileInterceptor('banner'))
@@ -199,9 +383,9 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @Param('variant') variant: string,
     @UploadedFile(
-      // 4MB: por debajo del límite de body (4.5MB) del proxy del frontend en Vercel
+      // 8MB: permite heroes IA (luego sharp los comprime a webp)
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 4 * 1024 * 1024 })
+        .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
         .build({ fileIsRequired: true })
     )
     file: Express.Multer.File,
@@ -215,7 +399,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete event banner variant',
+    summary: 'Delete banner variant',
     description: 'Removes the image of a specific platform variant and deletes the file from storage.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
@@ -235,6 +419,70 @@ export class EventController {
       throw new BadRequestException(`Variante inválida. Valores permitidos: ${BANNER_VARIANT_NAMES.join(', ')}`);
     }
     return this._eventService.deleteBanner(eventUuid, variant, loggedUser);
+  }
+
+  @OptionalUserAuth(null, EventMediaResponse)
+  @ApiOperation({
+    summary: 'List event gallery media',
+    description:
+      'Returns up to 4 gallery items. Published events are public; drafts require ownership token.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(200)
+  @Get(':eventUuid/media')
+  async getEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @OptionalUser() loggedUser: string | null
+  ): Promise<EventMediaResponse[]> {
+    const items = await this._eventService.getEventMedia(eventUuid, loggedUser);
+    return items.map(item => new EventMediaResponse(item));
+  }
+
+  @UserAuth(null, EventMediaResponse)
+  @ApiOperation({
+    summary: 'Upload gallery media',
+    description:
+      'Uploads one gallery file (multipart field `media`). Max 4 active items per event. ' +
+      'Images are compressed to WebP; videos are stored as-is (transcode pending). Max 20 MB.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { media: { type: 'string', format: 'binary' } },
+      required: ['media']
+    }
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @UseInterceptors(FileInterceptor('media'))
+  @HttpCode(201)
+  @Post(':eventUuid/media')
+  async uploadEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 20 * 1024 * 1024 })
+        .build({ fileIsRequired: true })
+    )
+    file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<EventMediaResponse> {
+    const item = await this._eventService.uploadEventMedia(eventUuid, file, loggedUser);
+    return new EventMediaResponse(item);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({ summary: 'Delete gallery media item' })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'mediaUuid', description: 'Media UUID.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/media/:mediaUuid')
+  async deleteEventMedia(
+    @Param('eventUuid') eventUuid: string,
+    @Param('mediaUuid') mediaUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    return this._eventService.deleteEventMedia(eventUuid, mediaUuid, loggedUser);
   }
 
   @UserAuth(null, null)
@@ -417,5 +665,103 @@ export class EventController {
   ): Promise<TicketTypeResponse> {
     const ticketType = await this._eventService.createTicketType(eventUuid, data, loggedUser);
     return new TicketTypeResponse(ticketType);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Delete ticket type (soft)',
+    description: 'Deactivates a ticket type on a draft event. Not allowed if the type has sales or the event is published.'
+  })
+  @HttpCode(200)
+  @Delete(':eventUuid/ticket-types/:ticketTypeUuid')
+  async deleteTicketType(
+    @Param('eventUuid') eventUuid: string,
+    @Param('ticketTypeUuid') ticketTypeUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    return this._eventService.deleteTicketType(eventUuid, ticketTypeUuid, loggedUser);
+  }
+
+  // ── Gastos del evento (FP08 / BR-BACKOFFICE-006) ──────────────────────────
+  // Visibilidad: Productor dueño o Administrador. El Cliente nunca.
+
+  @UserAuth(null, EventExpensesResponse)
+  @ApiOperation({
+    summary: 'List event expenses',
+    description:
+      'Cost lines of the event plus the per-category aggregate used by the dashboard. ' +
+      'Filters narrow `items`, but `byCategory` always reflects the WHOLE event: the dashboard ' +
+      'breakdown must not change with the table filter.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiQuery({ name: 'category', required: false, enum: EXPENSE_CATEGORIES })
+  @ApiQuery({ name: 'supplier', required: false, description: 'Partial match.' })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Get(':eventUuid/expenses')
+  async getExpenses(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string,
+    @Query('category') category?: string,
+    @Query('supplier') supplier?: string
+  ): Promise<EventExpensesResponse> {
+    const result = await this._eventService.getExpenses(eventUuid, loggedUser, { category, supplier });
+    return new EventExpensesResponse(
+      result.items.map(item => new EventExpenseResponse(item)),
+      result.byCategory.map(c => new ExpenseCategoryTotalResponse(c.category as never, c.total))
+    );
+  }
+
+  @UserAuth(CreateExpenseRequest, EventExpenseResponse)
+  @ApiOperation({
+    summary: 'Create expense line',
+    description: 'Adds a cost line. `totalAmount` is computed as quantity × unitCost — never sent by the client.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(201)
+  @Post(':eventUuid/expenses')
+  async createExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: CreateExpenseRequest,
+    @User() loggedUser: string
+  ): Promise<EventExpenseResponse> {
+    return new EventExpenseResponse(await this._eventService.createExpense(eventUuid, data, loggedUser));
+  }
+
+  @UserAuth(UpdateExpenseRequest, EventExpenseResponse)
+  @ApiOperation({
+    summary: 'Update expense line',
+    description: 'Partial update. Changing quantity or unitCost recomputes `totalAmount`.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
+  @HttpCode(200)
+  @Patch(':eventUuid/expenses/:expenseUuid')
+  async updateExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Param('expenseUuid') expenseUuid: string,
+    @Body() data: UpdateExpenseRequest,
+    @User() loggedUser: string
+  ): Promise<EventExpenseResponse> {
+    return new EventExpenseResponse(
+      await this._eventService.updateExpense(eventUuid, expenseUuid, data, loggedUser)
+    );
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Delete expense line',
+    description: 'Logical delete: the cost history is kept for auditing.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
+  @HttpCode(200)
+  @Delete(':eventUuid/expenses/:expenseUuid')
+  async deleteExpense(
+    @Param('eventUuid') eventUuid: string,
+    @Param('expenseUuid') expenseUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.deleteExpense(eventUuid, expenseUuid, loggedUser);
   }
 }

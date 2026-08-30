@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   MaxLength,
   Min
@@ -99,6 +100,17 @@ export class CreateEventRequest {
   @MaxLength(100)
   @ApiProperty({ description: 'Venue country', example: 'Perú' })
   venueCountry: string;
+
+  @IsOptional()
+  @IsUrl({ require_protocol: true }, { message: 'googleMapsUrl debe ser una URL válida (https://...)' })
+  @MaxLength(1000)
+  @ApiProperty({
+    description: 'Link de Google Maps para Cómo llegar',
+    required: false,
+    nullable: true,
+    example: 'https://maps.google.com/?q=-34.6037,-58.3816'
+  })
+  googleMapsUrl?: string | null;
 
   @IsNotEmpty()
   @IsInt()

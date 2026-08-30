@@ -22,17 +22,6 @@ export interface SendOrderTicketsEmailJobData {
   orderId: string;
 }
 
-export interface SendTransferOfferEmailJobData {
-  transferId: string;
-  /** Email del destinatario de la transferencia */
-  toEmail: string;
-  /** Nombre de quien transfiere, para el cuerpo del mail */
-  fromName: string;
-  /** Define el llamado a la acción: aceptar (ya tiene cuenta) o registrarse */
-  recipientHasAccount: boolean;
-  message?: string;
-}
-
 export interface ProcessWebhookJobData {
   provider: string;
   event: string;

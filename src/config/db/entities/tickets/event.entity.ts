@@ -10,6 +10,7 @@ import {
   UpdateDateColumn
 } from 'typeorm';
 import { OrganizationEntity } from '../user/organization.entity';
+import { EventMediaEntity } from './event_media.entity';
 import { TicketTypeEntity } from './ticket_type.entity';
 
 const tableName = 'event' as const;
@@ -73,6 +74,10 @@ export class EventEntity {
   @Column({ type: 'varchar', length: 100 })
   venueCountry: string;
 
+  /** Link de Google Maps para “Cómo llegar” en la ficha pública. */
+  @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
+  googleMapsUrl: string | null;
+
   @Column({ type: 'int' })
   maxCapacity: number;
 
@@ -89,6 +94,9 @@ export class EventEntity {
 
   @OneToMany(() => TicketTypeEntity, ticketType => ticketType.event)
   ticketTypes: TicketTypeEntity[];
+
+  @OneToMany(() => EventMediaEntity, media => media.event)
+  media: EventMediaEntity[];
 }
 
 export const EventEntityData = {

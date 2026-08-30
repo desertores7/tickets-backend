@@ -13,6 +13,10 @@ import { SystemParameterEntityData } from '../entities/system/system_parameter.e
 import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
 import { EventEntityData } from '../entities/tickets/event.entity';
+import { EventMediaEntityData } from '../entities/tickets/event_media.entity';
+import { EventMapEntityData } from '../entities/tickets/event_map.entity';
+import { EventMapSectorEntityData } from '../entities/tickets/event_map_sector.entity';
+import { EventMapSectorTicketTypeEntityData } from '../entities/tickets/event_map_sector_ticket_type.entity';
 import { TicketTypeEntityData } from '../entities/tickets/ticket_type.entity';
 import { OrderEntityData } from '../entities/tickets/order.entity';
 import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
@@ -22,7 +26,8 @@ import { CheckInLogEntityData } from '../entities/tickets/check_in_log.entity';
 import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary.entity';
 import { EventProducerEntityData } from '../entities/tickets/event_producer.entity';
 import { EventValidatorEntityData } from '../entities/tickets/event_validator.entity';
-import { TicketTransferEntityData } from '../entities/tickets/ticket_transfer.entity';
+import { EventExpenseEntityData } from '../entities/tickets/event_expense.entity';
+import { OrgMpAccountEntityData } from '../entities/tickets/org_mp_account.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
@@ -43,6 +48,10 @@ export const entitiesData = [
   UserSessionEntityData,
   EmailEntityData,
   EventEntityData,
+  EventMediaEntityData,
+  EventMapEntityData,
+  EventMapSectorEntityData,
+  EventMapSectorTicketTypeEntityData,
   TicketTypeEntityData,
   OrderEntityData,
   OrderItemEntityData,
@@ -52,8 +61,9 @@ export const entitiesData = [
   EventFeeSummaryEntityData,
   EventProducerEntityData,
   EventValidatorEntityData,
+  EventExpenseEntityData,
+  OrgMpAccountEntityData,
   UserEventCashierEntityData,
-  TicketTransferEntityData,
   OrganizationProducerInviteEntityData
 ] as const;
 

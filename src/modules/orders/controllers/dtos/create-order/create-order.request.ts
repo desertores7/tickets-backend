@@ -38,7 +38,8 @@ export class CreateOrderRequest {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemRequest)
   @ApiProperty({
-    description: 'Items to purchase. Max 5 distinct ticket types per order.',
+    description:
+      'Items to purchase. Max 5 distinct ticket types per order, and at most 20 tickets in total across all items (BR-SALE-006) — el total lo valida el servicio.',
     type: [CreateOrderItemRequest],
     example: [
       { ticketTypeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', quantity: 2 }

@@ -10,9 +10,11 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
+import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
 import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
+import { EventExpenseEntity } from '@config/db/entities/tickets/event_expense.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
@@ -26,6 +28,13 @@ import {
 import {
   IEventService,
   TEventFilters,
+  TEventExpense,
+  IExpenseCreate,
+  IExpenseUpdate,
+  TEventMediaItem,
+  TEventMap,
+  TEventMapSector,
+  TUpsertEventMap,
   TEventProducer,
   TEventValidator,
   TUserSummary,
@@ -35,8 +44,19 @@ import {
   TTicketTypeResponse
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
+import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
+import {
+  EventMapSectorEntity,
+  EventMapSectorGeometry
+} from '@config/db/entities/tickets/event_map_sector.entity';
+import { EventMapSectorTicketTypeEntity } from '@config/db/entities/tickets/event_map_sector_ticket_type.entity';
 
 const BANNERS_BASE_PATH = 'events/banners';
+const GALLERY_BASE_PATH = 'events/gallery';
+const MAPS_BASE_PATH = 'events/maps';
+const MAX_GALLERY_ITEMS = 4;
+const MAX_GALLERY_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_MAP_BASE_BYTES = 8 * 1024 * 1024;
 
 @Injectable()
 export class EventService implements IEventService {
@@ -138,7 +158,7 @@ export class EventService implements IEventService {
     return event as TEventWithTicketTypesResponse;
   }
 
-  async createEvent(data: IEventCreate, loggedUser: string): Promise<boolean> {
+  async createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }> {
     const org = await this.dbRepository.findOne({
       entity: 'organization',
       where: { uuid: data.organizationUuid, isDeleted: IsNull() }
@@ -181,10 +201,11 @@ export class EventService implements IEventService {
     event.venueAddress = data.venueAddress;
     event.venueCity = data.venueCity;
     event.venueCountry = data.venueCountry;
+    event.googleMapsUrl = data.googleMapsUrl ?? null;
     event.maxCapacity = data.maxCapacity;
 
     await this.dbRepository.create({ entity: 'event', data: event });
-    return true;
+    return { uuid: event.uuid };
   }
 
   async updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void> {
@@ -219,7 +240,20 @@ export class EventService implements IEventService {
     if (data.venueAddress !== undefined) patch.venueAddress = data.venueAddress;
     if (data.venueCity !== undefined) patch.venueCity = data.venueCity;
     if (data.venueCountry !== undefined) patch.venueCountry = data.venueCountry;
+    if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
+
+    if (data.slug !== undefined && data.slug !== event.slug) {
+      if (event.isPublished) {
+        throw new BadRequestException('No se puede cambiar el slug de un evento publicado');
+      }
+      const slugTaken = await this.dbRepository.findOne({
+        entity: 'event',
+        where: { slug: data.slug }
+      });
+      if (slugTaken) throw new BadRequestException('El slug ya está en uso');
+      patch.slug = data.slug;
+    }
 
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
   }
@@ -280,10 +314,6 @@ export class EventService implements IEventService {
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
 
-    if (event.isPublished) {
-      throw new BadRequestException('No se pueden agregar tipos de entrada a un evento ya publicado');
-    }
-
     const ticketType = new TicketTypeEntity();
     ticketType.uuid = uuidv4();
     ticketType.eventUuid = event.uuid;
@@ -313,17 +343,15 @@ export class EventService implements IEventService {
     data: ITicketTypeUpdate,
     loggedUser: string
   ): Promise<TTicketTypeResponse> {
-    const event = await this.assertOwnership(eventUuid, loggedUser);
-
-    if (event.isPublished) {
-      throw new BadRequestException('No se puede modificar el precio de un evento ya publicado');
-    }
+    await this.assertOwnership(eventUuid, loggedUser);
 
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
     });
     if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    const soldCount = ticketType.quantity - ticketType.availableQuantity;
 
     const patch: Partial<TicketTypeEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -334,12 +362,187 @@ export class EventService implements IEventService {
     if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
     if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
 
+    if (data.price !== undefined) {
+      if (soldCount > 0) {
+        throw new BadRequestException(
+          'No se puede cambiar el precio de una tanda con ventas. Agotá la tanda y creá una nueva.'
+        );
+      }
+      patch.price = data.price;
+    }
+
+    if (data.quantity !== undefined) {
+      if (data.quantity < soldCount) {
+        throw new BadRequestException(
+          `El stock no puede ser menor a lo ya vendido (${soldCount})`
+        );
+      }
+      const delta = data.quantity - ticketType.quantity;
+      patch.quantity = data.quantity;
+      patch.availableQuantity = ticketType.availableQuantity + delta;
+    }
+
     await this.dbRepository.update({ entity: 'ticket_type', where: { uuid: ticketTypeUuid }, data: patch });
+
+    if (data.quantity !== undefined && patch.availableQuantity !== undefined) {
+      await this.redisService.setStock(`stock:${ticketTypeUuid}`, patch.availableQuantity);
+    }
 
     return this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid }
     }) as Promise<TTicketTypeResponse>;
+  }
+
+  async deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const ticketType = await this.dbRepository.findOne({
+      entity: 'ticket_type',
+      where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
+    });
+    if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    const soldCount = ticketType.quantity - ticketType.availableQuantity;
+    if (soldCount > 0) {
+      throw new BadRequestException('No se puede eliminar una tanda con ventas');
+    }
+
+    await this.dbRepository.update({
+      entity: 'ticket_type',
+      where: { uuid: ticketTypeUuid },
+      data: { isActive: false, availableQuantity: 0 }
+    });
+    await this.redisService.setStock(`stock:${ticketTypeUuid}`, 0);
+  }
+
+  async getEventMedia(eventUuid: string, loggedUser?: string | null): Promise<TEventMediaItem[]> {
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: eventUuid, isActive: true }
+    });
+    if (!event) throw new BadRequestException('Evento no encontrado');
+
+    if (!event.isPublished) {
+      if (!loggedUser) throw new BadRequestException('Evento no encontrado');
+      await this.assertOwnership(eventUuid, loggedUser);
+    }
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_media',
+      where: { eventUuid, isDeleted: IsNull() },
+      other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
+    });
+
+    return rows.map(row => ({
+      uuid: row.uuid,
+      eventUuid: row.eventUuid,
+      sortOrder: row.sortOrder,
+      kind: row.kind,
+      url: row.url,
+      mimeType: row.mimeType,
+      createdAt: row.createdAt
+    }));
+  }
+
+  async uploadEventMedia(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMediaItem> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No se recibió ningún archivo');
+    }
+    if (file.size > MAX_GALLERY_UPLOAD_BYTES) {
+      throw new BadRequestException('El archivo supera el máximo de 20 MB');
+    }
+
+    const isImage = file.mimetype?.startsWith('image/');
+    const isVideo = file.mimetype?.startsWith('video/');
+    if (!isImage && !isVideo) {
+      throw new BadRequestException('Solo se permiten imágenes o videos');
+    }
+
+    const activeCount = await this.dbRepository.count({
+      entity: 'event_media',
+      where: { eventUuid: event.uuid, isDeleted: IsNull() }
+    });
+    if (activeCount >= MAX_GALLERY_ITEMS) {
+      throw new BadRequestException(`La galería admite hasta ${MAX_GALLERY_ITEMS} archivos`);
+    }
+
+    const relativePath = `${GALLERY_BASE_PATH}/${event.uuid}`;
+    let url: string;
+    let mimeType = file.mimetype;
+    let kind: 'image' | 'video' = isVideo ? 'video' : 'image';
+
+    if (isImage) {
+      let processed: Buffer;
+      try {
+        processed = await sharp(file.buffer)
+          .resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+      } catch {
+        throw new BadRequestException('El archivo no es una imagen válida');
+      }
+      const filename = `gallery-${Date.now()}.webp`;
+      ({ url } = await this.storageService.saveFile({ buffer: processed, relativePath, filename }));
+      mimeType = 'image/webp';
+    } else {
+      const ext = (file.originalname.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+      const filename = `gallery-${Date.now()}.${ext}`;
+      ({ url } = await this.storageService.saveFile({ buffer: file.buffer, relativePath, filename }));
+    }
+
+    const media = new EventMediaEntity();
+    media.uuid = uuidv4();
+    media.eventUuid = event.uuid;
+    media.sortOrder = activeCount;
+    media.kind = kind;
+    media.url = url;
+    media.mimeType = mimeType;
+    media.isDeleted = null;
+    media.createdBy = loggedUser;
+
+    await this.dbRepository.create({ entity: 'event_media', data: media });
+
+    return {
+      uuid: media.uuid,
+      eventUuid: media.eventUuid,
+      sortOrder: media.sortOrder,
+      kind: media.kind,
+      url: media.url,
+      mimeType: media.mimeType,
+      createdAt: media.createdAt ?? new Date()
+    };
+  }
+
+  async deleteEventMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const media = await this.dbRepository.findOne({
+      entity: 'event_media',
+      where: { uuid: mediaUuid, eventUuid, isDeleted: IsNull() }
+    });
+    if (!media) throw new BadRequestException('Archivo de galería no encontrado');
+
+    await this.dbRepository.update({
+      entity: 'event_media',
+      where: { uuid: mediaUuid },
+      data: { isDeleted: new Date() }
+    });
+
+    if (media.url?.includes(`/static/${GALLERY_BASE_PATH}/${eventUuid}/`)) {
+      const filename = media.url.split('/').pop();
+      if (filename) {
+        await this.storageService.deleteFile(
+          this.storageService.resolveAbsolutePath(`${GALLERY_BASE_PATH}/${eventUuid}`, filename)
+        );
+      }
+    }
   }
 
   async getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null> {
@@ -373,8 +576,14 @@ export class EventService implements IEventService {
     let processed: Buffer;
     try {
       processed = await sharp(file.buffer)
-        .resize({ width: spec.width, height: spec.height, fit: 'cover', position: 'centre', withoutEnlargement: true })
-        .webp({ quality: 82 })
+        .resize({
+          width: spec.width,
+          height: spec.height,
+          fit: 'cover',
+          position: 'centre',
+          withoutEnlargement: false
+        })
+        .webp({ quality: 85 })
         .toBuffer();
     } catch {
       throw new BadRequestException('El archivo no es una imagen válida');
@@ -436,6 +645,316 @@ export class EventService implements IEventService {
     await this.removeStoredBanner(event.uuid, targetUrl);
 
     return { bannerImages };
+  }
+
+  async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    const map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid }
+    });
+    if (!map) return null;
+    return this.loadEventMap(map);
+  }
+
+  async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    await this.validateSectorTicketTypes(event.uuid, data.sectors);
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = data.name?.trim() || 'Mapa del evento';
+      created.baseImageUrl = data.baseImageUrl ?? null;
+      created.canvasWidth = data.canvasWidth ?? 1000;
+      created.canvasHeight = data.canvasHeight ?? 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      const patch: Partial<EventMapEntity> = {};
+      if (data.name !== undefined) patch.name = data.name.trim() || map.name;
+      if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
+      if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
+      if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
+      if (Object.keys(patch).length) {
+        await this.dbRepository.update({
+          entity: 'event_map',
+          where: { uuid: map.uuid },
+          data: patch
+        });
+        map = { ...map, ...patch };
+      }
+    }
+
+    await this.replaceMapSectors(map.uuid, data.sectors);
+    return this.loadEventMap(map);
+  }
+
+  async uploadMapBaseImage(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    if (!file?.buffer?.length) throw new BadRequestException('No se recibió ningún archivo');
+    if (file.size > MAX_MAP_BASE_BYTES) {
+      throw new BadRequestException('El plano supera el máximo de 8 MB');
+    }
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Solo se permiten imágenes para el plano');
+    }
+
+    let processed: Buffer;
+    try {
+      processed = await sharp(file.buffer).webp({ quality: 82 }).toBuffer();
+    } catch {
+      throw new BadRequestException('El archivo no es una imagen válida');
+    }
+
+    const relativePath = `${MAPS_BASE_PATH}/${event.uuid}`;
+    const filename = `base-${Date.now()}.webp`;
+    const { url } = await this.storageService.saveFile({
+      buffer: processed,
+      relativePath,
+      filename
+    });
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+    const previousUrl = map?.baseImageUrl ?? null;
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = 'Mapa del evento';
+      created.baseImageUrl = url;
+      created.canvasWidth = 1000;
+      created.canvasHeight = 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      await this.dbRepository.update({
+        entity: 'event_map',
+        where: { uuid: map.uuid },
+        data: { baseImageUrl: url }
+      });
+      map = { ...map, baseImageUrl: url };
+    }
+
+    await this.removeStoredMapBase(event.uuid, previousUrl ?? undefined);
+    return this.loadEventMap(map);
+  }
+
+  async setMapBaseFromMedia(
+    eventUuid: string,
+    mediaUuid: string,
+    loggedUser: string
+  ): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    const media = await this.dbRepository.findOne({
+      entity: 'event_media',
+      where: { uuid: mediaUuid, eventUuid: event.uuid, isDeleted: IsNull() }
+    });
+    if (!media || media.kind !== 'image') {
+      throw new BadRequestException('Imagen de galería no encontrada');
+    }
+
+    let map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+
+    if (!map) {
+      const created = new EventMapEntity();
+      created.uuid = uuidv4();
+      created.eventUuid = event.uuid;
+      created.name = 'Mapa del evento';
+      created.baseImageUrl = media.url;
+      created.canvasWidth = 1000;
+      created.canvasHeight = 1000;
+      created.createdBy = loggedUser;
+      await this.dbRepository.create({ entity: 'event_map', data: created });
+      map = created;
+    } else {
+      await this.dbRepository.update({
+        entity: 'event_map',
+        where: { uuid: map.uuid },
+        data: { baseImageUrl: media.url }
+      });
+      map = { ...map, baseImageUrl: media.url };
+    }
+
+    return this.loadEventMap(map);
+  }
+
+  private async loadEventMap(map: {
+    uuid: string;
+    eventUuid: string;
+    name: string;
+    baseImageUrl: string | null;
+    canvasWidth: number;
+    canvasHeight: number;
+  }): Promise<TEventMap> {
+    const sectors = await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid: map.uuid },
+      other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
+    });
+
+    const sectorUuids = sectors.map(s => s.uuid);
+    const links =
+      sectorUuids.length === 0
+        ? []
+        : await this.dbRepository.findMany({
+            entity: 'event_map_sector_ticket_type',
+            where: { sectorUuid: In(sectorUuids) }
+          });
+
+    const bySector = new Map<string, string[]>();
+    for (const link of links) {
+      const arr = bySector.get(link.sectorUuid) ?? [];
+      arr.push(link.ticketTypeUuid);
+      bySector.set(link.sectorUuid, arr);
+    }
+
+    const mappedSectors: TEventMapSector[] = sectors.map(s => ({
+      uuid: s.uuid,
+      name: s.name,
+      geometry: s.geometry,
+      sortOrder: s.sortOrder,
+      isNumbered: !!s.isNumbered,
+      capacity: s.capacity ?? null,
+      ticketTypeUuids: bySector.get(s.uuid) ?? []
+    }));
+
+    return {
+      uuid: map.uuid,
+      eventUuid: map.eventUuid,
+      name: map.name,
+      baseImageUrl: map.baseImageUrl,
+      canvasWidth: map.canvasWidth,
+      canvasHeight: map.canvasHeight,
+      sectors: mappedSectors
+    };
+  }
+
+  private async validateSectorTicketTypes(
+    eventUuid: string,
+    sectors: TUpsertEventMap['sectors']
+  ): Promise<void> {
+    const allTt = new Set(
+      sectors.flatMap(s => s.ticketTypeUuids ?? []).filter(Boolean)
+    );
+    if (allTt.size === 0) return;
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: {
+        eventUuid,
+        isActive: true,
+        uuid: In([...allTt])
+      },
+      select: { uuid: true }
+    });
+    if (rows.length !== allTt.size) {
+      throw new BadRequestException(
+        'Una o más tandas asociadas a sectores no pertenecen a este evento'
+      );
+    }
+  }
+
+  private async replaceMapSectors(
+    mapUuid: string,
+    sectors: TUpsertEventMap['sectors']
+  ): Promise<void> {
+    const existing = await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid }
+    });
+    const existingUuids = existing.map(s => s.uuid);
+    if (existingUuids.length) {
+      await this.dbRepository.delete({
+        entity: 'event_map_sector_ticket_type',
+        where: { sectorUuid: In(existingUuids) } as any
+      });
+      await this.dbRepository.delete({
+        entity: 'event_map_sector',
+        where: { mapUuid } as any
+      });
+    }
+
+    for (let i = 0; i < sectors.length; i++) {
+      const src = sectors[i];
+      const sector = new EventMapSectorEntity();
+      sector.uuid = src.uuid?.trim() || uuidv4();
+      sector.mapUuid = mapUuid;
+      sector.name = src.name.trim();
+      sector.geometry = this.normalizeSectorGeometry(src.geometry);
+      sector.sortOrder = src.sortOrder ?? i;
+      sector.isNumbered = src.isNumbered ?? false;
+      sector.capacity = src.capacity ?? null;
+      await this.dbRepository.create({ entity: 'event_map_sector', data: sector });
+
+      for (const ttUuid of src.ticketTypeUuids ?? []) {
+        const link = new EventMapSectorTicketTypeEntity();
+        link.uuid = uuidv4();
+        link.sectorUuid = sector.uuid;
+        link.ticketTypeUuid = ttUuid;
+        await this.dbRepository.create({ entity: 'event_map_sector_ticket_type', data: link });
+      }
+    }
+  }
+
+  private normalizeSectorGeometry(raw: EventMapSectorGeometry): EventMapSectorGeometry {
+    const color = raw.color?.trim() || undefined;
+    if (raw.type === 'polygon') {
+      const points = (raw.points ?? [])
+        .map(p => ({
+          x: Math.min(1, Math.max(0, Number(p.x))),
+          y: Math.min(1, Math.max(0, Number(p.y)))
+        }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (points.length < 3) {
+        throw new BadRequestException('Un polígono necesita al menos 3 puntos');
+      }
+      return { type: 'polygon', points, ...(color ? { color } : {}) };
+    }
+
+    const x = Math.min(1, Math.max(0, Number(raw.x)));
+    const y = Math.min(1, Math.max(0, Number(raw.y)));
+    const w = Math.min(1, Math.max(0.01, Number(raw.w)));
+    const h = Math.min(1, Math.max(0.01, Number(raw.h)));
+    if (![x, y, w, h].every(Number.isFinite)) {
+      throw new BadRequestException('Geometría de sector inválida');
+    }
+    return {
+      type: raw.type === 'ellipse' ? 'ellipse' : 'rect',
+      x,
+      y,
+      w,
+      h,
+      ...(color ? { color } : {})
+    };
+  }
+
+  private async removeStoredMapBase(eventUuid: string, url: string | undefined): Promise<void> {
+    if (!url?.includes(`/static/${MAPS_BASE_PATH}/${eventUuid}/`)) return;
+    const filename = url.split('/').pop();
+    if (!filename) return;
+    await this.storageService.deleteFile(
+      this.storageService.resolveAbsolutePath(`${MAPS_BASE_PATH}/${eventUuid}`, filename)
+    );
   }
 
   /** Borra del volumen una imagen previa, solo si es un archivo servido por nosotros. */
@@ -690,11 +1209,21 @@ export class EventService implements IEventService {
   private async attachSoldOut(events: TEventResponse[]): Promise<TEventListItem[]> {
     if (events.length === 0) return [];
 
-    const ticketTypes = await this.dbRepository.findMany({
-      entity: 'ticket_type',
-      where: { eventUuid: In(events.map(e => e.uuid)), isActive: true },
-      select: { eventUuid: true, availableQuantity: true }
-    });
+    const eventUuids = events.map(e => e.uuid);
+
+    const [ticketTypes, galleryImages] = await Promise.all([
+      this.dbRepository.findMany({
+        entity: 'ticket_type',
+        where: { eventUuid: In(eventUuids), isActive: true },
+        select: { eventUuid: true, availableQuantity: true }
+      }),
+      this.dbRepository.findMany({
+        entity: 'event_media',
+        where: { eventUuid: In(eventUuids), isDeleted: IsNull(), kind: 'image' },
+        other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } },
+        select: { eventUuid: true, url: true, sortOrder: true }
+      })
+    ]);
 
     const withStock = new Set<string>();
     for (const tt of ticketTypes) {
@@ -705,9 +1234,18 @@ export class EventService implements IEventService {
     // llegó a estar a la venta. Publicar en ese estado ya está bloqueado.
     const withAnyType = new Set(ticketTypes.map(tt => tt.eventUuid));
 
+    // Primera imagen de galería por evento = flyer principal (sortOrder ASC)
+    const coverByEvent = new Map<string, string>();
+    for (const row of galleryImages) {
+      if (!coverByEvent.has(row.eventUuid) && row.url) {
+        coverByEvent.set(row.eventUuid, row.url);
+      }
+    }
+
     return events.map(event => ({
       ...event,
-      soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid)
+      soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid),
+      coverUrl: coverByEvent.get(event.uuid) ?? null
     }));
   }
 
@@ -848,5 +1386,127 @@ export class EventService implements IEventService {
       where: { userUuid: loggedUser, organizationUuid, isDeleted: IsNull() } as any
     });
     if (!membership) throw new ForbiddenException('No pertenecés a esta organización');
+  }
+
+  // ── Gastos del evento (FP08) ───────────────────────────────────────────────
+
+  async getExpenses(
+    eventUuid: string,
+    loggedUser: string,
+    filters?: { category?: string; supplier?: string }
+  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const where: Record<string, unknown> = { eventUuid, isDeleted: IsNull() };
+    if (filters?.category) where.category = filters.category;
+    if (filters?.supplier) where.supplier = ILike(`%${filters.supplier}%`);
+
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_expense',
+      where: where as any,
+      other: { order: { expenseDate: 'DESC', createdAt: 'DESC' } }
+    });
+
+    // El agregado se calcula SIN los filtros: el desglose por categoría del
+    // dashboard tiene que reflejar el total del evento, no la vista filtrada.
+    const all = filters?.category || filters?.supplier
+      ? await this.dbRepository.findMany({ entity: 'event_expense', where: { eventUuid, isDeleted: IsNull() } as any })
+      : rows;
+
+    const totals = new Map<string, number>();
+    for (const row of all as any[]) {
+      totals.set(row.category, (totals.get(row.category) ?? 0) + Number(row.totalAmount));
+    }
+
+    return {
+      items: rows as unknown as TEventExpense[],
+      byCategory: [...totals.entries()]
+        .map(([category, total]) => ({ category, total: Math.round(total * 100) / 100 }))
+        .sort((a, b) => b.total - a.total)
+    };
+  }
+
+  async createExpense(eventUuid: string, data: IExpenseCreate, loggedUser: string): Promise<TEventExpense> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const expense = new EventExpenseEntity();
+    expense.uuid = uuidv4();
+    expense.eventUuid = eventUuid;
+    expense.category = data.category;
+    expense.concept = data.concept.trim();
+    expense.supplier = data.supplier.trim();
+    expense.quantity = data.quantity;
+    expense.unitCost = data.unitCost;
+    expense.totalAmount = this.computeTotal(data.quantity, data.unitCost);
+    // La fecha viaja como string YYYY-MM-DD y se guarda tal cual
+    expense.expenseDate = data.expenseDate as unknown as Date;
+    expense.notes = data.notes?.trim() || null;
+    expense.createdBy = loggedUser;
+
+    await this.dbRepository.create({ entity: 'event_expense', data: expense });
+    return expense as unknown as TEventExpense;
+  }
+
+  async updateExpense(
+    eventUuid: string,
+    expenseUuid: string,
+    data: IExpenseUpdate,
+    loggedUser: string
+  ): Promise<TEventExpense> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    const current = await this.findExpenseOrFail(eventUuid, expenseUuid);
+
+    const patch: Record<string, unknown> = {};
+    if (data.category !== undefined) patch.category = data.category;
+    if (data.concept !== undefined) patch.concept = data.concept.trim();
+    if (data.supplier !== undefined) patch.supplier = data.supplier.trim();
+    if (data.quantity !== undefined) patch.quantity = data.quantity;
+    if (data.unitCost !== undefined) patch.unitCost = data.unitCost;
+    if (data.expenseDate !== undefined) patch.expenseDate = data.expenseDate;
+    if (data.notes !== undefined) patch.notes = data.notes?.trim() || null;
+
+    // El total se recalcula si cambió cualquiera de los dos factores, aunque
+    // solo haya venido uno: si no, quedaría desalineado con el detalle.
+    if (data.quantity !== undefined || data.unitCost !== undefined) {
+      patch.totalAmount = this.computeTotal(
+        data.quantity ?? Number(current.quantity),
+        data.unitCost ?? Number(current.unitCost)
+      );
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await this.dbRepository.update({
+        entity: 'event_expense',
+        where: { uuid: expenseUuid } as any,
+        data: patch as any
+      });
+    }
+
+    return this.findExpenseOrFail(eventUuid, expenseUuid);
+  }
+
+  /** Baja lógica: el histórico de costos se conserva para auditoría. */
+  async deleteExpense(eventUuid: string, expenseUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    await this.findExpenseOrFail(eventUuid, expenseUuid);
+    await this.dbRepository.update({
+      entity: 'event_expense',
+      where: { uuid: expenseUuid } as any,
+      data: { isDeleted: new Date() } as any
+    });
+  }
+
+  /** Redondeo a 2 decimales para que la suma de líneas cierre con el total. */
+  private computeTotal(quantity: number, unitCost: number): number {
+    return Math.round(quantity * unitCost * 100) / 100;
+  }
+
+  private async findExpenseOrFail(eventUuid: string, expenseUuid: string): Promise<TEventExpense> {
+    const expense = await this.dbRepository.findOne({
+      entity: 'event_expense',
+      where: { uuid: expenseUuid, eventUuid, isDeleted: IsNull() } as any
+    });
+    if (!expense) throw new BadRequestException('Gasto no encontrado');
+    return expense as unknown as TEventExpense;
   }
 }

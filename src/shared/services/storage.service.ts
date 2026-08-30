@@ -31,6 +31,7 @@ export class StorageService implements OnModuleInit {
       join(this.storagePath, 'tickets', 'qr'),
       join(this.storagePath, 'tickets', 'pdf'),
       join(this.storagePath, 'events', 'banners'),
+      join(this.storagePath, 'events', 'gallery'),
       join(this.storagePath, 'private')
     ];
 

@@ -12,12 +12,14 @@ export interface IEventCreate {
   venueAddress: string;
   venueCity: string;
   venueCountry: string;
+  googleMapsUrl?: string | null;
   maxCapacity: number;
 }
 
 export interface IEventUpdate {
   name?: string;
   description?: string | null;
+  slug?: string;
   bannerUrl?: string | null;
   startDate?: Date;
   endDate?: Date;
@@ -27,12 +29,15 @@ export interface IEventUpdate {
   venueAddress?: string;
   venueCity?: string;
   venueCountry?: string;
+  googleMapsUrl?: string | null;
   maxCapacity?: number;
 }
 
 export interface ITicketTypeUpdate {
   name?: string;
   description?: string | null;
+  price?: number;
+  quantity?: number;
   minPerOrder?: number;
   maxPerOrder?: number;
   saleStartDate?: Date | null;

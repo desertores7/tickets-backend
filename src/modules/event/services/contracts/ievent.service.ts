@@ -4,19 +4,65 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
+import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
+import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
+import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
 
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
 export type TTicketTypeResponse = TEntityResponse<'ticket_type', undefined, undefined>;
+export type TEventMediaResponse = TEntityResponse<'event_media', undefined, undefined>;
+
+export type TEventMapSector = {
+  uuid: string;
+  name: string;
+  geometry: EventMapSectorGeometry;
+  sortOrder: number;
+  isNumbered: boolean;
+  capacity: number | null;
+  ticketTypeUuids: string[];
+};
+
+export type TEventMap = {
+  uuid: string;
+  eventUuid: string;
+  name: string;
+  baseImageUrl: string | null;
+  canvasWidth: number;
+  canvasHeight: number;
+  sectors: TEventMapSector[];
+};
+
+export type TUpsertEventMapSector = {
+  uuid?: string;
+  name: string;
+  geometry: EventMapSectorGeometry;
+  sortOrder?: number;
+  isNumbered?: boolean;
+  capacity?: number | null;
+  ticketTypeUuids: string[];
+};
+
+export type TUpsertEventMap = {
+  name?: string;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  baseImageUrl?: string | null;
+  sectors: TUpsertEventMapSector[];
+};
 
 /**
  * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
  * el listado para no obligar al frontend a pedir el detalle de cada tarjeta.
+ * `coverUrl` = primera imagen de galería (flyer principal), si existe.
  */
-export type TEventListItem = TEventResponse & { soldOut: boolean };
+export type TEventListItem = TEventResponse & {
+  soldOut: boolean;
+  coverUrl: string | null;
+};
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
 
@@ -41,6 +87,53 @@ export type TUserSummary = {
   email: string;
 };
 
+export type TEventMediaItem = {
+  uuid: string;
+  eventUuid: string;
+  sortOrder: number;
+  kind: EventMediaKind;
+  url: string;
+  mimeType: string;
+  createdAt: Date;
+};
+
+
+/** Línea de costo de un evento (FP08) */
+export type TEventExpense = {
+  uuid: string;
+  eventUuid: string;
+  category: ExpenseCategory;
+  concept: string;
+  supplier: string;
+  quantity: number | string;
+  unitCost: number | string;
+  totalAmount: number | string;
+  expenseDate: Date | string;
+  notes: string | null;
+  createdAt: Date;
+};
+
+export interface IExpenseCreate {
+  category: ExpenseCategory;
+  concept: string;
+  supplier: string;
+  quantity: number;
+  unitCost: number;
+  /** YYYY-MM-DD, sin hora */
+  expenseDate: string;
+  notes?: string;
+}
+
+export interface IExpenseUpdate {
+  category?: ExpenseCategory;
+  concept?: string;
+  supplier?: string;
+  quantity?: number;
+  unitCost?: number;
+  expenseDate?: string;
+  notes?: string | null;
+}
+
 export interface IEventService {
   getEvents(
     pagination: IPaginationParams,
@@ -52,7 +145,7 @@ export interface IEventService {
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
 
-  createEvent(data: IEventCreate, loggedUser: string): Promise<boolean>;
+  createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }>;
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
 
@@ -64,7 +157,20 @@ export interface IEventService {
 
   createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse>;
 
-  updateTicketType(eventUuid: string, ticketTypeUuid: string, data: ITicketTypeUpdate, loggedUser: string): Promise<TTicketTypeResponse>;
+  updateTicketType(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    data: ITicketTypeUpdate,
+    loggedUser: string
+  ): Promise<TTicketTypeResponse>;
+
+  deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void>;
+
+  getEventMedia(eventUuid: string, loggedUser?: string | null): Promise<TEventMediaItem[]>;
+
+  uploadEventMedia(eventUuid: string, file: Express.Multer.File, loggedUser: string): Promise<TEventMediaItem>;
+
+  deleteEventMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<void>;
 
   getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null>;
 
@@ -76,6 +182,18 @@ export interface IEventService {
   ): Promise<{ variant: BannerVariant; url: string; bannerImages: BannerImages }>;
 
   deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
+
+  getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null>;
+
+  upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
+
+  uploadMapBaseImage(
+    eventUuid: string,
+    file: Express.Multer.File,
+    loggedUser: string
+  ): Promise<TEventMap>;
+
+  setMapBaseFromMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<TEventMap>;
 
   getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]>;
 
@@ -90,4 +208,21 @@ export interface IEventService {
   assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
   removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
+
+  getExpenses(
+    eventUuid: string,
+    loggedUser: string,
+    filters?: { category?: string; supplier?: string }
+  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }>;
+
+  createExpense(eventUuid: string, data: IExpenseCreate, loggedUser: string): Promise<TEventExpense>;
+
+  updateExpense(
+    eventUuid: string,
+    expenseUuid: string,
+    data: IExpenseUpdate,
+    loggedUser: string
+  ): Promise<TEventExpense>;
+
+  deleteExpense(eventUuid: string, expenseUuid: string, loggedUser: string): Promise<void>;
 }

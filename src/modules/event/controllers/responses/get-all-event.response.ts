@@ -13,6 +13,11 @@ export class GetAllEventResponse {
     example: { desktop: '…/desktop-1.webp', mobile: '…/mobile-1.webp', thumbnail: '…/thumbnail-1.webp' }
   })
   bannerImages: Record<string, string> | null;
+  @ApiProperty({
+    nullable: true,
+    description: 'URL del flyer principal (primera imagen de galería). Preferida para cards del listado.'
+  })
+  coverUrl: string | null;
   @ApiProperty() startDate: Date;
   @ApiProperty() endDate: Date;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
@@ -26,6 +31,8 @@ export class GetAllEventResponse {
   @ApiProperty() venueAddress: string;
   @ApiProperty() venueCity: string;
   @ApiProperty() venueCountry: string;
+  @ApiProperty({ nullable: true, description: 'Link de Google Maps para Cómo llegar' })
+  googleMapsUrl: string | null;
   @ApiProperty() maxCapacity: number;
   @ApiProperty({
     description:
@@ -44,6 +51,7 @@ export class GetAllEventResponse {
     this.slug = data.slug;
     this.bannerUrl = data.bannerUrl;
     this.bannerImages = data.bannerImages ?? null;
+    this.coverUrl = data.coverUrl ?? null;
     this.startDate = data.startDate;
     this.endDate = data.endDate;
     this.saleStartDate = data.saleStartDate;
@@ -56,6 +64,7 @@ export class GetAllEventResponse {
     this.venueAddress = data.venueAddress;
     this.venueCity = data.venueCity;
     this.venueCountry = data.venueCountry;
+    this.googleMapsUrl = data.googleMapsUrl ?? null;
     this.maxCapacity = data.maxCapacity;
     this.soldOut = data.soldOut;
     this.createdAt = data.createdAt;

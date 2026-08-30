@@ -68,6 +68,12 @@ export const envSchema = z.object({
 
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
+  // Credenciales de la *aplicacion* MP, distintas del access token del checkout:
+  // solo se usan para el OAuth de las cuentas propias de cada productora (FP11).
+  MERCADOPAGO_CLIENT_ID: z.string().optional(),
+  MERCADOPAGO_CLIENT_SECRET: z.string().optional(),
+  /** Secreto para cifrar los tokens MP de las productoras (BR-CASH-001). */
+  MP_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   APP_URL: z.string().url().optional(),
 
   STORAGE_PATH: z.string().default('./storage'),
@@ -86,7 +92,20 @@ export const envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().optional(),
 
   /** Destino de formularios de contacto / soporte (BR-SUPPORT-002) */
-  SUPPORT_EMAIL: z.string().email().optional()
+  SUPPORT_EMAIL: z.string().email().optional(),
+
+  /** Gemini — análisis de flyers + generación de hero (opcional en local) */
+  GEMINI_API_KEY: z.string().optional(),
+  /** Modelo multimodal para extracción JSON */
+  EVENT_AI_EXTRACT_MODEL: z.string().default('gemini-3.5-flash'),
+  /** Modelo de imagen (3.6-flash no genera imágenes; usar Flash Image) */
+  EVENT_AI_IMAGE_MODEL: z.string().default('gemini-3.1-flash-image'),
+  /** Fallback si el primario responde 503 high-demand (modelo más estable) */
+  EVENT_AI_IMAGE_FALLBACK_MODEL: z.string().default('gemini-2.5-flash-image'),
+  /** Tope de análisis IA por usuario / hora (Redis) */
+  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
+  /** Tope de análisis IA por usuario / día (Redis) */
+  EVENT_AI_MAX_PER_DAY: z.coerce.number().int().min(1).max(500).default(15)
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,7 +1,8 @@
 import { join, resolve } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -21,6 +22,12 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
 
 @Module({
   imports: [
+    // BR-SEC-001. Dos ventanas: una corta contra ráfagas y una larga contra
+    // el goteo sostenido, que una sola ventana no detiene.
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 60_000, limit: 60 },
+      { name: 'long', ttl: 3_600_000, limit: 600 }
+    ]),
     ConfigModule,
     EnvModule,
     RedisModule,
@@ -64,6 +71,7 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     AppService,
     UserJwtStrategy,
     DiscordAlertService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: DbRetryInterceptor }
   ],

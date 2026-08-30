@@ -27,6 +27,8 @@ export class GetIdEventResponse {
   @ApiProperty() venueAddress: string;
   @ApiProperty() venueCity: string;
   @ApiProperty() venueCountry: string;
+  @ApiProperty({ nullable: true, description: 'Link de Google Maps para Cómo llegar' })
+  googleMapsUrl: string | null;
   @ApiProperty() maxCapacity: number;
   @ApiProperty({ type: [TicketTypeResponse] }) ticketTypes: TicketTypeResponse[];
   @ApiProperty() createdAt: Date;
@@ -51,6 +53,7 @@ export class GetIdEventResponse {
     this.venueAddress = data.venueAddress;
     this.venueCity = data.venueCity;
     this.venueCountry = data.venueCountry;
+    this.googleMapsUrl = data.googleMapsUrl ?? null;
     this.maxCapacity = data.maxCapacity;
     this.ticketTypes = (data.ticketTypes ?? []).map(tt => new TicketTypeResponse(tt));
     this.createdAt = data.createdAt;

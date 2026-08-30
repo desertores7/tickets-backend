@@ -312,7 +312,27 @@ export const entityRelations = {
 
   event: {
     organization: 'organization',
-    ticketTypes: 'ticket_type'
+    ticketTypes: 'ticket_type',
+    media: 'event_media'
+  },
+
+  event_media: {
+    event: 'event'
+  },
+
+  event_map: {
+    event: 'event',
+    sectors: 'event_map_sector'
+  },
+
+  event_map_sector: {
+    map: 'event_map',
+    ticketTypeLinks: 'event_map_sector_ticket_type'
+  },
+
+  event_map_sector_ticket_type: {
+    sector: 'event_map_sector',
+    ticketType: 'ticket_type'
   },
 
   ticket_type: {
@@ -354,6 +374,15 @@ export const entityRelations = {
     user: 'user'
   },
 
+  event_expense: {
+    event: 'event',
+    creator: 'user'
+  },
+
+  org_mp_account: {
+    organization: 'organization'
+  },
+
   event_validator: {
     event: 'event',
     user: 'user'
@@ -369,9 +398,4 @@ export const entityRelations = {
     event: 'event',
     organization: 'organization'
   },
-
-  ticket_transfer: {
-    ticket: 'ticket',
-    fromUser: 'user'
-  }
 } as const;

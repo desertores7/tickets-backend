@@ -13,6 +13,7 @@ import { OrganizationStaffService } from './organization/services/implementation
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
+import { EventAiService } from './event/services/implementation/event-ai.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -26,6 +27,10 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
 import { SupportService } from './support/services/implementation/support.service';
+import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
+import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { ReportingService } from './reporting/services/implementation/reporting.service';
+import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 
 @Module({
   imports: [
@@ -49,6 +54,11 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'IOrgMpService', useClass: OrgMpService },
+    TokenCipher,
+    { provide: 'ISalesExportService', useClass: SalesExportService },
+    { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
@@ -73,6 +83,11 @@ import { SupportService } from './support/services/implementation/support.servic
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'IOrgMpService', useClass: OrgMpService },
+    TokenCipher,
+    { provide: 'ISalesExportService', useClass: SalesExportService },
+    { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
