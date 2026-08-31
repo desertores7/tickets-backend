@@ -1033,6 +1033,38 @@ export class OrganizationService implements IOrganizationService {
     return updated as OrganizationEntity;
   }
 
+  /**
+   * Avisa a los administradores que hay algo esperando revision.
+   *
+   * Los admins se buscan por NOMBRE de rol y no por uuid a proposito: los uuid
+   * de los seeds no coinciden entre entornos (el indice unico por nombre hace
+   * que el ON DUPLICATE KEY UPDATE matchee por nombre), asi que un uuid fijo
+   * funcionaria en local y en produccion notificaria a nadie.
+   */
+  private async notifyAdminsPendingReview(title: string, body: string): Promise<void> {
+    const admins = await this.dataSource
+      .createQueryBuilder()
+      .select('DISTINCT ur.userUuid', 'userUuid')
+      .from('user_role', 'ur')
+      .innerJoin('role', 'r', 'r.uuid = ur.roleUuid')
+      .innerJoin('user', 'u', 'u.uuid = ur.userUuid')
+      .where('r.name = :roleName', { roleName: 'Administrador' })
+      .andWhere('ur.isDeleted IS NULL')
+      .andWhere('u.isDeleted IS NULL')
+      .getRawMany<{ userUuid: string }>();
+
+    if (!admins.length) {
+      this.logger.warn('No hay administradores activos para notificar la revision pendiente');
+      return;
+    }
+
+    // Una notificacion falla sin arrastrar a las demas: que un admin quede sin
+    // aviso no puede impedir que el resto se entere.
+    await Promise.allSettled(
+      admins.map(a => this.userNotificationService.create(a.userUuid, title, body))
+    );
+  }
+
   private async notifyOwnerValidationSubmitted(
     org: OrganizationEntity,
     ownerUserUuid: string
@@ -1054,6 +1086,11 @@ export class OrganizationService implements IOrganizationService {
       ownerUserUuid,
       'Solicitud de productora enviada',
       `Recibimos los datos fiscales de ${organizationName}. En las próximas horas vas a recibir una confirmación cuando un administrador revise la solicitud.`
+    );
+
+    await this.notifyAdminsPendingReview(
+      'Productora esperando revisión',
+      `${organizationName} envió sus datos fiscales para validación. Revisala desde Productoras.`
     );
 
     if (!email) {
@@ -1136,6 +1173,11 @@ export class OrganizationService implements IOrganizationService {
       ownerUserUuid,
       'Cambio de cuenta enviado',
       `Recibimos la solicitud de cambio de datos bancarios de ${organizationName}. Seguís operando con normalidad mientras un administrador la revisa.`
+    );
+
+    await this.notifyAdminsPendingReview(
+      'Cambio de cuenta esperando revisión',
+      `${organizationName} solicitó cambiar sus datos bancarios. Revisalo desde Productoras.`
     );
   }
 
