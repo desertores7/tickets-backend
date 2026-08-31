@@ -65,30 +65,53 @@ export type SuggestMapSectorsResult = {
   warning: string | null;
 };
 
-export type MapReplicateTicketType = {
-  name: string;
-  description?: string;
-  price: number;
-  quantity: number;
-  color?: string;
+export type AiEventMapVenue = {
+  width: number;
+  height: number;
 };
 
-export type MapReplicateSector = {
-  name: string;
-  shape: 'rect' | 'ellipse';
+export type AiEventMapStage = {
+  id: 'stage';
+  label: string;
   x: number;
   y: number;
-  w: number;
-  h: number;
-  color?: string;
-  ticketTypeName: string;
-  sellable: boolean;
+  width: number;
+  height: number;
+  rotation?: number;
+  confidence: number;
+};
+
+export type AiEventMapCategory = {
+  id: string;
+  label: string;
+  detectedPrice: number | null;
+  detectedCapacity: number | null;
+  confidence: number;
+};
+
+export type AiEventMapElementShape = 'circle' | 'rectangle' | 'polygon';
+
+export type AiEventMapElement = {
+  id: string;
+  label: string;
+  category: string;
+  shape: AiEventMapElementShape;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  points?: Array<[number, number]>;
+  rotation?: number;
+  detectedPrice: number | null;
+  detectedCapacity: number | null;
+  confidence: number;
 };
 
 export type AnalyzeMapResult = {
-  ticketTypes: MapReplicateTicketType[];
-  sectors: MapReplicateSector[];
-  warning: string | null;
+  venue: AiEventMapVenue;
+  stage: AiEventMapStage | null;
+  categories: AiEventMapCategory[];
+  elements: AiEventMapElement[];
 };
 
 export interface IEventAiService {

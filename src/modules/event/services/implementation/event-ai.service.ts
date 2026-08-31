@@ -23,21 +23,14 @@ import {
   HeroImageMimeType,
   HeroImageUsage,
   IEventAiService,
-  MapReplicateSector,
-  MapReplicateTicketType,
   SuggestMapSectorsResult
 } from '../contracts/ievent-ai.service';
 import {
-  MAP_SECTOR_MAX,
-  expandTableGrids,
-  expandTieredNumberedGrid,
-  fitSectorsToInteractiveCanvas,
-  mergeSectors,
-  normalizeMapSector,
-  parseFloorPlanRegion,
-  synthesizeGridsFromTicketTypes,
-  type RawTableGrid
-} from './map-sector-builder';
+  buildVenueDimensions,
+  normalizeMapAnalysis
+} from './map-analysis-normalizer';
+import { parseJsonObjectLoose } from './parse-json-loose';
+import sharp from 'sharp';
 
 const MAX_FLYERS = 1;
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB c/u — menos tokens de entrada
@@ -45,7 +38,8 @@ const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/web
 
 /** Extracción: timeout corto. Hero: mucho más largo (imagen tarda). */
 const EXTRACT_TIMEOUT_MS = 90_000;
-const MAP_REPLICATE_TIMEOUT_MS = 90_000;
+const MAP_REPLICATE_TIMEOUT_MS = 120_000;
+const MAP_REPLICATE_MAX_TOKENS = 16_000;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
@@ -256,7 +250,7 @@ export class EventAiService implements IEventAiService {
     await this.assertWithinQuota(userId);
 
     const client = this.createClient(apiKey.trim(), MAP_REPLICATE_TIMEOUT_MS);
-    const result = await this.replicateSalesMap(client, mapFile);
+    const result = await this.analyzeSalesMap(client, mapFile);
 
     await this.consumeQuota(userId);
     return result;
@@ -281,11 +275,12 @@ export class EventAiService implements IEventAiService {
     return [file];
   }
 
-  private async replicateSalesMap(
+  private async analyzeSalesMap(
     client: OpenAI,
     mapFile: Express.Multer.File
   ): Promise<AnalyzeMapResult> {
     const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
+    const venue = await this.resolveVenueDimensions(mapFile);
     const userContent: ChatCompletionContentPart[] = [
       {
         type: 'text',
@@ -298,7 +293,7 @@ export class EventAiService implements IEventAiService {
       const response = await this.withTransientRetry('map-replicate', () =>
         client.chat.completions.create({
           model,
-          max_tokens: 4000,
+          max_tokens: MAP_REPLICATE_MAX_TOKENS,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: MAP_REPLICATE_SYSTEM_PROMPT },
@@ -308,11 +303,31 @@ export class EventAiService implements IEventAiService {
       );
 
       const raw = response.choices[0]?.message?.content?.trim();
+      const finishReason = response.choices[0]?.finish_reason;
       if (!raw) {
         throw new ServiceUnavailableException('OpenAI no devolvió datos del mapa.');
       }
 
-      return this.normalizeMapReplication(JSON.parse(raw) as Record<string, unknown>);
+      if (finishReason === 'length') {
+        this.logger.warn(
+          'OpenAI map analysis hit max_tokens (finish_reason=length); attempting truncated JSON repair'
+        );
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parseJsonObjectLoose(raw);
+      } catch (parseErr) {
+        this.logger.error(
+          `OpenAI map JSON parse failed (finish_reason=${finishReason ?? 'unknown'}, chars=${raw.length})`,
+          parseErr instanceof Error ? parseErr.message : parseErr
+        );
+        throw new ServiceUnavailableException(
+          'OpenAI devolvió un JSON incompleto del mapa. Reintentá el análisis.'
+        );
+      }
+
+      return normalizeMapAnalysis(parsed, venue);
     } catch (err) {
       if (
         err instanceof BadRequestException ||
@@ -321,107 +336,22 @@ export class EventAiService implements IEventAiService {
       ) {
         throw err;
       }
-      this.logger.error('OpenAI map replication failed', err instanceof Error ? err.stack : err);
+      this.logger.error('OpenAI map analysis failed', err instanceof Error ? err.stack : err);
       throw new ServiceUnavailableException(
-        this.friendlyOpenAiError(err, 'Error al replicar el mapa con OpenAI.')
+        this.friendlyOpenAiError(err, 'Error al analizar el mapa con OpenAI.')
       );
     }
   }
 
-  private normalizeMapReplication(raw: Record<string, unknown>): AnalyzeMapResult {
-    const warnings: string[] = [];
-
-    const ticketTypes = this.normalizeMapTicketTypes(raw.ticketTypes);
-    if (!ticketTypes.length) {
-      warnings.push('No se detectaron tandas en la imagen. Podés cargarlas manualmente.');
+  private async resolveVenueDimensions(
+    mapFile: Express.Multer.File
+  ): Promise<{ width: number; height: number }> {
+    try {
+      const meta = await sharp(mapFile.buffer).metadata();
+      return buildVenueDimensions(meta.width, meta.height);
+    } catch {
+      return buildVenueDimensions();
     }
-
-    const floorPlan = parseFloorPlanRegion(raw.floorPlanRegion);
-    const expectedUnits = ticketTypes.reduce((s, t) => s + t.quantity, 0);
-
-    const directSectors = Array.isArray(raw.sectors)
-      ? raw.sectors
-          .map(s =>
-            s && typeof s === 'object'
-              ? normalizeMapSector(s as Record<string, unknown>, floorPlan, false)
-              : null
-          )
-          .filter((s): s is MapReplicateSector => s !== null)
-      : [];
-
-    let gridSectors = Array.isArray(raw.tableGrids)
-      ? expandTableGrids(raw.tableGrids as RawTableGrid[])
-      : [];
-
-    let sectors = mergeSectors(directSectors, gridSectors).filter(s => s.sellable);
-
-    const lateralOnly = directSectors.filter(
-      s => s.sellable && /^[A-D]$/i.test(s.name.trim())
-    );
-
-    if (
-      ticketTypes.length > 0 &&
-      (sectors.length < expectedUnits * 0.75 || sectors.length <= 20)
-    ) {
-      warnings.push(
-        'Rearmamos el mapa interactivo desde las tandas detectadas (grilla central).'
-      );
-      const mainGrid = expandTieredNumberedGrid(ticketTypes);
-      sectors = [...lateralOnly, ...mainGrid.filter(m => !lateralOnly.some(l => l.name === m.name))];
-    }
-
-    sectors = fitSectorsToInteractiveCanvas(sectors);
-
-    if (sectors.length === 0 && directSectors.some(s => !s.sellable)) {
-      sectors = directSectors;
-    }
-
-    if (sectors.length === 0) {
-      warnings.push('No se detectaron zonas vendibles. Dibujalas manualmente en el editor.');
-    }
-
-    if (expectedUnits > 0 && sectors.length < expectedUnits) {
-      warnings.push(
-        `Se detectaron ${sectors.length} zonas de ${expectedUnits} esperadas. Completá o ajustá a mano.`
-      );
-    }
-
-    if (sectors.length > MAP_SECTOR_MAX) {
-      sectors = sectors.slice(0, MAP_SECTOR_MAX);
-      warnings.push(`Se limitó a ${MAP_SECTOR_MAX} zonas.`);
-    }
-
-    return {
-      ticketTypes,
-      sectors,
-      warning: warnings.length ? warnings.join(' ') : null
-    };
-  }
-
-  private normalizeMapTicketTypes(raw: unknown): MapReplicateTicketType[] {
-    if (!Array.isArray(raw)) return [];
-
-    return raw
-      .filter(t => t && typeof t === 'object' && typeof (t as { name?: unknown }).name === 'string')
-      .slice(0, 24)
-      .map(t => {
-        const row = t as {
-          name?: string;
-          description?: string | null;
-          price?: number;
-          quantity?: number;
-          color?: string | null;
-        };
-        const quantity = Math.max(0, Math.floor(Number(row.quantity) || 0));
-        return {
-          name: String(row.name).trim().slice(0, 120),
-          description: row.description ? String(row.description).trim().slice(0, 500) : undefined,
-          price: Math.max(0, Number(row.price) || 0),
-          quantity: quantity > 0 ? Math.min(quantity, 100_000) : 1,
-          color: row.color ? String(row.color).trim().slice(0, 32) : undefined
-        };
-      })
-      .filter(t => t.name.length > 0);
   }
 
   private createClient(apiKey: string, timeoutMs: number): OpenAI {

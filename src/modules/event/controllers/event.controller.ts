@@ -121,10 +121,10 @@ export class EventController {
 
   @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Replicate sales map from image (OpenAI vision)',
+    summary: 'Analyze sales map from image (OpenAI vision)',
     description:
-      'Accepts 1 sales map image (multipart field `mapImage`). Digitizes sellable zones and ticket tiers ' +
-      'visible in the image — bounding boxes + pricing from the same file. Does NOT extract event metadata or generate images. ' +
+      'Accepts 1 sales map image (multipart field `mapImage`). Returns normalized venue layout ' +
+      'with categories, sellable elements, and optional stage — coords 0–1, no colors/styles. ' +
       'Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
   })
   @ApiConsumes('multipart/form-data')
