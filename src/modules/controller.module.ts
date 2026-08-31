@@ -15,6 +15,7 @@ import { PaymentController } from './payments/controllers/payment.controller';
 import { CheckInController } from './check-in/controllers/checkin.controller';
 import { UserNotificationController } from './notifications/controllers/user-notification.controller';
 import { SupportController } from './support/controllers/support.controller';
+import { DashboardController } from './dashboard/controllers/dashboard.controller';
 import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
 import { BackofficeDashboardController } from './reporting/controllers/backoffice-dashboard.controller';
 import { OrgMpController } from './org-mp/controllers/org-mp.controller';
@@ -29,6 +30,7 @@ import { OrgMpController } from './org-mp/controllers/org-mp.controller';
     RoleController,
     SystemParameterController,
     EventController,
+    DashboardController,
     ProducerSalesController,
     BackofficeDashboardController,
     OrgMpController,

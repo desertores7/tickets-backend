@@ -10,7 +10,7 @@ import { GetSystemParameterResponse } from './dtos/get-system-parameter/get-syst
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 @ApiTags('System Parameters')
-@Controller({ path: 'system-parameters', version: '1' })
+@Controller('system-parameters')
 export class SystemParameterController {
   constructor(
     @Inject('ISystemParameterService')

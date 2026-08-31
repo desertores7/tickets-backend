@@ -20,7 +20,7 @@ import { GetSalesResponse, SalesRowResponse } from './responses/reporting.respon
  * el dashboard quedó llamando a un 404.
  */
 @ApiTags('Producer — Reporting')
-@Controller({ path: 'producer', version: '1' })
+@Controller('producer')
 export class ProducerSalesController {
   constructor(
     @Inject('IReportingService') private readonly reportingService: IReportingService,

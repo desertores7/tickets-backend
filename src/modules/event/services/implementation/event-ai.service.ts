@@ -8,30 +8,65 @@ import {
 } from '@nestjs/common';
 import { EnvService } from '@config/env/env.service';
 import { RedisService } from '@config/redis/redis.service';
-import { GoogleGenAI, Modality, ThinkingLevel, type Part } from '@google/genai';
+import OpenAI, { APIError, toFile } from 'openai';
+import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import { HERO_FROM_FLYER_PROMPT } from '../../const/hero-from-flyer.prompt';
 import {
+  MAP_REPLICATE_SYSTEM_PROMPT,
+  MAP_REPLICATE_USER_TEXT,
+  buildMapReplicateSchemaHint
+} from '../../const/map-replicate.prompt';
+import {
   AnalyzeFlyersResult,
+  AnalyzeMapResult,
   FlyerEventExtraction,
+  HeroImageMimeType,
+  HeroImageUsage,
   IEventAiService,
   SuggestMapSectorsResult
 } from '../contracts/ievent-ai.service';
+import {
+  buildVenueDimensions,
+  normalizeMapAnalysis
+} from './map-analysis-normalizer';
+import { parseJsonObjectLoose } from './parse-json-loose';
+import sharp from 'sharp';
 
-const MAX_FLYERS = 2;
+const MAX_FLYERS = 1;
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB c/u — menos tokens de entrada
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
-/** Extracción: timeout corto. Hero: mucho más largo (imagen tarda 2–4 min). */
+/** Extracción: timeout corto. Hero: mucho más largo (imagen tarda). */
 const EXTRACT_TIMEOUT_MS = 90_000;
+const MAP_REPLICATE_TIMEOUT_MS = 120_000;
+const MAP_REPLICATE_MAX_TOKENS = 16_000;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
-const DAY_TTL_SEC = 24 * 60 * 60;
-/** Reintentos solo ante 503 high-demand de Google (no bucles infinitos). */
+/** Reintentos ante 429/5xx de OpenAI (no bucles infinitos). */
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BASE_DELAY_MS = 2_500;
+/** Landscape 16:9 — hero full-width (espacio texto a la izquierda) */
 
-const EXTRACTION_SYSTEM = `You extract structured event data from 1–2 promotional flyer images for an Argentine ticketing platform.
+type HeroImageQuality = 'low' | 'medium' | 'high';
+type HeroImageFormat = 'png' | 'webp' | 'jpeg';
+
+type HeroGenerationResult = {
+  b64: string;
+  mimeType: HeroImageMimeType;
+  imageModelUsed: string;
+  generationQuality: HeroImageQuality;
+  generationSize: string;
+  generationFormat: HeroImageFormat;
+  fallbackUsed: boolean;
+  usage: HeroImageUsage | null;
+};
+
+function buildExtractionSystemPrompt(now = new Date()): string {
+  const year = now.getFullYear();
+  const todayIso = now.toISOString().slice(0, 10);
+
+  return `You extract structured event data from one promotional flyer image for an Argentine ticketing platform.
 
 CRITICAL COST / BEHAVIOR RULES:
 - Do exactly ONE extraction. Do not ask follow-up questions.
@@ -55,11 +90,74 @@ Return ONLY a JSON object with this exact shape:
 Rules:
 - title: event name as shown on the flyer (never invent a URL slug).
 - description: 2–4 short sentences in Spanish; include artists if visible.
-- startDate / endDate: prefer ISO 8601 (YYYY-MM-DDTHH:mm:ss). If only a date is shown, assume start 20:00 and end 23:00. If year missing, assume next occurrence from today. If end missing, start + 3 hours.
+- Today is ${todayIso}. The current calendar year is ${year}.
+- startDate / endDate: prefer ISO 8601 (YYYY-MM-DDTHH:mm:ss). If only a date is shown, assume start 20:00 and end 23:00. If end missing, start + 3 hours (or next day if overnight, e.g. OPEN 22HRS → end ~01:00).
+- YEAR RULE (critical): Argentine flyers often show day+month only (e.g. "10 SAB OCT") with NO year. When the year is missing or ambiguous, you MUST use ${year}. Never default to 2023, 2024, or any year before ${year} unless that exact year is printed on the flyer.
 - venueCountry default "Argentina".
 - googleMapsQuery: best single Maps search string.
 - ticketTypes only if prices/sectors appear; price in ARS number; quantity null if unknown.
 - artistsLineup: comma-separated names or null.`;
+}
+
+/**
+ * Si el modelo inventa un año pasado (p. ej. 2023) porque el flyer no lo trae,
+ * fuerza el año corriente. El productor puede editar después.
+ */
+function coerceExtractionDateYear(value: string, now = new Date()): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return '';
+
+  const currentYear = now.getFullYear();
+  const parsed = parseFlexibleDate(trimmed);
+  if (!parsed) return trimmed;
+
+  if (parsed.getFullYear() >= currentYear) {
+    return formatIsoLocal(parsed);
+  }
+
+  parsed.setFullYear(currentYear);
+  return formatIsoLocal(parsed);
+}
+
+function parseFlexibleDate(value: string): Date | null {
+  const m = value.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+  if (m) {
+    const d = new Date(
+      Number(m[3]),
+      Number(m[2]) - 1,
+      Number(m[1]),
+      Number(m[4] ?? 20),
+      Number(m[5] ?? 0),
+      Number(m[6] ?? 0)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const iso = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
+  );
+  if (iso) {
+    const d = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3]),
+      Number(iso[4] ?? 20),
+      Number(iso[5] ?? 0),
+      Number(iso[6] ?? 0)
+    );
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatIsoLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 
 @Injectable()
 export class EventAiService implements IEventAiService {
@@ -75,40 +173,48 @@ export class EventAiService implements IEventAiService {
     userId: string
   ): Promise<AnalyzeFlyersResult> {
     const flyers = this.validateFiles(files);
-    const apiKey = this.envService.get('GEMINI_API_KEY');
+    const apiKey = this.envService.get('OPENIA_API_KEY');
     if (!apiKey?.trim()) {
       throw new ServiceUnavailableException(
-        'GEMINI_API_KEY no está configurada en el servidor. Agregala al .env del backend.'
+        'OPENIA_API_KEY no está configurada en el servidor. Agregala al .env del backend.'
       );
     }
 
     await this.assertWithinQuota(userId);
 
-    const apiKeyTrimmed = apiKey.trim();
+    const client = this.createClient(apiKey.trim(), EXTRACT_TIMEOUT_MS);
+    const extraction = await this.extractEventData(client, flyers);
 
-    // Exactamente hasta 2 llamadas HTTP a Gemini. Sin bucles ni reintentos.
-    const extractClient = new GoogleGenAI({
-      apiKey: apiKeyTrimmed,
-      httpOptions: { timeout: EXTRACT_TIMEOUT_MS }
-    });
-    const extraction = await this.extractEventData(extractClient, flyers);
-
-    const heroClient = new GoogleGenAI({
-      apiKey: apiKeyTrimmed,
-      httpOptions: { timeout: HERO_TIMEOUT_MS }
-    });
+    const heroClient = this.createClient(apiKey.trim(), HERO_TIMEOUT_MS);
 
     let heroImageBase64: string | null = null;
+    let heroMimeType: HeroImageMimeType = this.formatToMime(
+      this.envService.get('EVENT_AI_IMAGE_FORMAT')
+    );
     let heroWarning: string | null = null;
+    let imageModelUsed: string | null = null;
+    let generationQuality: HeroImageQuality | null = null;
+    let generationSize: string | null = null;
+    let generationFormat: HeroImageFormat | null = null;
+    let fallbackUsed = false;
+    let heroUsage: HeroImageUsage | null = null;
     try {
-      heroImageBase64 = await this.generateHero(heroClient, flyers);
+      const hero = await this.generateHero(heroClient, flyers);
+      heroImageBase64 = hero.b64;
+      heroMimeType = hero.mimeType;
+      imageModelUsed = hero.imageModelUsed;
+      generationQuality = hero.generationQuality;
+      generationSize = hero.generationSize;
+      generationFormat = hero.generationFormat;
+      fallbackUsed = hero.fallbackUsed;
+      heroUsage = hero.usage;
     } catch (err) {
       // No tumbar la extracción: el productor puede seguir editando y subir banner a mano
       const msg =
-        err instanceof Error ? err.message : 'No se pudo generar el hero con Gemini.';
+        err instanceof Error ? err.message : 'No se pudo generar el hero con OpenAI.';
       this.logger.warn(`Hero generation soft-fail: ${msg}`);
       heroWarning =
-        msg.includes('aborted') || msg.includes('Abort')
+        msg.includes('aborted') || msg.includes('Abort') || msg.includes('timeout')
           ? 'La generación del hero tardó demasiado. Los datos se completaron; subí el banner a mano o reintentá Analizar.'
           : `Hero no generado: ${msg}. Los datos del flyer sí se aplicaron.`;
     }
@@ -118,21 +224,151 @@ export class EventAiService implements IEventAiService {
     return {
       extraction,
       heroImageBase64,
-      heroMimeType: 'image/png',
-      heroWarning
+      heroMimeType,
+      heroWarning,
+      imageModelUsed,
+      generationQuality,
+      generationSize,
+      generationFormat,
+      fallbackUsed,
+      heroUsage
     };
+  }
+
+  async analyzeFromMapImage(
+    file: Express.Multer.File,
+    userId: string
+  ): Promise<AnalyzeMapResult> {
+    const [mapFile] = this.validateMapFile(file);
+    const apiKey = this.envService.get('OPENIA_API_KEY');
+    if (!apiKey?.trim()) {
+      throw new ServiceUnavailableException(
+        'OPENIA_API_KEY no está configurada en el servidor. Agregala al .env del backend.'
+      );
+    }
+
+    await this.assertWithinQuota(userId);
+
+    const client = this.createClient(apiKey.trim(), MAP_REPLICATE_TIMEOUT_MS);
+    const result = await this.analyzeSalesMap(client, mapFile);
+
+    await this.consumeQuota(userId);
+    return result;
+  }
+
+  private validateMapFile(file: Express.Multer.File | undefined): Express.Multer.File[] {
+    if (!file) {
+      throw new BadRequestException('Subí la imagen del mapa (campo multipart "mapImage").');
+    }
+    const mime = (file.mimetype || '').toLowerCase();
+    if (!ALLOWED_MIME.has(mime)) {
+      throw new BadRequestException(
+        `Archivo no válido (${file.originalname}): usá JPEG, PNG o WebP.`
+      );
+    }
+    if (file.size > MAX_BYTES) {
+      throw new BadRequestException(`"${file.originalname}" supera el límite de 8 MB.`);
+    }
+    if (!file.buffer?.length) {
+      throw new BadRequestException(`No se pudo leer "${file.originalname}".`);
+    }
+    return [file];
+  }
+
+  private async analyzeSalesMap(
+    client: OpenAI,
+    mapFile: Express.Multer.File
+  ): Promise<AnalyzeMapResult> {
+    const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
+    const venue = await this.resolveVenueDimensions(mapFile);
+    const userContent: ChatCompletionContentPart[] = [
+      {
+        type: 'text',
+        text: `${MAP_REPLICATE_USER_TEXT}\n\n${buildMapReplicateSchemaHint()}`
+      },
+      ...this.flyerDataUrlParts([mapFile])
+    ];
+
+    try {
+      const response = await this.withTransientRetry('map-replicate', () =>
+        client.chat.completions.create({
+          model,
+          max_tokens: MAP_REPLICATE_MAX_TOKENS,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: MAP_REPLICATE_SYSTEM_PROMPT },
+            { role: 'user', content: userContent }
+          ]
+        })
+      );
+
+      const raw = response.choices[0]?.message?.content?.trim();
+      const finishReason = response.choices[0]?.finish_reason;
+      if (!raw) {
+        throw new ServiceUnavailableException('OpenAI no devolvió datos del mapa.');
+      }
+
+      if (finishReason === 'length') {
+        this.logger.warn(
+          'OpenAI map analysis hit max_tokens (finish_reason=length); attempting truncated JSON repair'
+        );
+      }
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parseJsonObjectLoose(raw);
+      } catch (parseErr) {
+        this.logger.error(
+          `OpenAI map JSON parse failed (finish_reason=${finishReason ?? 'unknown'}, chars=${raw.length})`,
+          parseErr instanceof Error ? parseErr.message : parseErr
+        );
+        throw new ServiceUnavailableException(
+          'OpenAI devolvió un JSON incompleto del mapa. Reintentá el análisis.'
+        );
+      }
+
+      return normalizeMapAnalysis(parsed, venue);
+    } catch (err) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ServiceUnavailableException ||
+        err instanceof HttpException
+      ) {
+        throw err;
+      }
+      this.logger.error('OpenAI map analysis failed', err instanceof Error ? err.stack : err);
+      throw new ServiceUnavailableException(
+        this.friendlyOpenAiError(err, 'Error al analizar el mapa con OpenAI.')
+      );
+    }
+  }
+
+  private async resolveVenueDimensions(
+    mapFile: Express.Multer.File
+  ): Promise<{ width: number; height: number }> {
+    try {
+      const meta = await sharp(mapFile.buffer).metadata();
+      return buildVenueDimensions(meta.width, meta.height);
+    } catch {
+      return buildVenueDimensions();
+    }
+  }
+
+  private createClient(apiKey: string, timeoutMs: number): OpenAI {
+    return new OpenAI({
+      apiKey,
+      timeout: timeoutMs,
+      maxRetries: 0 // reintentos los controlamos nosotros
+    });
   }
 
   private async assertWithinQuota(userId: string): Promise<void> {
     const maxHour = this.envService.get('EVENT_AI_MAX_PER_HOUR');
-    const maxDay = this.envService.get('EVENT_AI_MAX_PER_DAY');
-    const hourKey = `event-ai:hour:${userId}`;
-    const dayKey = `event-ai:day:${userId}`;
+    // 0 = sin límite horario
+    if (!maxHour || maxHour <= 0) return;
 
-    const [usedHour, usedDay] = await Promise.all([
-      this.redisService.getCounter(hourKey),
-      this.redisService.getCounter(dayKey)
-    ]);
+    const hourKey = `event-ai:hour:${userId}`;
+    const usedHour = await this.redisService.getCounter(hourKey);
 
     if (usedHour >= maxHour) {
       throw new HttpException(
@@ -140,27 +376,20 @@ export class EventAiService implements IEventAiService {
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
-    if (usedDay >= maxDay) {
-      throw new HttpException(
-        `Límite de IA alcanzado: máximo ${maxDay} análisis por día.`,
-        HttpStatus.TOO_MANY_REQUESTS
-      );
-    }
   }
 
   private async consumeQuota(userId: string): Promise<void> {
-    await Promise.all([
-      this.redisService.incrWithExpire(`event-ai:hour:${userId}`, HOUR_TTL_SEC),
-      this.redisService.incrWithExpire(`event-ai:day:${userId}`, DAY_TTL_SEC)
-    ]);
+    const maxHour = this.envService.get('EVENT_AI_MAX_PER_HOUR');
+    if (!maxHour || maxHour <= 0) return;
+    await this.redisService.incrWithExpire(`event-ai:hour:${userId}`, HOUR_TTL_SEC);
   }
 
   private validateFiles(files: Express.Multer.File[] | undefined): Express.Multer.File[] {
     if (!files?.length) {
-      throw new BadRequestException('Subí al menos 1 flyer (campo multipart "flyers").');
+      throw new BadRequestException('Subí el flyer principal (campo multipart "flyers").');
     }
     if (files.length > MAX_FLYERS) {
-      throw new BadRequestException(`Máximo ${MAX_FLYERS} flyers.`);
+      throw new BadRequestException('Solo se acepta 1 flyer (el principal) para análisis y banner.');
     }
     for (const file of files) {
       const mime = (file.mimetype || '').toLowerCase();
@@ -179,28 +408,38 @@ export class EventAiService implements IEventAiService {
     return files;
   }
 
-  /** Gemini rechaza `image/jpg`; normalizamos al MIME estándar. */
   private normalizeMime(mime: string | undefined): string {
     const m = (mime || 'image/jpeg').toLowerCase();
     return m === 'image/jpg' ? 'image/jpeg' : m;
   }
 
-  private flyerParts(flyers: Express.Multer.File[]): Part[] {
-    return flyers.map(file => ({
-      inlineData: {
-        mimeType: this.normalizeMime(file.mimetype),
-        data: file.buffer.toString('base64')
-      }
-    }));
+  private flyerDataUrlParts(flyers: Express.Multer.File[]): ChatCompletionContentPart[] {
+    return flyers.map(file => {
+      const mime = this.normalizeMime(file.mimetype);
+      return {
+        type: 'image_url' as const,
+        image_url: {
+          url: `data:${mime};base64,${file.buffer.toString('base64')}`
+        }
+      };
+    });
   }
 
-  private isGeminiHighDemand(err: unknown): boolean {
+  private isTransientOpenAiError(err: unknown): boolean {
+    if (err instanceof APIError) {
+      const status = err.status ?? 0;
+      return status === 429 || status >= 500;
+    }
     const msg = err instanceof Error ? err.message : String(err ?? '');
     return (
-      msg.includes('"code":503') ||
-      msg.includes('"status":"UNAVAILABLE"') ||
-      msg.includes('high demand') ||
-      msg.includes('UNAVAILABLE')
+      msg.includes('429') ||
+      msg.includes('rate_limit') ||
+      msg.includes('Rate limit') ||
+      msg.includes('503') ||
+      msg.includes('502') ||
+      msg.includes('overloaded') ||
+      msg.includes('timeout') ||
+      msg.includes('ETIMEDOUT')
     );
   }
 
@@ -208,7 +447,7 @@ export class EventAiService implements IEventAiService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  /** Hasta 3 intentos solo si Google responde saturado (503). */
+  /** Hasta 3 intentos solo si OpenAI responde 429/5xx. */
   private async withTransientRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= TRANSIENT_MAX_ATTEMPTS; attempt++) {
@@ -216,12 +455,12 @@ export class EventAiService implements IEventAiService {
         return await fn();
       } catch (err) {
         lastErr = err;
-        if (!this.isGeminiHighDemand(err) || attempt === TRANSIENT_MAX_ATTEMPTS) {
+        if (!this.isTransientOpenAiError(err) || attempt === TRANSIENT_MAX_ATTEMPTS) {
           throw err;
         }
         const delay = TRANSIENT_BASE_DELAY_MS * attempt;
         this.logger.warn(
-          `${label}: Gemini saturado (intento ${attempt}/${TRANSIENT_MAX_ATTEMPTS}), reintento en ${delay}ms`
+          `${label}: OpenAI saturado/rate-limit (intento ${attempt}/${TRANSIENT_MAX_ATTEMPTS}), reintento en ${delay}ms`
         );
         await this.sleep(delay);
       }
@@ -229,57 +468,45 @@ export class EventAiService implements IEventAiService {
     throw lastErr;
   }
 
-  private friendlyGeminiError(err: unknown, fallback: string): string {
-    if (this.isGeminiHighDemand(err)) {
-      return 'Gemini está saturado en este momento (alta demanda). Esperá un minuto y reintentá Analizar con IA.';
+  private friendlyOpenAiError(err: unknown, fallback: string): string {
+    if (this.isTransientOpenAiError(err)) {
+      return 'OpenAI está saturado o con límite de tasa en este momento. Esperá un minuto y reintentá Analizar con IA.';
+    }
+    if (err instanceof APIError && err.message?.trim()) {
+      return err.message;
     }
     if (err instanceof Error && err.message.trim()) {
-      // Evitar dump JSON crudo al productor
-      if (err.message.includes('"error"') && err.message.includes('message')) {
-        try {
-          const parsed = JSON.parse(err.message) as { error?: { message?: string } };
-          if (parsed.error?.message) return parsed.error.message;
-        } catch {
-          /* keep raw below */
-        }
-      }
       return err.message;
     }
     return fallback;
   }
 
   private async extractEventData(
-    client: GoogleGenAI,
+    client: OpenAI,
     flyers: Express.Multer.File[]
   ): Promise<FlyerEventExtraction> {
     const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
-    const userText =
-      flyers.length === 1
-        ? 'Extract event data from this flyer. Return JSON only.'
-        : 'Extract event data. Image 1 is usually the main flyer; image 2 may have venue map / ticket prices. Merge into one JSON only.';
+    const userText = 'Extract event data from this flyer. Return JSON only.';
 
     try {
       const response = await this.withTransientRetry('extract', () =>
-        client.models.generateContent({
+        client.chat.completions.create({
           model,
-          contents: [
+          max_tokens: EXTRACT_MAX_OUTPUT_TOKENS,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: buildExtractionSystemPrompt() },
             {
               role: 'user',
-              parts: [{ text: `${EXTRACTION_SYSTEM}\n\n${userText}` }, ...this.flyerParts(flyers)]
+              content: [{ type: 'text', text: userText }, ...this.flyerDataUrlParts(flyers)]
             }
-          ],
-          config: {
-            responseMimeType: 'application/json',
-            maxOutputTokens: EXTRACT_MAX_OUTPUT_TOKENS,
-            // Gemini 3.x: thinkingBudget provoca 400; usar thinkingLevel. Temperature baja tampoco recomendada.
-            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
-          }
+          ]
         })
       );
 
-      const raw = response.text?.trim();
+      const raw = response.choices[0]?.message?.content?.trim();
       if (!raw) {
-        throw new ServiceUnavailableException('Gemini no devolvió extracción de datos.');
+        throw new ServiceUnavailableException('OpenAI no devolvió extracción de datos.');
       }
       return this.normalizeExtraction(JSON.parse(raw) as Partial<FlyerEventExtraction>);
     } catch (err) {
@@ -287,9 +514,9 @@ export class EventAiService implements IEventAiService {
         throw err;
       }
       if (err instanceof HttpException) throw err;
-      this.logger.error('Gemini extraction failed', err instanceof Error ? err.stack : err);
+      this.logger.error('OpenAI extraction failed', err instanceof Error ? err.stack : err);
       throw new ServiceUnavailableException(
-        this.friendlyGeminiError(err, 'Error al extraer datos del flyer con Gemini.')
+        this.friendlyOpenAiError(err, 'Error al extraer datos del flyer con OpenAI.')
       );
     }
   }
@@ -318,8 +545,8 @@ export class EventAiService implements IEventAiService {
       description: String(raw.description ?? '')
         .trim()
         .slice(0, 4000),
-      startDate: String(raw.startDate ?? '').trim(),
-      endDate: String(raw.endDate ?? '').trim(),
+      startDate: coerceExtractionDateYear(String(raw.startDate ?? '').trim()),
+      endDate: coerceExtractionDateYear(String(raw.endDate ?? '').trim()),
       venueName: String(raw.venueName ?? '')
         .trim()
         .slice(0, 200),
@@ -345,20 +572,48 @@ export class EventAiService implements IEventAiService {
   }
 
   private async generateHero(
-    client: GoogleGenAI,
+    client: OpenAI,
     flyers: Express.Multer.File[]
-  ): Promise<string> {
+  ): Promise<HeroGenerationResult> {
     const primaryModel = this.envService.get('EVENT_AI_IMAGE_MODEL');
     const fallbackModel = this.envService.get('EVENT_AI_IMAGE_FALLBACK_MODEL');
-    // Solo el flyer principal como referencia: menos costo / tokens de imagen
+    const quality = this.envService.get('EVENT_AI_IMAGE_QUALITY');
+    const size = this.envService.get('EVENT_AI_IMAGE_SIZE');
+    const format = this.envService.get('EVENT_AI_IMAGE_FORMAT');
+    const compression = this.envService.get('EVENT_AI_IMAGE_COMPRESSION');
+    // Solo el flyer principal como referencia visual (NO el JSON de extracción)
     const primary = flyers[0];
+
+    const buildResult = (
+      generated: { b64: string; usage: HeroImageUsage | null },
+      modelUsed: string,
+      usedFallback: boolean
+    ): HeroGenerationResult => ({
+      b64: generated.b64,
+      mimeType: this.formatToMime(format),
+      imageModelUsed: modelUsed,
+      generationQuality: quality,
+      generationSize: size,
+      generationFormat: format,
+      fallbackUsed: usedFallback,
+      usage: generated.usage
+    });
 
     try {
       try {
-        return await this.generateHeroWithModel(client, primary, primaryModel, 'hero');
+        const generated = await this.generateHeroWithModel(
+          client,
+          primary,
+          primaryModel,
+          { quality, size, format, compression },
+          'hero'
+        );
+        const result = buildResult(generated, primaryModel, false);
+        this.logHeroGeneration(result, compression);
+        return result;
       } catch (err) {
         if (
-          !this.isGeminiHighDemand(err) ||
+          !this.isTransientOpenAiError(err) ||
           !fallbackModel?.trim() ||
           fallbackModel.trim() === primaryModel
         ) {
@@ -367,90 +622,133 @@ export class EventAiService implements IEventAiService {
         this.logger.warn(
           `Hero primary model "${primaryModel}" saturado; intentando fallback "${fallbackModel}"`
         );
-        return await this.generateHeroWithModel(
+        const generated = await this.generateHeroWithModel(
           client,
           primary,
           fallbackModel.trim(),
+          { quality, size, format, compression },
           'hero-fallback'
         );
+        const result = buildResult(generated, fallbackModel.trim(), true);
+        this.logHeroGeneration(result, compression);
+        return result;
       }
     } catch (err) {
       if (err instanceof ServiceUnavailableException) throw err;
       if (err instanceof HttpException) throw err;
-      this.logger.error('Gemini hero generation failed', err instanceof Error ? err.stack : err);
+      this.logger.error('OpenAI hero generation failed', err instanceof Error ? err.stack : err);
       throw new ServiceUnavailableException(
-        this.friendlyGeminiError(err, 'Error al generar el hero con Gemini.')
+        this.friendlyOpenAiError(err, 'Error al generar el hero con OpenAI.')
       );
     }
   }
 
-  private async generateHeroWithModel(
-    client: GoogleGenAI,
-    flyer: Express.Multer.File,
-    model: string,
-    label: string
-  ): Promise<string> {
-    const response = await this.withTransientRetry(label, () =>
-      client.models.generateContent({
-        model,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text:
-                  `${HERO_FROM_FLYER_PROMPT}\n\n` +
-                  'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.'
-              },
-              {
-                inlineData: {
-                  mimeType: this.normalizeMime(flyer.mimetype),
-                  data: flyer.buffer.toString('base64')
-                }
-              }
-            ]
-          }
-        ],
-        config: {
-          responseModalities: [Modality.TEXT, Modality.IMAGE],
-          imageConfig: {
-            // Composición de talento (lado derecho del hero); el FE arma el difuminado izquierdo
-            aspectRatio: '3:4',
-            imageSize: '1K'
-          },
-          candidateCount: 1,
-          httpOptions: { timeout: HERO_TIMEOUT_MS }
-        }
-      })
-    );
-
-    const b64 = this.extractImageBase64(response);
-    if (!b64) {
-      throw new ServiceUnavailableException('Gemini no devolvió la imagen hero.');
-    }
-    return b64;
+  private formatToMime(format: HeroImageFormat): HeroImageMimeType {
+    if (format === 'webp') return 'image/webp';
+    if (format === 'jpeg') return 'image/jpeg';
+    return 'image/png';
   }
 
-  private extractImageBase64(response: {
-    data?: string;
-    candidates?: Array<{ content?: { parts?: Part[] } }>;
-  }): string | null {
-    // SDK helper: concatenation of inline data parts
-    if (typeof response.data === 'string' && response.data.length > 0) {
-      return response.data;
+  private logHeroGeneration(result: HeroGenerationResult, compression: number): void {
+    const u = result.usage;
+    this.logger.log(
+      `Hero generated model=${result.imageModelUsed} size=${result.generationSize} ` +
+        `quality=${result.generationQuality} format=${result.generationFormat} ` +
+        `compression=${compression} fallback_used=${result.fallbackUsed} ` +
+        `input_tokens=${u?.input_tokens ?? 'n/a'} ` +
+        `image_tokens=${u?.input_tokens_details.image_tokens ?? 'n/a'} ` +
+        `text_tokens=${u?.input_tokens_details.text_tokens ?? 'n/a'} ` +
+        `output_tokens=${u?.output_tokens ?? 'n/a'} ` +
+        `total_tokens=${u?.total_tokens ?? 'n/a'}`
+    );
+  }
+
+  private normalizeImageUsage(raw: unknown): HeroImageUsage | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const u = raw as {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      input_tokens_details?: { image_tokens?: number; text_tokens?: number };
+    };
+    return {
+      input_tokens: typeof u.input_tokens === 'number' ? u.input_tokens : null,
+      input_tokens_details: {
+        image_tokens:
+          typeof u.input_tokens_details?.image_tokens === 'number'
+            ? u.input_tokens_details.image_tokens
+            : null,
+        text_tokens:
+          typeof u.input_tokens_details?.text_tokens === 'number'
+            ? u.input_tokens_details.text_tokens
+            : null
+      },
+      output_tokens: typeof u.output_tokens === 'number' ? u.output_tokens : null,
+      total_tokens: typeof u.total_tokens === 'number' ? u.total_tokens : null
+    };
+  }
+
+  /**
+   * gpt-image-2 always processes reference images at high fidelity; sending
+   * `input_fidelity` can 400. Legacy gpt-image-1 / 1.5 accept the param.
+   */
+  private shouldSendInputFidelity(model: string): boolean {
+    const m = model.toLowerCase();
+    if (m.includes('gpt-image-2')) return false;
+    if (m.includes('mini')) return false;
+    return m.includes('gpt-image-1');
+  }
+
+  private async generateHeroWithModel(
+    client: OpenAI,
+    flyer: Express.Multer.File,
+    model: string,
+    opts: {
+      quality: HeroImageQuality;
+      size: string;
+      format: HeroImageFormat;
+      compression: number;
+    },
+    label: string
+  ): Promise<{ b64: string; usage: HeroImageUsage | null }> {
+    const mime = this.normalizeMime(flyer.mimetype);
+    const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+    const prompt =
+      `${HERO_FROM_FLYER_PROMPT}\n\n` +
+      'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.\n' +
+      'Reminder: TOP empty air is the reference — BOTTOM empty air under names/title MUST match it exactly (shift the whole block UP if names sit near the bottom). ' +
+      'RIGHT empty gap should be ~50% smaller: keep the cluster close to the right edge with only a small safe pad (~60–120px). ' +
+      'LEFT third stays dark empty space with ZERO logos/seals/venue marks.';
+
+    const response = await this.withTransientRetry(label, async () => {
+      // Flyer ORIGINAL como input visual del edit (no JSON de gpt-4o)
+      const imageFile = await toFile(flyer.buffer, `flyer.${ext}`, { type: mime });
+      return client.images.edit({
+        model,
+        image: imageFile,
+        prompt,
+        size: opts.size,
+        quality: opts.quality,
+        output_format: opts.format,
+        ...(opts.format === 'png' ? {} : { output_compression: opts.compression }),
+        n: 1,
+        ...(this.shouldSendInputFidelity(model) ? { input_fidelity: 'high' as const } : {})
+      });
+    });
+
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) {
+      throw new ServiceUnavailableException('OpenAI no devolvió la imagen hero.');
     }
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    for (const part of parts) {
-      if (part.inlineData?.data) {
-        return part.inlineData.data;
-      }
-    }
-    return null;
+    return {
+      b64,
+      usage: this.normalizeImageUsage(response.usage)
+    };
   }
 
   /**
    * Soft-fail: siempre devuelve sectores utilizables.
-   * Layout heurístico por tandas; Gemini opcional (si falla, warning + heurística).
+   * Layout heurístico por tandas; OpenAI opcional (si falla, warning + heurística).
    */
   async suggestMapSectors(input: {
     ticketTypes: Array<{ uuid: string; name: string }>;
@@ -461,48 +759,36 @@ export class EventAiService implements IEventAiService {
       return { sectors: [], warning: 'No hay tandas para sugerir sectores.' };
     }
 
-    const apiKey = this.envService.get('GEMINI_API_KEY');
+    const apiKey = this.envService.get('OPENIA_API_KEY');
     if (!apiKey?.trim()) {
       return {
         sectors: heuristic,
-        warning: 'Sin GEMINI_API_KEY: sectores sugeridos en grilla. Ajustalos a mano sobre el plano.'
+        warning: 'Sin OPENIA_API_KEY: sectores sugeridos en grilla. Ajustalos a mano sobre el plano.'
       };
     }
 
     try {
-      const client = new GoogleGenAI({ apiKey });
+      const client = this.createClient(apiKey.trim(), 45_000);
       const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
       const names = input.ticketTypes.map(t => t.name).join(', ');
       const response = await this.withTransientRetry('map-sectors', () =>
-        client.models.generateContent({
+        client.chat.completions.create({
           model,
-          contents: [
+          response_format: { type: 'json_object' },
+          messages: [
             {
               role: 'user',
-              parts: [
-                {
-                  text:
-                    `Suggest rectangle sectors for an event floor-plan editor.\n` +
-                    `Ticket types (link each sector to the matching names): ${names}\n` +
-                    `Return ONLY JSON: { "sectors": [{ "name": string, "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 }] }\n` +
-                    `Rects must stay within [0,1], not overlap heavily, names should match ticket types when possible.`
-                }
-              ]
+              content:
+                `Suggest rectangle sectors for an event floor-plan editor.\n` +
+                `Ticket types (link each sector to the matching names): ${names}\n` +
+                `Return ONLY JSON: { "sectors": [{ "name": string, "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 }] }\n` +
+                `Rects must stay within [0,1], not overlap heavily, names should match ticket types when possible.`
             }
-          ],
-          config: {
-            responseMimeType: 'application/json',
-            httpOptions: { timeout: 45_000 }
-          }
+          ]
         })
       );
 
-      const text =
-        typeof response.text === 'string'
-          ? response.text
-          : (response.candidates?.[0]?.content?.parts ?? [])
-              .map(p => ('text' in p && typeof p.text === 'string' ? p.text : ''))
-              .join('');
+      const text = response.choices[0]?.message?.content?.trim() ?? '';
       const parsed = JSON.parse(text) as { sectors?: Array<Record<string, unknown>> };
       if (!Array.isArray(parsed.sectors) || !parsed.sectors.length) {
         return {
@@ -512,10 +798,10 @@ export class EventAiService implements IEventAiService {
       }
 
       const sectors = parsed.sectors.map((raw, i) => {
-        const name = String(raw.name ?? input.ticketTypes[i % input.ticketTypes.length]?.name ?? `Sector ${i + 1}`);
-        const match = input.ticketTypes.find(
-          t => t.name.toLowerCase() === name.toLowerCase()
+        const name = String(
+          raw.name ?? input.ticketTypes[i % input.ticketTypes.length]?.name ?? `Sector ${i + 1}`
         );
+        const match = input.ticketTypes.find(t => t.name.toLowerCase() === name.toLowerCase());
         const tt = match ?? input.ticketTypes[i % input.ticketTypes.length];
         return {
           name,
@@ -535,7 +821,8 @@ export class EventAiService implements IEventAiService {
       );
       return {
         sectors: heuristic,
-        warning: 'No se pudo sugerir con IA; usamos una grilla automática. Podés mover los sectores a mano.'
+        warning:
+          'No se pudo sugerir con IA; usamos una grilla automática. Podés mover los sectores a mano.'
       };
     }
   }

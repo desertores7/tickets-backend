@@ -34,6 +34,7 @@ import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 import { PRODUCTOR_ROLE_UUID, ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
+import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -45,7 +46,9 @@ export class AuthService implements IAuthService {
     private readonly config: ConfigService,
     private readonly emailService: EmailService,
     private readonly imageCompressionService: ImageCompressionService,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    @Inject('IUserNotificationService')
+    private readonly userNotificationService: IUserNotificationService
   ) {}
 
   private readonly defaultRoleNames = ['Usuario', 'usuario', 'user', 'patient', 'clinic_admin'];
@@ -514,6 +517,16 @@ export class AuthService implements IAuthService {
       });
     } catch (error) {
       console.error('Failed to send registration email:', error);
+    }
+
+    try {
+      await this.userNotificationService.create(
+        user.uuid,
+        'Bienvenido a ShowPass',
+        'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
+      );
+    } catch (error) {
+      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
     }
 
     return { email: request.email, uuid: user.uuid };

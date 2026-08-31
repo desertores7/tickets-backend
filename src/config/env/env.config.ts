@@ -94,18 +94,30 @@ export const envSchema = z.object({
   /** Destino de formularios de contacto / soporte (BR-SUPPORT-002) */
   SUPPORT_EMAIL: z.string().email().optional(),
 
-  /** Gemini — análisis de flyers + generación de hero (opcional en local) */
-  GEMINI_API_KEY: z.string().optional(),
-  /** Modelo multimodal para extracción JSON */
-  EVENT_AI_EXTRACT_MODEL: z.string().default('gemini-3.5-flash'),
-  /** Modelo de imagen (3.6-flash no genera imágenes; usar Flash Image) */
-  EVENT_AI_IMAGE_MODEL: z.string().default('gemini-3.1-flash-image'),
-  /** Fallback si el primario responde 503 high-demand (modelo más estable) */
-  EVENT_AI_IMAGE_FALLBACK_MODEL: z.string().default('gemini-2.5-flash-image'),
-  /** Tope de análisis IA por usuario / hora (Redis) */
-  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(1).max(100).default(5),
-  /** Tope de análisis IA por usuario / día (Redis) */
-  EVENT_AI_MAX_PER_DAY: z.coerce.number().int().min(1).max(500).default(15)
+  /** OpenAI — análisis de flyers + generación de hero (opcional en local) */
+  OPENIA_API_KEY: z.string().optional(),
+  /** Modelo multimodal para extracción JSON (visión) */
+  EVENT_AI_EXTRACT_MODEL: z.string().default('gpt-4o'),
+  /** Modelo de imagen (images.edit con flyer de referencia) */
+  EVENT_AI_IMAGE_MODEL: z.string().default('gpt-image-2'),
+  /**
+   * Fallback si el primario responde 429/5xx.
+   * Vacío por defecto: no degradar a mini (peor fidelidad de caras/logos).
+   */
+  EVENT_AI_IMAGE_FALLBACK_MODEL: z.string().default(''),
+  /** Resolución WIDTHxHEIGHT (gpt-image-2: ambos lados múltiplos de 16; p. ej. 2048x1152) */
+  EVENT_AI_IMAGE_SIZE: z
+    .string()
+    .regex(/^\d+x\d+$/, 'EVENT_AI_IMAGE_SIZE must be WIDTHxHEIGHT')
+    .default('2048x1152'),
+  /** Calidad images.edit: low | medium | high (gpt-image-2: low suele bastar y baja costo/latencia) */
+  EVENT_AI_IMAGE_QUALITY: z.enum(['low', 'medium', 'high']).default('low'),
+  /** Formato de salida GPT Image: png | webp | jpeg */
+  EVENT_AI_IMAGE_FORMAT: z.enum(['png', 'webp', 'jpeg']).default('webp'),
+  /** Compresión 0–100 (solo webp/jpeg; OpenAI ignora en png) */
+  EVENT_AI_IMAGE_COMPRESSION: z.coerce.number().int().min(0).max(100).default(80),
+  /** Tope de análisis IA por usuario / hora (Redis). `0` = sin límite. */
+  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(0).max(1000).default(0)
 });
 
 export type Env = z.infer<typeof envSchema>;

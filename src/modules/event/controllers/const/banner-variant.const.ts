@@ -1,12 +1,12 @@
 /**
  * Variantes de imagen de un evento.
- * `desktop` = composición de talento (3:4) para el lado derecho del hero ShowPass.
- * El FE arma el lado izquierdo con difuminado + texto HTML.
+ * Se guarda el archivo original sin crop ni resize (el FE adapta con CSS).
+ * `desktop` = hero ShowPass (típicamente 16:9 de la IA).
  */
 export const BANNER_VARIANTS = {
-  desktop: { width: 1080, height: 1440, label: 'Hero talento (3:4)' },
-  mobile: { width: 1080, height: 1350, label: 'Móvil (4:5)' },
-  thumbnail: { width: 800, height: 450, label: 'Miniatura (16:9)' }
+  desktop: { label: 'Hero (original)' },
+  mobile: { label: 'Móvil (original)' },
+  thumbnail: { label: 'Miniatura (original)' }
 } as const;
 
 export type BannerVariant = keyof typeof BANNER_VARIANTS;

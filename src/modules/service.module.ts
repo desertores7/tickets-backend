@@ -27,6 +27,7 @@ import { QrGenerationModule } from './qr-generation/qr-generation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
 import { SupportService } from './support/services/implementation/support.service';
+import { DashboardService } from './dashboard/services/implementation/dashboard.service';
 import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
@@ -72,7 +73,8 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     AuthService,
     RoleGuard,
     InternalTokenGuard,
-    UserPermissionService
+    UserPermissionService,
+    DashboardService
   ],
   exports: [
     { provide: 'IAuthService', useClass: AuthService },
@@ -103,7 +105,8 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     InternalTokenGuard,
     UserPermissionService,
     QrGenerationModule,
-    NotificationsModule
+    NotificationsModule,
+    DashboardService
   ]
 })
 export class ServiceModule {}

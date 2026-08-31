@@ -14,7 +14,7 @@ import {
 } from './responses/user-notification.response';
 
 @ApiTags('Notifications')
-@Controller({ path: 'notifications', version: '1' })
+@Controller('notifications')
 export class UserNotificationController {
   constructor(
     @Inject('IUserNotificationService')

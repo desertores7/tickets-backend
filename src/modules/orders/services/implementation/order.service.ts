@@ -32,6 +32,7 @@ import {
   PaymentConfirmationData,
   TicketStatus
 } from '../core/order';
+import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
 /** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
@@ -53,7 +54,9 @@ export class OrderService implements IOrderService {
     private readonly dataSource: DataSource,
     @InjectQueue(QUEUE_NAMES.ORDERS) private readonly ordersQueue: Queue,
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue,
-    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
+    @Inject('IUserNotificationService')
+    private readonly userNotificationService: IUserNotificationService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -426,6 +429,23 @@ export class OrderService implements IOrderService {
       attempts: 6,
       backoff: { type: 'exponential', delay: 10000 }
     });
+
+    // In-app mirror of post-pago email (same path as email enqueue = once per first payment).
+    const eventName =
+      (order.event as { name?: string } | undefined)?.name?.trim() || 'tu evento';
+    const orderShort = order.uuid.slice(0, 8).toUpperCase();
+    this.userNotificationService
+      .create(
+        order.userUuid,
+        'Compra confirmada',
+        `Tu pago fue aprobado. Orden ${orderShort} · ${eventName}. Te enviamos las entradas por email.`
+      )
+      .catch(err => {
+        this.logger.error(
+          `Failed to create purchase notification for order ${order.uuid}`,
+          err?.stack
+        );
+      });
 
     return this.fetchOrderInternal(orderId);
   }

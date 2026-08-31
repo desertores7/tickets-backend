@@ -30,7 +30,7 @@ import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 
 @ApiTags('Users')
-@Controller({ path: 'users', version: '1' })
+@Controller('users')
 export class UserController {
   constructor(@Inject('IUserService') public userService: IUserService) {}
 

@@ -1,7 +1,5 @@
 import {
-  Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -14,8 +12,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Queue } from 'bullmq';
-import { DataSource, In, IsNull } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { DataSource, In } from 'typeorm';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
@@ -23,7 +20,6 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { StorageService } from '@root/shared/services/storage.service';
 import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
-import { UserEntity } from '@config/db/entities/user/user.entity';
 import { TicketEntity, TicketStatus } from '@config/db/entities/tickets/ticket.entity';
 import {
   GetTicketData,
@@ -37,18 +33,17 @@ import { GetMyTicketsResponse, TicketSummaryData, TicketSummaryResponse } from '
 // ── User-facing ticket endpoints ─────────────────────────────────────────────
 
 @ApiTags('Tickets')
-@Controller({ path: 'tickets', version: '1' })
+@Controller('tickets')
 export class TicketController {
   private readonly logger = new Logger(TicketController.name);
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue
   ) {}
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/me
+  // GET /api/tickets/me
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetMyTicketsResponse)
@@ -98,7 +93,7 @@ export class TicketController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/tickets/:ticketId
+  // GET /api/tickets/:ticketId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetTicketResponse)
@@ -164,7 +159,7 @@ export class TicketController {
 // ── Admin ticket endpoints ────────────────────────────────────────────────────
 
 @ApiTags('Admin — Tickets')
-@Controller({ path: 'admin/tickets', version: '1' })
+@Controller('admin/tickets')
 export class AdminTicketController {
   private readonly logger = new Logger(AdminTicketController.name);
 
@@ -175,7 +170,7 @@ export class AdminTicketController {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/admin/tickets/:ticketId/regenerate-qr
+  // POST /api/admin/tickets/:ticketId/regenerate-qr
   // ---------------------------------------------------------------------------
 
   @AdminAuth(null, null)

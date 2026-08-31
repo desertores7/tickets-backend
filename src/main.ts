@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config();
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { EnvService } from '@config/env/env.service';
 import { sendToDiscordFromEnv } from '@root/shared/services/discord-alert.service';
@@ -49,8 +49,7 @@ async function bootstrap() {
     setupCors(app, allowedOrigins);
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
-    app.setGlobalPrefix('api');
-    app.enableVersioning({ type: VersioningType.URI });
+    app.setGlobalPrefix('api/v1');
 
     const httpAdapter = app.getHttpAdapter();
     const expressInstance = httpAdapter.getInstance();
@@ -58,7 +57,7 @@ async function bootstrap() {
       res.status(200).json({
         status: 'ok',
         message: 'API is running',
-        health: '/api/health',
+        health: '/api/v1/health',
         docs: SWAGGER_URL
       });
     });

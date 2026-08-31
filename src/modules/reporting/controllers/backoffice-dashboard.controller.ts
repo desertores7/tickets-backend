@@ -9,21 +9,25 @@ import { DashboardResponse } from './responses/reporting.response';
 /**
  * `GET /backoffice/dashboard` — la ruta que ya consume el frontend oficial y
  * que declara el mapa de API del spec.
+ *
+ * Complementa `GET /backoffice/home` (home por rol activo, con eventos de Caja
+ * del día). Este endpoint agrega filtros de fecha, gastos y KPIs de reporting.
  */
 @ApiTags('Backoffice')
-@Controller({ path: 'backoffice', version: '1' })
+@Controller('backoffice')
 export class BackofficeDashboardController {
   constructor(@Inject('IReportingService') private readonly reportingService: IReportingService) {}
 
   @UserAuth(null, DashboardResponse)
   @ApiOperation({
-    summary: 'Backoffice dashboard summary',
+    summary: 'Backoffice dashboard summary (reporting)',
     description:
       'Aggregated KPIs (BR-BACKOFFICE-002). Scope depends on the role: a `Productor` gets their ' +
       "organizations' events; an `Administrador` gets all.\n\n" +
       '**BR-REPORT-001**: `webRevenue` excludes the service fee.\n\n' +
       '`cashRevenue` is 0 and `cashModuleAvailable` is false until the Caja module (FP11) exists — ' +
-      'the frontend should say so rather than present the total as complete.'
+      'the frontend should say so rather than present the total as complete.\n\n' +
+      'For the role-based workspace home (incl. Caja today events), see `GET /backoffice/home`.'
   })
   @ApiQuery({ name: 'dateFrom', required: false, description: 'YYYY-MM-DD, inclusive.' })
   @ApiQuery({ name: 'dateTo', required: false, description: 'YYYY-MM-DD, inclusive.' })

@@ -6,7 +6,7 @@ import { ISupportService } from '../services/contracts/isupport.service';
 import { SupportContactRequest } from './requests/support-contact.request';
 
 @ApiTags('Support')
-@Controller({ path: 'support', version: '1' })
+@Controller('support')
 export class SupportController {
   constructor(@Inject('ISupportService') private readonly supportService: ISupportService) {}
 

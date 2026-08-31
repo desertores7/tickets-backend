@@ -18,7 +18,7 @@ import {
  * cobra el checkout web — esa vive en `payments/` y no se toca desde acá.
  */
 @ApiTags('Producer — Mercado Pago')
-@Controller({ path: 'organizations/me/mp-accounts', version: '1' })
+@Controller('organizations/me/mp-accounts')
 export class OrgMpController {
   constructor(@Inject('IOrgMpService') private readonly orgMpService: IOrgMpService) {}
 

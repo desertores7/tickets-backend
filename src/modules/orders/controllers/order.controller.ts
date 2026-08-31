@@ -9,12 +9,12 @@ import { GetOrderResponse } from './dtos/get-order/get-order.response';
 import { GetUserOrdersResponse, OrderSummaryResponse } from './dtos/get-user-orders/get-user-orders.response';
 
 @ApiTags('Orders')
-@Controller({ path: 'orders', version: '1' })
+@Controller('orders')
 export class OrderController {
   constructor(@Inject('IOrderService') private readonly _orderService: IOrderService) {}
 
   // ---------------------------------------------------------------------------
-  // POST /api/v1/orders
+  // POST /api/orders
   // ---------------------------------------------------------------------------
 
   @UserAuth(CreateOrderRequest, null)
@@ -46,7 +46,7 @@ export class OrderController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/orders
+  // GET /api/orders
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetUserOrdersResponse)
@@ -71,7 +71,7 @@ export class OrderController {
   }
 
   // ---------------------------------------------------------------------------
-  // GET /api/v1/orders/:orderId
+  // GET /api/orders/:orderId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, GetOrderResponse)
@@ -93,7 +93,7 @@ export class OrderController {
   }
 
   // ---------------------------------------------------------------------------
-  // DELETE /api/v1/orders/:orderId
+  // DELETE /api/orders/:orderId
   // ---------------------------------------------------------------------------
 
   @UserAuth(null, null)

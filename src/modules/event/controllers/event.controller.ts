@@ -55,6 +55,7 @@ import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
+import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
 import { EventMapResponse, EventMapSectorResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import {
@@ -64,7 +65,7 @@ import {
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
 @ApiTags('Events')
-@Controller({ path: 'events', version: '1' })
+@Controller('events')
 export class EventController {
   constructor(
     @Inject('IEventService') private readonly _eventService: IEventService,
@@ -84,11 +85,12 @@ export class EventController {
 
   @UserAuth(null, AnalyzeFlyersResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Analyze flyers with AI (Gemini)',
+    summary: 'Analyze flyer with AI (OpenAI)',
     description:
-      'Accepts 1–2 flyer images (multipart field `flyers`), extracts event fields via Gemini Flash, ' +
-      'and generates one 16:9 hero (Flash Image, 1K). Requires GEMINI_API_KEY.\n\n' +
-      'Cost guards: max 2 Gemini calls per request (no retries/loops), per-user hourly/daily Redis quotas, ' +
+      'Accepts 1 flyer image (multipart field `flyers` — flyer principal only), extracts event fields via OpenAI vision, ' +
+      'and generates one 16:9 ShowPass-style hero background via images.edit ' +
+      '(flyer + prompt → gpt-image-2 by default, size/quality/format from env). Requires OPENIA_API_KEY.\n\n' +
+      'Cost guards: extract + hero calls per request, per-user hourly Redis quota, ' +
       '8MB/file. Hero timeout 5 min; if hero fails, extraction is still returned.'
   })
   @ApiConsumes('multipart/form-data')
@@ -97,9 +99,9 @@ export class EventController {
       type: 'object',
       properties: {
         flyers: {
-          type: 'array',
-          items: { type: 'string', format: 'binary' },
-          maxItems: 2
+          type: 'string',
+          format: 'binary',
+          description: 'Flyer principal (única imagen usada para extracción + banner)'
         }
       },
       required: ['flyers']
@@ -107,10 +109,10 @@ export class EventController {
   })
   @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
-  @ApiResponse({ status: 429, description: 'Hourly/daily AI quota exceeded.' })
-  @ApiResponse({ status: 503, description: 'GEMINI_API_KEY missing or Gemini error.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
+  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
   @UseInterceptors(
-    FilesInterceptor('flyers', 2, {
+    FilesInterceptor('flyers', 1, {
       limits: { fileSize: 8 * 1024 * 1024 }
     })
   )
@@ -122,6 +124,47 @@ export class EventController {
   ): Promise<AnalyzeFlyersResponse> {
     const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser);
     return new AnalyzeFlyersResponse(result);
+  }
+
+  @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
+  @ApiOperation({
+    summary: 'Analyze sales map from image (OpenAI vision)',
+    description:
+      'Accepts 1 sales map image (multipart field `mapImage`). Returns normalized venue layout ' +
+      'with categories, sellable elements, and optional stage — coords 0–1, no colors/styles. ' +
+      'Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        mapImage: {
+          type: 'string',
+          format: 'binary',
+          description: 'Mapa de ventas / plano con precios'
+        }
+      },
+      required: ['mapImage']
+    }
+  })
+  @ApiResponse({ status: 200, type: AnalyzeFromMapResponse })
+  @ApiResponse({ status: 400, description: 'Missing/invalid file.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
+  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
+  @UseInterceptors(
+    FileInterceptor('mapImage', {
+      limits: { fileSize: 8 * 1024 * 1024 }
+    })
+  )
+  @HttpCode(200)
+  @Post('ai/from-map')
+  async analyzeFromMap(
+    @UploadedFile() file: Express.Multer.File,
+    @User() loggedUser: string
+  ): Promise<AnalyzeFromMapResponse> {
+    const result = await this._eventAiService.analyzeFromMapImage(file, loggedUser);
+    return new AnalyzeFromMapResponse(result);
   }
 
   @OptionalUserAuth(null, GetAllEventResponse)
@@ -162,6 +205,24 @@ export class EventController {
       meta: result.meta,
       items: result.items.map(item => new GetAllEventResponse(item))
     };
+  }
+
+  @OptionalUserAuth(null, GetIdEventResponse)
+  @ApiOperation({
+    summary: 'Get event by slug',
+    description:
+      'Returns event details including ticket types, resolved by public slug. ' +
+      'Unpublished drafts are only visible to authenticated users.'
+  })
+  @ApiParam({ name: 'slug', description: 'Event URL slug' })
+  @HttpCode(200)
+  @Get('by-slug/:slug')
+  async getEventBySlug(
+    @Param('slug') slug: string,
+    @UserRole() role: string | null
+  ): Promise<GetIdEventResponse> {
+    const event = await this._eventService.getEventBySlug(slug, role);
+    return new GetIdEventResponse(event);
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -233,6 +294,45 @@ export class EventController {
   @Post(':eventUuid/publish')
   async publishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.publishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Unpublish event (draft)',
+    description:
+      'Sets the event back to draft (hidden from public catalog). ' +
+      'Not allowed if any ticket type already has confirmed sales (quantity > availableQuantity).'
+  })
+  @ApiResponse({ status: 200, description: 'Event unpublished' })
+  @ApiResponse({ status: 400, description: 'Already draft, or event has confirmed sales' })
+  @HttpCode(200)
+  @Post(':eventUuid/unpublish')
+  async unpublishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
+    return this._eventService.unpublishEvent(eventUuid, loggedUser);
+  }
+
+  @OptionalUserAuth(null, EventMapResponse)
+  @ApiOperation({
+    summary: 'Get event map (public read)',
+    description:
+      'Read-only seating/sector map. Published events are public; drafts require ownership.'
+  })
+  @HttpCode(200)
+  @Get(':eventUuid/map/public')
+  async getEventMapPublic(
+    @Param('eventUuid') eventUuid: string,
+    @OptionalUser() loggedUser: string | null,
+    @UserRole() role: string | null
+  ): Promise<EventMapResponse | null> {
+    const map = await this._eventService.getEventMapPublic(eventUuid, {
+      loggedUser,
+      role
+    });
+    if (!map) return null;
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
   }
 
   @UserAuth(null, EventMapResponse)
@@ -352,15 +452,12 @@ export class EventController {
     summary: 'Upload event banner (per platform)',
     description:
       'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
-      '**Variants and target sizes:**\n' +
-      '- `desktop` — 1080x1440 (3:4), composición de talento para el hero (lado derecho).\n' +
-      '- `mobile` — 1080x1350 (4:5), portrait for phones.\n' +
-      '- `thumbnail` — 800x450 (16:9), cards and listings.\n\n' +
-      'Each variant accepts its own source image (art direction) and is normalized to webp, ' +
-      'cropped centred to the target aspect ratio. Files are stored per event in ' +
-      '`/static/events/banners/{eventUuid}/` and the previous file of that variant is deleted. ' +
+      '**Variants:** `desktop` (hero), `mobile`, `thumbnail`.\n\n' +
+      'The file is stored **as uploaded** (same pixels/format) — no resize or crop. ' +
+      'Use the AI 16:9 hero (or any art) and let the frontend adapt with CSS. ' +
+      'Files live under `/static/events/banners/{eventUuid}/`; the previous file of that variant is deleted. ' +
       'Only members of the owning organization or an admin can upload.\n\n' +
-      'Max upload size is 8MB (heroes IA); the image is then normalized to webp.'
+      'Max upload size is 8MB.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -383,7 +480,7 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @Param('variant') variant: string,
     @UploadedFile(
-      // 8MB: permite heroes IA (luego sharp los comprime a webp)
+      // 8MB: permite heroes IA a resolución nativa (sin resize en servidor)
       new ParseFilePipeBuilder()
         .addMaxSizeValidator({ maxSize: 8 * 1024 * 1024 })
         .build({ fileIsRequired: true })
