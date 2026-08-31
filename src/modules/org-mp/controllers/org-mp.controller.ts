@@ -8,6 +8,7 @@ import {
   MpAccountResponse,
   MpAccountsResponse,
   StartMpConnectResponse,
+  SyncCatalogResponse,
   UpdateMpAccountRequest
 } from './dtos/mp-account.dto';
 
@@ -65,6 +66,28 @@ export class OrgMpController {
   ): Promise<void> {
     const { redirectUrl } = await this.orgMpService.completeConnect(code, state);
     res.redirect(redirectUrl);
+  }
+
+  @UserAuth(null, SyncCatalogResponse)
+  @ApiOperation({
+    summary: 'Refresh the catalog from Mercado Pago',
+    description:
+      'Mercado Pago has NO product catalog API: it exposes payments, orders, stores and terminals, ' +
+      'but no items resource. The only place product names appear is `additional_info.items` of ' +
+      'each payment, and only when whoever charged sent them. So the catalog is rebuilt by ' +
+      'scanning the recent payments of the account. Payments without items are counted and ' +
+      'skipped, never written as empty rows: a terminal where the operator just types an amount ' +
+      'produces none, and those go to the Otros bucket (`29` §6). Manual only (`BR-CASH-002`): ' +
+      'it never runs on its own.'
+  })
+  @ApiParam({ name: 'accountUuid' })
+  @HttpCode(200)
+  @Post(':accountUuid/sync-catalog')
+  async syncCatalog(
+    @User() loggedUser: string,
+    @Param('accountUuid') accountUuid: string
+  ): Promise<SyncCatalogResponse> {
+    return new SyncCatalogResponse(await this.orgMpService.syncCatalog(loggedUser, accountUuid));
   }
 
   @UserAuth(UpdateMpAccountRequest, MpAccountResponse)

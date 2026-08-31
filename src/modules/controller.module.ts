@@ -19,6 +19,7 @@ import { DashboardController } from './dashboard/controllers/dashboard.controlle
 import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
 import { BackofficeDashboardController } from './reporting/controllers/backoffice-dashboard.controller';
 import { OrgMpController } from './org-mp/controllers/org-mp.controller';
+import { OrgCatalogController } from './org-catalog/controllers/org-catalog.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -34,6 +35,7 @@ import { OrgMpController } from './org-mp/controllers/org-mp.controller';
     ProducerSalesController,
     BackofficeDashboardController,
     OrgMpController,
+    OrgCatalogController,
     OrderController,
     PaymentController,
     CheckInController,

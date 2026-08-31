@@ -379,6 +379,15 @@ export const entityRelations = {
     creator: 'user'
   },
 
+  org_manual_item: {
+    organization: 'organization'
+  },
+
+  mp_catalog_item: {
+    organization: 'organization',
+    mpAccount: 'org_mp_account'
+  },
+
   org_mp_account: {
     organization: 'organization'
   },

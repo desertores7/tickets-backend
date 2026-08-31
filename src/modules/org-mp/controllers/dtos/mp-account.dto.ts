@@ -4,7 +4,7 @@ import {
   MP_ACCOUNT_STATUSES,
   MpAccountStatus
 } from '@config/db/entities/tickets/org_mp_account.entity';
-import { IMpAccount } from '../../services/contracts/iorg-mp.service';
+import { ICatalogSyncResult, IMpAccount } from '../../services/contracts/iorg-mp.service';
 
 export class UpdateMpAccountRequest {
   @IsString()
@@ -55,6 +55,36 @@ export class MpAccountsResponse {
 
   constructor(items: MpAccountResponse[]) {
     this.items = items;
+  }
+}
+
+/**
+ * Resumen de la sincronizacion. Los contadores existen para poder explicarle al
+ * productor por que su catalogo quedo vacio: Mercado Pago no tiene catalogo de
+ * productos, y un posnet donde solo se tipea el monto no manda items.
+ */
+export class SyncCatalogResponse {
+  @ApiProperty({ description: 'Pagos revisados en la ventana' }) paymentsScanned: number;
+  @ApiProperty({ description: 'Pagos que traian detalle de productos' }) paymentsWithItems: number;
+
+  @ApiProperty({
+    description: 'Pagos sin detalle. No es un error: van a la cubeta Otros (`29` §6).'
+  })
+  paymentsWithoutItems: number;
+
+  @ApiProperty() itemsCreated: number;
+  @ApiProperty() itemsUpdated: number;
+  @ApiProperty({ description: 'Inicio de la ventana revisada, ISO-8601' }) since: string;
+  @ApiProperty({ description: 'ISO-8601' }) syncedAt: string;
+
+  constructor(data: ICatalogSyncResult) {
+    this.paymentsScanned = data.paymentsScanned;
+    this.paymentsWithItems = data.paymentsWithItems;
+    this.paymentsWithoutItems = data.paymentsWithoutItems;
+    this.itemsCreated = data.itemsCreated;
+    this.itemsUpdated = data.itemsUpdated;
+    this.since = data.since.toISOString();
+    this.syncedAt = data.syncedAt.toISOString();
   }
 }
 

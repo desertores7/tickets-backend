@@ -29,6 +29,7 @@ import { UserNotificationService } from './notifications/services/implementation
 import { SupportService } from './support/services/implementation/support.service';
 import { DashboardService } from './dashboard/services/implementation/dashboard.service';
 import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
+import { OrgCatalogService } from './org-catalog/services/implementation/org-catalog.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
@@ -57,6 +58,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
+    { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
     TokenCipher,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
@@ -87,6 +89,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
+    { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
     TokenCipher,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
