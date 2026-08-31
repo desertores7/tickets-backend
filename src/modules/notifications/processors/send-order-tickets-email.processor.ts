@@ -5,9 +5,7 @@ import { DataSource, In } from 'typeorm';
 import {
   QUEUE_NAMES,
   SendOrderTicketsEmailJobData,
-  SendTransferOfferEmailJobData
 } from '@config/redis/bull-jobs.types';
-import { TicketTransferEntity } from '@config/db/entities/tickets/ticket_transfer.entity';
 import { EnvService } from '@config/env/env.service';
 import { OrderEntity, OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
@@ -29,69 +27,9 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
 
   // Una queue = un worker: este processor atiende todos los jobs de `notifications`
   async process(job: Job): Promise<void> {
-    if (job.name === 'send-transfer-offer') {
-      return this.handleTransferOffer(job.data as SendTransferOfferEmailJobData);
-    }
     if (job.name === 'send-order-tickets-email') {
       return this.handleOrderTickets(job.data as SendOrderTicketsEmailJobData);
     }
-  }
-
-  /**
-   * Invitación a aceptar una transferencia. NO adjunta el PDF: la entrada recién
-   * cambia de dueño cuando el destinatario confirma desde su cuenta.
-   */
-  private async handleTransferOffer(data: SendTransferOfferEmailJobData): Promise<void> {
-    const transfer = await this.dataSource.getRepository(TicketTransferEntity).findOne({
-      where: { uuid: data.transferId },
-      relations: { ticket: { event: true, ticketType: true } }
-    });
-
-    if (!transfer) {
-      this.logger.error(`Transfer not found: ${data.transferId} — skipping email (no retry)`);
-      return;
-    }
-
-    const event = transfer.ticket.event;
-    const eventDate = new Intl.DateTimeFormat('es-AR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    }).format(event.startDate);
-
-    const frontendUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
-    // Con cuenta va directo a sus transferencias; sin cuenta, al registro y de
-    // ahí vuelve al mismo lugar.
-    const actionUrl = data.recipientHasAccount
-      ? `${frontendUrl}/my-tickets?tab=transfers`
-      : `${frontendUrl}/register?redirect=${encodeURIComponent('/my-tickets?tab=transfers')}`;
-
-    await this.notificationEmailService.sendTransferOfferEmail({
-      to: data.toEmail,
-      subject: `🎁 ${data.fromName} quiere transferirte una entrada para ${event.name}`,
-      templateData: {
-        preheader: `${data.fromName} te transfiere una entrada para ${event.name}. Aceptala para que sea tuya.`,
-        fromName: data.fromName,
-        message: data.message ?? '',
-        eventName: event.name,
-        eventDate,
-        venueName: event.venueName,
-        venueCity: event.venueCity,
-        ticketTypeName: transfer.ticket.ticketType?.name ?? 'Entrada',
-        recipientHasAccount: data.recipientHasAccount,
-        actionUrl,
-        actionText: data.recipientHasAccount ? 'Ver la transferencia' : 'Crear mi cuenta',
-        appName: 'Ticketera',
-        year: new Date().getFullYear()
-      },
-      attachments: []
-    });
-
-    this.logger.log(`Transfer offer email sent: transfer=${transfer.uuid} to=${data.toEmail}`);
   }
 
   private async handleOrderTickets(jobData: SendOrderTicketsEmailJobData): Promise<void> {

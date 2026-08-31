@@ -374,6 +374,15 @@ export const entityRelations = {
     user: 'user'
   },
 
+  event_expense: {
+    event: 'event',
+    creator: 'user'
+  },
+
+  org_mp_account: {
+    organization: 'organization'
+  },
+
   event_validator: {
     event: 'event',
     user: 'user'
@@ -389,9 +398,4 @@ export const entityRelations = {
     event: 'event',
     organization: 'organization'
   },
-
-  ticket_transfer: {
-    ticket: 'ticket',
-    fromUser: 'user'
-  }
 } as const;

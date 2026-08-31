@@ -895,7 +895,12 @@ export class AuthService implements IAuthService {
     if (data.phone !== undefined) userData.phone = data.phone?.trim() || null;
     if (data.gender !== undefined) userData.gender = data.gender?.trim() || null;
     if (data.birthday !== undefined) {
-      userData.birthday = data.birthday?.trim() ? new Date(data.birthday) : null;
+      // La columna es `date`: se guarda el 'YYYY-MM-DD' tal cual, sin pasar por
+      // Date. `new Date('2000-07-30')` se interpreta como medianoche UTC y el
+      // driver la reescribe en hora local, restando un día al oeste de Greenwich.
+      // Una fecha de nacimiento no tiene hora ni zona; convertirla le inventa una.
+      const raw = data.birthday?.trim();
+      userData.birthday = (raw ? raw.slice(0, 10) : null) as unknown as UserEntity['birthday'];
     }
     if (data.address !== undefined) userData.address = data.address?.trim() || null;
     if (data.billingIdType !== undefined) {

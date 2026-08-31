@@ -24,7 +24,6 @@ export const EMAIL_TEMPLATES = {
   login2faCode: 'login-2fa-code',
   welcomeNewUser: 'welcome-new-user',
   ticketEmail: 'ticket-email',
-  ticketTransfer: 'ticket-transfer',
   organizationApproved: 'organization-approved',
   organizationRejected: 'organization-rejected',
   organizationSubmitted: 'organization-submitted',

@@ -3,6 +3,12 @@ import { IsEmail, IsIn, IsNotEmpty, IsString, Matches, MaxLength, MinLength } fr
 import { IAssignUserOrganization } from '@modules/organization/services/core/organization';
 import { DOCUMENT_TYPES } from '@modules/auth/const/document-type.const';
 
+/**
+ * Sin constructor a proposito: `ValidationPipe` instancia este DTO con
+ * `plainToInstance`, que llama `new` SIN argumentos y llena las propiedades
+ * por asignacion. Un constructor con parametro obligatorio hace que el
+ * endpoint devuelva 500 al leer una propiedad de `undefined`.
+ */
 export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   @IsString()
   @IsNotEmpty()
@@ -50,12 +56,4 @@ export class AssignUserOrganizationRequest implements IAssignUserOrganization {
   })
   password: string;
 
-  constructor(data: IAssignUserOrganization) {
-    this.firstName = data.firstName;
-    this.lastName = data.lastName;
-    this.documentType = data.documentType;
-    this.documentNumber = data.documentNumber;
-    this.email = data.email;
-    this.password = data.password;
-  }
 }

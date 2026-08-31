@@ -68,6 +68,12 @@ export const envSchema = z.object({
 
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
+  // Credenciales de la *aplicacion* MP, distintas del access token del checkout:
+  // solo se usan para el OAuth de las cuentas propias de cada productora (FP11).
+  MERCADOPAGO_CLIENT_ID: z.string().optional(),
+  MERCADOPAGO_CLIENT_SECRET: z.string().optional(),
+  /** Secreto para cifrar los tokens MP de las productoras (BR-CASH-001). */
+  MP_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   APP_URL: z.string().url().optional(),
 
   STORAGE_PATH: z.string().default('./storage'),

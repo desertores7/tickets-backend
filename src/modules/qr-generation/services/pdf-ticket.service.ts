@@ -7,7 +7,7 @@ const PAGE_HEIGHT = 420;
 const MARGIN = 20;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-/** Misma paleta que el email de transferencia, para que la marca se vea igual en los dos lados */
+/** Misma paleta que los emails transaccionales, para que la marca se vea igual en los dos lados */
 const COLOR = {
   navy: '#0f172a',
   text: '#334155',

@@ -16,6 +16,9 @@ import { CheckInController } from './check-in/controllers/checkin.controller';
 import { UserNotificationController } from './notifications/controllers/user-notification.controller';
 import { SupportController } from './support/controllers/support.controller';
 import { DashboardController } from './dashboard/controllers/dashboard.controller';
+import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
+import { BackofficeDashboardController } from './reporting/controllers/backoffice-dashboard.controller';
+import { OrgMpController } from './org-mp/controllers/org-mp.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -27,12 +30,15 @@ import { DashboardController } from './dashboard/controllers/dashboard.controlle
     RoleController,
     SystemParameterController,
     EventController,
+    DashboardController,
+    ProducerSalesController,
+    BackofficeDashboardController,
+    OrgMpController,
     OrderController,
     PaymentController,
     CheckInController,
     UserNotificationController,
-    SupportController,
-    DashboardController
+    SupportController
   ]
 })
 export class ControllerModule {}

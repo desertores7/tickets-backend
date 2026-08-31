@@ -9,6 +9,7 @@ import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_se
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
+import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
 
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
@@ -96,6 +97,43 @@ export type TEventMediaItem = {
   createdAt: Date;
 };
 
+
+/** Línea de costo de un evento (FP08) */
+export type TEventExpense = {
+  uuid: string;
+  eventUuid: string;
+  category: ExpenseCategory;
+  concept: string;
+  supplier: string;
+  quantity: number | string;
+  unitCost: number | string;
+  totalAmount: number | string;
+  expenseDate: Date | string;
+  notes: string | null;
+  createdAt: Date;
+};
+
+export interface IExpenseCreate {
+  category: ExpenseCategory;
+  concept: string;
+  supplier: string;
+  quantity: number;
+  unitCost: number;
+  /** YYYY-MM-DD, sin hora */
+  expenseDate: string;
+  notes?: string;
+}
+
+export interface IExpenseUpdate {
+  category?: ExpenseCategory;
+  concept?: string;
+  supplier?: string;
+  quantity?: number;
+  unitCost?: number;
+  expenseDate?: string;
+  notes?: string | null;
+}
+
 export interface IEventService {
   getEvents(
     pagination: IPaginationParams,
@@ -181,4 +219,21 @@ export interface IEventService {
   assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
   removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
+
+  getExpenses(
+    eventUuid: string,
+    loggedUser: string,
+    filters?: { category?: string; supplier?: string }
+  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }>;
+
+  createExpense(eventUuid: string, data: IExpenseCreate, loggedUser: string): Promise<TEventExpense>;
+
+  updateExpense(
+    eventUuid: string,
+    expenseUuid: string,
+    data: IExpenseUpdate,
+    loggedUser: string
+  ): Promise<TEventExpense>;
+
+  deleteExpense(eventUuid: string, expenseUuid: string, loggedUser: string): Promise<void>;
 }

@@ -28,6 +28,10 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
 import { SupportService } from './support/services/implementation/support.service';
 import { DashboardService } from './dashboard/services/implementation/dashboard.service';
+import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
+import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { ReportingService } from './reporting/services/implementation/reporting.service';
+import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 
 @Module({
   imports: [
@@ -51,6 +55,10 @@ import { DashboardService } from './dashboard/services/implementation/dashboard.
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'IOrgMpService', useClass: OrgMpService },
+    TokenCipher,
+    { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
@@ -77,6 +85,10 @@ import { DashboardService } from './dashboard/services/implementation/dashboard.
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    { provide: 'IReportingService', useClass: ReportingService },
+    { provide: 'IOrgMpService', useClass: OrgMpService },
+    TokenCipher,
+    { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
