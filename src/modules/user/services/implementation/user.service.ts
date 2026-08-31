@@ -8,7 +8,7 @@ import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { userFilters } from '../../controllers/const/user.filters';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { v4 as uuidv4 } from 'uuid';
-import { ILike, DataSource, In, IsNull, Raw } from 'typeorm';
+import { ILike, DataSource, In, IsNull, QueryRunner, Raw } from 'typeorm';
 import { IUserCreate, IUserList, IUserUpdate } from '../core/user';
 import { UserEntity } from '@config/db/entities/user/user.entity';
 import * as bcryptjs from 'bcryptjs';
@@ -18,6 +18,11 @@ import { AuthService } from '@modules/auth/services/implementation/auth.service'
 import { IRoleService } from '@modules/role/services/contracts/irole.service';
 import { ISystemParameterService } from '@modules/system-parameter/services/contracts/isystem-parameter.service';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
+import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import {
+  ORGANIZATION_STATUS,
+  PRODUCTOR_ROLE_UUID
+} from '@modules/organization/const/organization-fiscal.const';
 import { isProfileFile } from '@config/db/const/file-type.const';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
@@ -229,6 +234,12 @@ export class UserService implements IUserService {
 
         // Asignar el rol al usuario usando RoleService (siempre se asigna un rol, por defecto "Vendedor")
         await this.roleService.assignRoleToUser(userUuid, data.roleUuid, userUuid, queryRunner, true);
+
+        // Este es el camino que usa el backoffice para cambiar el rol desde la
+        // grilla de usuarios, asi que la productora tiene que crearse tambien aca.
+        if (data.roleUuid === PRODUCTOR_ROLE_UUID) {
+          await this.ensureProducerOrganization(userUuid, userUuid, queryRunner);
+        }
       }
 
       // imgProfile: ya no se sube nada al bucket; se omite la subida
@@ -427,6 +438,14 @@ export class UserService implements IUserService {
       // Asignar el rol al usuario usando RoleService
       await this.roleService.assignRoleToUser(userUuid, roleUuid, assignedBy, queryRunner);
 
+      // Promover a Productor tiene que dejar al usuario en condiciones de operar:
+      // sin organizacion, la pantalla de datos fiscales falla entera (no puede
+      // guardar ni subir documentacion). El registro publico de productor ya
+      // crea una; esta es la misma pieza para cuando el alta la hace un admin.
+      if (roleUuid === PRODUCTOR_ROLE_UUID) {
+        await this.ensureProducerOrganization(userUuid, assignedBy, queryRunner);
+      }
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -436,4 +455,44 @@ export class UserService implements IUserService {
     }
   }
 
+  /**
+   * Crea la productora del usuario si todavia no tiene ninguna.
+   *
+   * Es idempotente a proposito: reasignar el rol Productor a alguien que ya
+   * opera no debe crearle una segunda organizacion ni pisar la que tiene.
+   */
+  private async ensureProducerOrganization(
+    userUuid: string,
+    assignedBy: string,
+    queryRunner: QueryRunner
+  ): Promise<void> {
+    const existing = await queryRunner.manager.findOne(UserOrganizationEntity, {
+      where: { userUuid, isDeleted: IsNull() }
+    });
+    if (existing) return;
+
+    const user = await queryRunner.manager.findOne(UserEntity, { where: { uuid: userUuid } });
+    if (!user) throw new BadRequestException('User does not exist');
+
+    const org = new OrganizationEntity();
+    org.uuid = uuidv4();
+    // Mismo nombre provisorio que usa el registro publico; el productor lo
+    // cambia al completar los datos fiscales.
+    org.name = `Productora ${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    org.active = 1;
+    org.organizationStatusUuid = ORGANIZATION_STATUS.DRAFT_INCOMPLETE.uuid;
+    org.isDeleted = null;
+    org.createdBy = assignedBy;
+    org.updatedBy = assignedBy;
+    await queryRunner.manager.save(OrganizationEntity, org);
+
+    const membership = new UserOrganizationEntity();
+    membership.uuid = uuidv4();
+    membership.userUuid = userUuid;
+    membership.organizationUuid = org.uuid;
+    membership.isDeleted = null;
+    membership.createdBy = assignedBy;
+    membership.updatedBy = assignedBy;
+    await queryRunner.manager.save(UserOrganizationEntity, membership);
+  }
 }
