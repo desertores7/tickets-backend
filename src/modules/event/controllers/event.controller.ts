@@ -40,6 +40,11 @@ import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
+import {
+  BulkCreateTicketTypesRequest,
+  BulkDeleteTicketTypesRequest,
+  BulkUpdateTicketTypesRequest
+} from './requests/bulk-ticket-types.request';
 import { AssignProducerRequest } from './requests/assign-producer.request';
 import { AssignValidatorRequest } from './requests/assign-validator.request';
 import { CreateExpenseRequest, UpdateExpenseRequest } from './requests/upsert-expense.request';
@@ -405,6 +410,25 @@ export class EventController {
     });
   }
 
+  @UserAuth(null, EventMapResponse)
+  @ApiOperation({
+    summary: 'Delete map base image',
+    description: 'Removes the uploaded floor plan. Sectors already drawn are kept.'
+  })
+  @HttpCode(200)
+  @Delete(':eventUuid/map/base-image')
+  async deleteMapBaseImage(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse | null> {
+    const map = await this._eventService.removeMapBaseImage(eventUuid, loggedUser);
+    if (!map) return null;
+    return new EventMapResponse({
+      ...map,
+      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
+    });
+  }
+
   @UserAuth(SetMapBaseFromMediaRequest, EventMapResponse)
   @ApiOperation({
     summary: 'Use gallery image as map base',
@@ -736,6 +760,57 @@ export class EventController {
   async getTicketTypes(@Param('eventUuid') eventUuid: string): Promise<TicketTypeResponse[]> {
     const items = await this._eventService.getTicketTypes(eventUuid);
     return items.map(tt => new TicketTypeResponse(tt));
+  }
+
+  @UserAuth(BulkCreateTicketTypesRequest, TicketTypeResponse)
+  @ApiOperation({
+    summary: 'Create ticket types (bulk)',
+    description:
+      'Creates every ticket type of the payload in a single request and initializes their stock in Redis. ' +
+      'Preferred over the single-item endpoint: an event with 50 tandas is one request, not 50.'
+  })
+  @HttpCode(201)
+  @Post(':eventUuid/ticket-types/bulk')
+  async createTicketTypesBulk(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: BulkCreateTicketTypesRequest,
+    @User() loggedUser: string
+  ): Promise<TicketTypeResponse[]> {
+    const items = await this._eventService.createTicketTypes(eventUuid, data.items, loggedUser);
+    return items.map(tt => new TicketTypeResponse(tt));
+  }
+
+  @UserAuth(BulkUpdateTicketTypesRequest, TicketTypeResponse)
+  @ApiOperation({
+    summary: 'Update ticket types (bulk)',
+    description: 'Updates every ticket type of the payload in a single request. Each item carries the uuid it patches.'
+  })
+  @HttpCode(200)
+  @Patch(':eventUuid/ticket-types/bulk')
+  async updateTicketTypesBulk(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: BulkUpdateTicketTypesRequest,
+    @User() loggedUser: string
+  ): Promise<TicketTypeResponse[]> {
+    const items = await this._eventService.updateTicketTypes(eventUuid, data.items, loggedUser);
+    return items.map(tt => new TicketTypeResponse(tt));
+  }
+
+  @UserAuth(BulkDeleteTicketTypesRequest, null)
+  @ApiOperation({
+    summary: 'Delete ticket types (bulk)',
+    description:
+      'Deactivates every ticket type of the payload in a single request. Used when the event map is ' +
+      'regenerated and the previous map tandas have to be cleared. Fails if any of them has sales.'
+  })
+  @HttpCode(200)
+  @Post(':eventUuid/ticket-types/bulk-delete')
+  async deleteTicketTypesBulk(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: BulkDeleteTicketTypesRequest,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.deleteTicketTypes(eventUuid, data.uuids, loggedUser);
   }
 
   @UserAuth(UpdateTicketTypeRequest, TicketTypeResponse)

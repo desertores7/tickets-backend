@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull, Not } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
 import { OrderStatus } from '@config/db/entities/tickets/order.entity';
@@ -10,6 +10,8 @@ import {
   IDashboardSummary,
   IDashboardTopEvent,
   IReportingService,
+  ISaleDetail,
+  ISaleDetailItem,
   ISalesFilters,
   ISalesRow
 } from '../contracts/ireporting.service';
@@ -57,6 +59,104 @@ export class ReportingService implements IReportingService {
     return {
       meta: new PaginationMetaResponse({ limit: pagination.limit, page: pagination.page, total }),
       items: rows.map(r => this.toSalesRow(r))
+    };
+  }
+
+  /**
+   * Detalle de una venta. Mismo scope que el listado: si la orden no cae dentro
+   * de los eventos de la persona, se responde "no encontrada" en vez de
+   * "prohibida", para no confirmar que la orden existe.
+   */
+  async getSaleDetail(loggedUser: string, role: string | null, orderUuid: string): Promise<ISaleDetail> {
+    const scope = await this.resolveEventScope(loggedUser, role);
+
+    const orderQb = this.dataSource
+      .createQueryBuilder()
+      .select([
+        'o.uuid AS orderUuid',
+        'o.orderNumber AS orderNumber',
+        'o.status AS status',
+        'o.currency AS currency',
+        'o.createdAt AS purchasedAt',
+        'o.paidAt AS paidAt',
+        'o.paymentProvider AS paymentProvider',
+        'o.paymentMethod AS paymentMethod',
+        'o.paymentId AS paymentId',
+        'o.serviceFee AS serviceFee',
+        'o.total AS total',
+        'u.firstName AS buyerFirstName',
+        'u.lastName AS buyerLastName',
+        'u.email AS buyerEmail',
+        'u.phone AS buyerPhone',
+        'u.dni AS buyerDocument',
+        'e.uuid AS eventUuid',
+        'e.name AS eventName',
+        'e.startDate AS eventStartDate',
+        'e.venueName AS eventVenueName',
+        'e.venueCity AS eventVenueCity'
+      ])
+      .from('orders', 'o')
+      .innerJoin('user', 'u', 'u.uuid = o.userUuid')
+      .innerJoin('event', 'e', 'e.uuid = o.eventUuid')
+      .where('o.uuid = :orderUuid', { orderUuid })
+      .andWhere('o.status IN (:...soldStatuses)', { soldStatuses: SOLD_STATUSES });
+
+    if (scope.empty) throw new NotFoundException('Venta no encontrada');
+    if (scope.eventUuids) {
+      orderQb.andWhere('o.eventUuid IN (:...eventUuids)', { eventUuids: scope.eventUuids });
+    }
+
+    const raw = await orderQb.getRawOne();
+    if (!raw) throw new NotFoundException('Venta no encontrada');
+
+    const itemRows = await this.dataSource
+      .createQueryBuilder()
+      .select([
+        'oi.ticketTypeUuid AS ticketTypeUuid',
+        'tt.name AS ticketTypeName',
+        'oi.quantity AS quantity',
+        'oi.unitPrice AS unitPrice',
+        'oi.subtotal AS subtotal'
+      ])
+      .from('order_item', 'oi')
+      .innerJoin('ticket_type', 'tt', 'tt.uuid = oi.ticketTypeUuid')
+      .where('oi.orderUuid = :orderUuid', { orderUuid })
+      .getRawMany();
+
+    const items: ISaleDetailItem[] = itemRows.map(r => ({
+      ticketTypeUuid: String(r.ticketTypeUuid),
+      ticketTypeName: String(r.ticketTypeName),
+      quantity: Number(r.quantity),
+      unitPrice: Number(r.unitPrice),
+      subtotal: Number(r.subtotal)
+    }));
+
+    const isAdmin = role === 'Administrador';
+
+    return {
+      orderUuid: String(raw.orderUuid),
+      orderNumber: String(raw.orderNumber),
+      status: String(raw.status),
+      currency: String(raw.currency ?? 'ARS'),
+      purchasedAt: new Date(raw.purchasedAt),
+      paidAt: raw.paidAt ? new Date(raw.paidAt) : null,
+      paymentProvider: raw.paymentProvider ?? null,
+      paymentMethod: raw.paymentMethod ?? null,
+      paymentId: raw.paymentId ?? null,
+      buyerName: `${raw.buyerFirstName ?? ''} ${raw.buyerLastName ?? ''}`.trim(),
+      buyerEmail: String(raw.buyerEmail ?? ''),
+      buyerPhone: raw.buyerPhone ?? null,
+      buyerDocument: raw.buyerDocument ?? null,
+      eventUuid: String(raw.eventUuid),
+      eventName: String(raw.eventName),
+      eventStartDate: raw.eventStartDate ? new Date(raw.eventStartDate) : null,
+      eventVenueName: raw.eventVenueName ?? null,
+      eventVenueCity: raw.eventVenueCity ?? null,
+      items,
+      ticketsCount: items.reduce((sum, i) => sum + i.quantity, 0),
+      ticketsAmount: this.round(items.reduce((sum, i) => sum + i.subtotal, 0)),
+      // El costo de servicio solo se expone al Administrador (BR-REPORT-001)
+      ...(isAdmin ? { serviceFee: Number(raw.serviceFee ?? 0), total: Number(raw.total ?? 0) } : {})
     };
   }
 
