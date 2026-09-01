@@ -12,10 +12,9 @@ import OpenAI, { APIError, toFile } from 'openai';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import { HERO_FROM_FLYER_PROMPT } from '../../const/hero-from-flyer.prompt';
 import {
-  MAP_REPLICATE_SYSTEM_PROMPT,
-  MAP_REPLICATE_USER_TEXT,
-  buildMapReplicateSchemaHint
-} from '../../const/map-replicate.prompt';
+  MAP_LAYOUT_SYSTEM_PROMPT,
+  MAP_LAYOUT_USER_TEXT
+} from '../../const/map-layout.prompt';
 import {
   AnalyzeFlyersResult,
   AnalyzeMapResult,
@@ -26,11 +25,10 @@ import {
   SuggestMapSectorsResult
 } from '../contracts/ievent-ai.service';
 import {
-  buildVenueDimensions,
-  normalizeMapAnalysis
-} from './map-analysis-normalizer';
+  normalizeMapLayout,
+  summarizeMapLayout
+} from './map-layout-normalizer';
 import { parseJsonObjectLoose } from './parse-json-loose';
-import sharp from 'sharp';
 
 const MAX_FLYERS = 1;
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB c/u — menos tokens de entrada
@@ -38,8 +36,10 @@ const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/web
 
 /** Extracción: timeout corto. Hero: mucho más largo (imagen tarda). */
 const EXTRACT_TIMEOUT_MS = 90_000;
-const MAP_REPLICATE_TIMEOUT_MS = 120_000;
-const MAP_REPLICATE_MAX_TOKENS = 16_000;
+/** Una sola vision call de layout abstracto (sin geometría por elemento). */
+const MAP_LAYOUT_TIMEOUT_MS = 120_000;
+const MAP_LAYOUT_MAX_TOKENS = 8_000;
+const MAP_EMPTY_CONTENT_RETRIES = 2;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
@@ -249,7 +249,7 @@ export class EventAiService implements IEventAiService {
 
     await this.assertWithinQuota(userId);
 
-    const client = this.createClient(apiKey.trim(), MAP_REPLICATE_TIMEOUT_MS);
+    const client = this.createClient(apiKey.trim(), MAP_LAYOUT_TIMEOUT_MS);
     const result = await this.analyzeSalesMap(client, mapFile);
 
     await this.consumeQuota(userId);
@@ -275,60 +275,46 @@ export class EventAiService implements IEventAiService {
     return [file];
   }
 
+  /**
+   * Una sola llamada vision → layout abstracto (stage + categories + groups).
+   * Sin coordenadas; el frontend genera la geometría.
+   */
   private async analyzeSalesMap(
     client: OpenAI,
     mapFile: Express.Multer.File
   ): Promise<AnalyzeMapResult> {
     const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
-    const venue = await this.resolveVenueDimensions(mapFile);
-    const userContent: ChatCompletionContentPart[] = [
-      {
-        type: 'text',
-        text: `${MAP_REPLICATE_USER_TEXT}\n\n${buildMapReplicateSchemaHint()}`
-      },
-      ...this.flyerDataUrlParts([mapFile])
-    ];
+    const t0 = Date.now();
 
     try {
-      const response = await this.withTransientRetry('map-replicate', () =>
-        client.chat.completions.create({
-          model,
-          max_tokens: MAP_REPLICATE_MAX_TOKENS,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: MAP_REPLICATE_SYSTEM_PROMPT },
-            { role: 'user', content: userContent }
-          ]
-        })
+      const parsed = await this.mapVisionJson({
+        label: 'map-layout',
+        client,
+        model,
+        maxTokens: MAP_LAYOUT_MAX_TOKENS,
+        system: MAP_LAYOUT_SYSTEM_PROMPT,
+        userText: MAP_LAYOUT_USER_TEXT,
+        images: this.flyerDataUrlParts([mapFile], 'high')
+      });
+
+      const result = normalizeMapLayout(parsed);
+      const summary = summarizeMapLayout(result);
+
+      if (!result.layout.groups.length) {
+        throw new BadRequestException(
+          'No se detectó estructura de mapa. Probá con una imagen más nítida del plano.'
+        );
+      }
+
+      this.logger.log(
+        `[MAP] Layout: ${Date.now() - t0} ms — groups=${summary.groups}, labels=${summary.labels}, ` +
+          `tables=${summary.tables}, boxes=${summary.boxes}, palcos=${summary.palcos}, zones=${summary.zones}, ` +
+          `freeform=${summary.freeform}, geometryFallback=${summary.requiresGeometryFallback}`
       );
-
-      const raw = response.choices[0]?.message?.content?.trim();
-      const finishReason = response.choices[0]?.finish_reason;
-      if (!raw) {
-        throw new ServiceUnavailableException('OpenAI no devolvió datos del mapa.');
-      }
-
-      if (finishReason === 'length') {
-        this.logger.warn(
-          'OpenAI map analysis hit max_tokens (finish_reason=length); attempting truncated JSON repair'
-        );
-      }
-
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = parseJsonObjectLoose(raw);
-      } catch (parseErr) {
-        this.logger.error(
-          `OpenAI map JSON parse failed (finish_reason=${finishReason ?? 'unknown'}, chars=${raw.length})`,
-          parseErr instanceof Error ? parseErr.message : parseErr
-        );
-        throw new ServiceUnavailableException(
-          'OpenAI devolvió un JSON incompleto del mapa. Reintentá el análisis.'
-        );
-      }
-
-      return normalizeMapAnalysis(parsed, venue);
+      this.logger.log(`[MAP] Total: ${Date.now() - t0} ms`);
+      return result;
     } catch (err) {
+      this.logger.warn(`[MAP] Total (failed): ${Date.now() - t0} ms`);
       if (
         err instanceof BadRequestException ||
         err instanceof ServiceUnavailableException ||
@@ -343,18 +329,84 @@ export class EventAiService implements IEventAiService {
     }
   }
 
-  private async resolveVenueDimensions(
-    mapFile: Express.Multer.File
-  ): Promise<{ width: number; height: number }> {
-    try {
-      const meta = await sharp(mapFile.buffer).metadata();
-      return buildVenueDimensions(meta.width, meta.height);
-    } catch {
-      return buildVenueDimensions();
+  private async mapVisionJson(params: {
+    label: string;
+    client: OpenAI;
+    model: string;
+    maxTokens: number;
+    system: string;
+    userText: string;
+    images: ChatCompletionContentPart[];
+  }): Promise<Record<string, unknown>> {
+    let lastEmptyDetail = '';
+
+    for (let emptyAttempt = 1; emptyAttempt <= MAP_EMPTY_CONTENT_RETRIES; emptyAttempt++) {
+      const response = await this.withTransientRetry(params.label, () =>
+        params.client.chat.completions.create({
+          model: params.model,
+          max_tokens: params.maxTokens,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: params.system },
+            {
+              role: 'user',
+              content: [{ type: 'text', text: params.userText }, ...params.images]
+            }
+          ]
+        })
+      );
+
+      const message = response.choices[0]?.message;
+      const raw = message?.content?.trim();
+      const finishReason = response.choices[0]?.finish_reason;
+      const refusal =
+        message && typeof message === 'object' && 'refusal' in message
+          ? String((message as { refusal?: unknown }).refusal ?? '')
+          : '';
+
+      if (!raw) {
+        lastEmptyDetail = `finish_reason=${finishReason ?? 'unknown'}${
+          refusal ? ` refusal=${refusal.slice(0, 200)}` : ''
+        }`;
+        this.logger.warn(
+          `${params.label}: empty content (${lastEmptyDetail}), attempt ${emptyAttempt}/${MAP_EMPTY_CONTENT_RETRIES}`
+        );
+        if (emptyAttempt < MAP_EMPTY_CONTENT_RETRIES) {
+          await this.sleep(TRANSIENT_BASE_DELAY_MS * emptyAttempt);
+          continue;
+        }
+        throw new ServiceUnavailableException(
+          `OpenAI no devolvió datos del mapa (${params.label}).`
+        );
+      }
+
+      if (finishReason === 'length') {
+        this.logger.warn(
+          `${params.label}: hit max_tokens (finish_reason=length); attempting truncated JSON repair`
+        );
+      }
+
+      try {
+        return parseJsonObjectLoose(raw);
+      } catch (parseErr) {
+        this.logger.error(
+          `${params.label} JSON parse failed (finish_reason=${finishReason ?? 'unknown'}, chars=${raw.length})`,
+          parseErr instanceof Error ? parseErr.message : parseErr
+        );
+        throw new ServiceUnavailableException(
+          'OpenAI devolvió un JSON incompleto del mapa. Reintentá el análisis.'
+        );
+      }
     }
+
+    throw new ServiceUnavailableException(
+      `OpenAI no devolvió datos del mapa (${params.label}${
+        lastEmptyDetail ? `: ${lastEmptyDetail}` : ''
+      }).`
+    );
   }
 
-  private createClient(apiKey: string, timeoutMs: number): OpenAI {
+    private createClient(apiKey: string, timeoutMs: number): OpenAI {
     return new OpenAI({
       apiKey,
       timeout: timeoutMs,
@@ -413,13 +465,17 @@ export class EventAiService implements IEventAiService {
     return m === 'image/jpg' ? 'image/jpeg' : m;
   }
 
-  private flyerDataUrlParts(flyers: Express.Multer.File[]): ChatCompletionContentPart[] {
+  private flyerDataUrlParts(
+    flyers: Express.Multer.File[],
+    detail?: 'low' | 'high'
+  ): ChatCompletionContentPart[] {
     return flyers.map(file => {
       const mime = this.normalizeMime(file.mimetype);
       return {
         type: 'image_url' as const,
         image_url: {
-          url: `data:${mime};base64,${file.buffer.toString('base64')}`
+          url: `data:${mime};base64,${file.buffer.toString('base64')}`,
+          ...(detail ? { detail } : {})
         }
       };
     });

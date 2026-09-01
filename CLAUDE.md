@@ -85,6 +85,7 @@ modules/<nombre>/
 - **Tabla `event_fee_summary`**: resumen materializado de fees por evento, actualizado con `INSERT ... ON DUPLICATE KEY UPDATE` (atómico, a prueba de pagos concurrentes). Consultable en `GET /api/v1/events/:eventId/fee-summary` (solo organizador dueño o admin)
 - **QR firmado**: HMAC-SHA256 con `QR_SECRET`, formato `base64url(payload).base64url(signature)`. Nunca IDs secuenciales.
 - **Storage local**: los QR y PDFs viven en el volumen Docker, servidos via `/static/` con ServeStaticModule. La interfaz de `StorageService` (`saveFile`, `deleteFile`, `fileExists`) se mantiene para poder migrar a S3 después sin tocar el resto.
+- **Ventana de venta por tanda**: cada `ticket_type` tiene su propia `saleStartDate` y `saleEndDate` (opcionales). El flujo de compra (`order.service.ts`) valida que la tanda esté dentro de su ventana antes de reservar stock. El response DTO incluye un campo `status` calculado (`upcoming` | `available` | `sold_out` | `expired`). Si ambas fechas son `null`, la tanda hereda la ventana del evento. No requirió migración (columnas preexistentes).
 - **Reembolsos (pendiente de implementar)**: la política distinguirá motivo — cancelación de evento (reembolso íntegro recomendado) vs arrepentimiento fuera de plazo legal (se retiene el service fee). Referencia: prácticas de Passline y All Access investigadas.
 
 ## Estado de los módulos
