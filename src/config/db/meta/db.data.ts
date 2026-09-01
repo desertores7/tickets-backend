@@ -30,6 +30,7 @@ import { EventExpenseEntityData } from '../entities/tickets/event_expense.entity
 import { OrgMpAccountEntityData } from '../entities/tickets/org_mp_account.entity';
 import { OrgManualItemEntityData } from '../entities/tickets/org_manual_item.entity';
 import { MpCatalogItemEntityData } from '../entities/tickets/mp_catalog_item.entity';
+import { PayoutEntityData } from '../entities/tickets/payout.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
@@ -67,6 +68,7 @@ export const entitiesData = [
   OrgMpAccountEntityData,
   OrgManualItemEntityData,
   MpCatalogItemEntityData,
+  PayoutEntityData,
   UserEventCashierEntityData,
   OrganizationProducerInviteEntityData
 ] as const;

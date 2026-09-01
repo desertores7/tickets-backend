@@ -379,6 +379,11 @@ export const entityRelations = {
     creator: 'user'
   },
 
+  payout: {
+    organization: 'organization',
+    event: 'event'
+  },
+
   org_manual_item: {
     organization: 'organization'
   },
