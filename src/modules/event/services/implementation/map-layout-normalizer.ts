@@ -299,11 +299,20 @@ function normalizeCategories(raw: unknown): AiEventMapCategory[] {
       includedAdmissions: parseNullableInt(
         c.includedAdmissions ?? c.includedTickets ?? c.admissions
       ),
+      color: parseHexColor(c.color ?? c.hexColor ?? c.fillColor),
       confidence: round3(clamp01(Number(c.confidence ?? 0.7)))
     });
   }
 
   return categories;
+}
+
+/** Acepta "#rrggbb" o "rrggbb"; cualquier otra cosa se descarta. */
+function parseHexColor(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return null;
+  return `#${value.toLowerCase()}`;
 }
 
 function resolveCategoryId(
@@ -729,6 +738,7 @@ function ensureCategoriesForAssignments(
         selectionUnit: defaultSelectionForType(g.elementType, saleMode),
         detectedCapacity: null,
         includedAdmissions: null,
+        color: null,
         confidence: 0.55
       });
       a.category = id;

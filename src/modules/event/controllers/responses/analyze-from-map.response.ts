@@ -109,6 +109,13 @@ export class AiEventMapCategoryResponse implements AiEventMapCategory {
   })
   includedAdmissions: number | null;
 
+  @ApiProperty({
+    nullable: true,
+    example: '#f5b301',
+    description: 'Color con que el flyer pinta la categoría; null si no se distingue'
+  })
+  color: string | null;
+
   @ApiProperty({ description: '0–1' })
   confidence: number;
 }
