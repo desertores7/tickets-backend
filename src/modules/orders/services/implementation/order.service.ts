@@ -133,6 +133,18 @@ export class OrderService implements IOrderService {
         );
       }
 
+      // Validar ventana de venta de la tanda (saleStartDate / saleEndDate)
+      if (ticketType.saleStartDate && now < new Date(ticketType.saleStartDate)) {
+        throw new UnprocessableEntityException(
+          `La tanda "${ticketType.name}" aún no está en venta`
+        );
+      }
+      if (ticketType.saleEndDate && now > new Date(ticketType.saleEndDate)) {
+        throw new UnprocessableEntityException(
+          `La tanda "${ticketType.name}" ya cerró su período de venta`
+        );
+      }
+
       if (item.quantity < ticketType.minPerOrder) {
         throw new UnprocessableEntityException(
           `La cantidad mínima por orden para "${ticketType.name}" es ${ticketType.minPerOrder}`

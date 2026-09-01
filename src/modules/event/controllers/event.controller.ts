@@ -130,8 +130,9 @@ export class EventController {
   @ApiOperation({
     summary: 'Analyze sales map from image (OpenAI vision)',
     description:
-      'Accepts 1 sales map image (multipart field `mapImage`). Returns normalized venue layout ' +
-      'with categories, sellable elements, and optional stage — coords 0–1, no colors/styles. ' +
+      'Accepts 1 sales map image (multipart field `mapImage`). Returns an abstract venue layout: ' +
+      'stage (semantic position), commercial categories, and structural groups (column/row/grid/zone) ' +
+      'with every visible label. No per-element x/y geometry — the frontend renders SVG. ' +
       'Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
   })
   @ApiConsumes('multipart/form-data')
