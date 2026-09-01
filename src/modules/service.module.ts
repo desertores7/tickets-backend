@@ -31,6 +31,8 @@ import { DashboardService } from './dashboard/services/implementation/dashboard.
 import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
 import { OrgCatalogService } from './org-catalog/services/implementation/org-catalog.service';
 import { PayoutService } from './payouts/services/implementation/payout.service';
+import { StockAlertService } from './stock-alerts/services/implementation/stock-alert.service';
+import { CouponService } from './coupons/services/implementation/coupon.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
@@ -61,6 +63,8 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
     { provide: 'IPayoutService', useClass: PayoutService },
+    { provide: 'IStockAlertService', useClass: StockAlertService },
+    { provide: 'ICouponService', useClass: CouponService },
     TokenCipher,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
@@ -93,6 +97,8 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
     { provide: 'IPayoutService', useClass: PayoutService },
+    { provide: 'IStockAlertService', useClass: StockAlertService },
+    { provide: 'ICouponService', useClass: CouponService },
     TokenCipher,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },

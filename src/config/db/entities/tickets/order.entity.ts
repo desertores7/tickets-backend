@@ -51,6 +51,14 @@ export class OrderEntity {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 
+  /** Cupon aplicado, si hubo (BR-COUPON-008). */
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  couponUuid: string | null;
+
+  /** Monto descontado por el cupon. Se persiste para no recalcularlo. */
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  discountAmount: number;
+
   @Column({ type: 'varchar', length: 3, default: 'ARS' })
   currency: string;
 

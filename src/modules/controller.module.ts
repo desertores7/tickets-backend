@@ -24,6 +24,8 @@ import {
   AdminPayoutController,
   ProducerPayoutController
 } from './payouts/controllers/payout.controller';
+import { StockAlertController } from './stock-alerts/controllers/stock-alert.controller';
+import { CouponController } from './coupons/controllers/coupon.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -42,6 +44,8 @@ import {
     OrgCatalogController,
     ProducerPayoutController,
     AdminPayoutController,
+    StockAlertController,
+    CouponController,
     OrderController,
     PaymentController,
     CheckInController,

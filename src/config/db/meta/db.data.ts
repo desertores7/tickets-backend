@@ -31,6 +31,14 @@ import { OrgMpAccountEntityData } from '../entities/tickets/org_mp_account.entit
 import { OrgManualItemEntityData } from '../entities/tickets/org_manual_item.entity';
 import { MpCatalogItemEntityData } from '../entities/tickets/mp_catalog_item.entity';
 import { PayoutEntityData } from '../entities/tickets/payout.entity';
+import { StockAlertEntityData } from '../entities/tickets/stock_alert.entity';
+import { CouponEntityData } from '../entities/tickets/coupon.entity';
+import { CouponRedemptionEntityData } from '../entities/tickets/coupon_redemption.entity';
+import { CouponTicketTypeEntityData } from '../entities/tickets/coupon_ticket_type.entity';
+import { EventMpAccountEntityData } from '../entities/tickets/event_mp_account.entity';
+import { EventIncomeEntityData } from '../entities/tickets/event_income.entity';
+import { EventIncomeProductEntityData } from '../entities/tickets/event_income_product.entity';
+import { MpMovementEntityData } from '../entities/tickets/mp_movement.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
@@ -69,6 +77,14 @@ export const entitiesData = [
   OrgManualItemEntityData,
   MpCatalogItemEntityData,
   PayoutEntityData,
+  StockAlertEntityData,
+  CouponEntityData,
+  CouponRedemptionEntityData,
+  CouponTicketTypeEntityData,
+  EventMpAccountEntityData,
+  EventIncomeEntityData,
+  EventIncomeProductEntityData,
+  MpMovementEntityData,
   UserEventCashierEntityData,
   OrganizationProducerInviteEntityData
 ] as const;
