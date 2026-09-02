@@ -61,21 +61,6 @@ export class OrganizationEntity {
   @Column({ type: 'varchar', length: 100, nullable: true, default: null })
   bankAlias: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true, default: null })
-  pendingBankName: string | null;
-
-  @Column({ type: 'varchar', length: 22, nullable: true, default: null })
-  pendingCbu: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true, default: null })
-  pendingBankAlias: string | null;
-
-  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
-  bankChangeRequestedAt: Date | null;
-
-  @Column({ type: 'text', nullable: true, default: null })
-  bankChangeRejectionReason: string | null;
-
   @Column({ type: 'varchar', length: 255, nullable: true, default: null })
   contactEmail: string | null;
 

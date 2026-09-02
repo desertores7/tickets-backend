@@ -18,10 +18,12 @@ import {
   IUnassignUserOrganization
 } from '../core/organization';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { OrganizationRequestEntity } from '@config/db/entities/user/organization_request.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
+import type { OrgRequestView } from '../../controllers/dtos/organization-me/organization-me.response';
 import {
   ORGANIZATION_FISCAL_DOC_MAX_FILES,
   ORGANIZATION_FISCAL_MIN_DOCS,
@@ -34,7 +36,15 @@ import {
   type OrganizationFiscalDocumentKind,
   type OrganizationValidationStatus
 } from '@modules/organization/const/organization-fiscal.const';
+import {
+  isBankChangePayload,
+  isFiscalChangePayload,
+  type OrganizationRequestPayload,
+  type OrganizationRequestStatus,
+  type OrganizationRequestType
+} from '@modules/organization/const/organization-request.const';
 import { RequestBankChangeRequest } from '../../controllers/dtos/organization-me/request-bank-change.request';
+import { RequestFiscalChangeRequest } from '../../controllers/dtos/organization-me/request-fiscal-change.request';
 import {
   ORGANIZATION_FISCAL_FILE_TYPE_UUID_BY_KIND,
   ORGANIZATION_FISCAL_FILE_TYPE_UUIDS,
@@ -91,10 +101,39 @@ export class OrganizationService implements IOrganizationService {
       }
     }
 
+    let mustIncludeUuids: string[] | null = null;
+    const mustExcludeUuids = new Set<string>();
+
     if (filters?.bankChangePending?.includes('true')) {
-      baseWhere.bankChangeRequestedAt = Not(IsNull());
+      const pending = await this.listPendingRequestOrgUuids('bank_change');
+      mustIncludeUuids = pending;
     } else if (filters?.bankChangePending?.includes('false')) {
-      baseWhere.bankChangeRequestedAt = IsNull();
+      for (const uuid of await this.listPendingRequestOrgUuids('bank_change')) {
+        mustExcludeUuids.add(uuid);
+      }
+    }
+
+    if (filters?.fiscalChangePending?.includes('true')) {
+      const pending = await this.listPendingRequestOrgUuids('fiscal_change');
+      mustIncludeUuids =
+        mustIncludeUuids === null
+          ? pending
+          : mustIncludeUuids.filter(uuid => pending.includes(uuid));
+    } else if (filters?.fiscalChangePending?.includes('false')) {
+      for (const uuid of await this.listPendingRequestOrgUuids('fiscal_change')) {
+        mustExcludeUuids.add(uuid);
+      }
+    }
+
+    if (mustIncludeUuids !== null && mustIncludeUuids.length === 0) {
+      return {
+        meta: new PaginationMetaResponse({
+          limit: pagination.limit,
+          page: pagination.page,
+          total: 0
+        }),
+        items: []
+      };
     }
 
     let filteredOrganizationUuids: string[] | null = null;
@@ -122,6 +161,34 @@ export class OrganizationService implements IOrganizationService {
       }
     }
 
+    if (mustIncludeUuids !== null) {
+      filteredOrganizationUuids =
+        filteredOrganizationUuids === null
+          ? mustIncludeUuids
+          : filteredOrganizationUuids.filter(uuid => mustIncludeUuids!.includes(uuid));
+    }
+
+    if (mustExcludeUuids.size > 0) {
+      if (filteredOrganizationUuids !== null) {
+        filteredOrganizationUuids = filteredOrganizationUuids.filter(
+          uuid => !mustExcludeUuids.has(uuid)
+        );
+      } else {
+        baseWhere.uuid = Not(In([...mustExcludeUuids]));
+      }
+    }
+
+    if (filteredOrganizationUuids !== null && filteredOrganizationUuids.length === 0) {
+      return {
+        meta: new PaginationMetaResponse({
+          limit: pagination.limit,
+          page: pagination.page,
+          total: 0
+        }),
+        items: []
+      };
+    }
+
     const searchWhere = searchTerm
       ? [
           { ...baseWhere, name: ILike(`%${searchTerm}%`) },
@@ -134,16 +201,16 @@ export class OrganizationService implements IOrganizationService {
     if (filteredOrganizationUuids) {
       if (searchTerm) {
         finalWhere = [
-          { uuid: In(filteredOrganizationUuids), ...baseWhere, name: ILike(`%${searchTerm}%`) },
+          { ...baseWhere, uuid: In(filteredOrganizationUuids), name: ILike(`%${searchTerm}%`) },
           {
-            uuid: In(filteredOrganizationUuids),
             ...baseWhere,
+            uuid: In(filteredOrganizationUuids),
             legalName: ILike(`%${searchTerm}%`)
           },
-          { uuid: In(filteredOrganizationUuids), ...baseWhere, taxId: ILike(`%${searchTerm}%`) }
+          { ...baseWhere, uuid: In(filteredOrganizationUuids), taxId: ILike(`%${searchTerm}%`) }
         ];
       } else {
-        finalWhere = { uuid: In(filteredOrganizationUuids), ...baseWhere };
+        finalWhere = { ...baseWhere, uuid: In(filteredOrganizationUuids) };
       }
     }
 
@@ -440,8 +507,168 @@ export class OrganizationService implements IOrganizationService {
     return membership.organization as OrganizationEntity;
   }
 
+  private async findPendingRequest(
+    organizationUuid: string,
+    type: OrganizationRequestType
+  ): Promise<OrganizationRequestEntity | null> {
+    const request = await this.dbRepository.findOne({
+      entity: 'organization_request',
+      where: {
+        organizationUuid,
+        type,
+        status: 'pending',
+        isDeleted: IsNull()
+      },
+      other: { order: { createdAt: 'DESC' } }
+    });
+    return (request as OrganizationRequestEntity | null) ?? null;
+  }
+
+  private async findLatestRejectedRequest(
+    organizationUuid: string,
+    type: OrganizationRequestType
+  ): Promise<OrganizationRequestEntity | null> {
+    const request = await this.dbRepository.findOne({
+      entity: 'organization_request',
+      where: {
+        organizationUuid,
+        type,
+        status: 'rejected',
+        isDeleted: IsNull()
+      },
+      other: { order: { resolvedAt: 'DESC', createdAt: 'DESC' } }
+    });
+    return (request as OrganizationRequestEntity | null) ?? null;
+  }
+
+  private async createPendingRequest(
+    organizationUuid: string,
+    type: OrganizationRequestType,
+    payload: OrganizationRequestPayload,
+    userUuid: string
+  ): Promise<OrganizationRequestEntity> {
+    const entity = new OrganizationRequestEntity();
+    entity.uuid = uuidv4();
+    entity.organizationUuid = organizationUuid;
+    entity.type = type;
+    entity.status = 'pending';
+    entity.payload = payload;
+    entity.rejectionReason = null;
+    entity.resolvedAt = null;
+    entity.resolvedByUuid = null;
+    entity.isDeleted = null;
+    entity.createdBy = userUuid;
+    entity.updatedBy = userUuid;
+    entity.createdAt = new Date();
+    entity.updatedAt = new Date();
+
+    await this.dbRepository.create({
+      entity: 'organization_request',
+      data: entity
+    });
+
+    return entity;
+  }
+
+  private async resolvePendingRequest(
+    request: OrganizationRequestEntity,
+    status: Extract<OrganizationRequestStatus, 'approved' | 'rejected'>,
+    adminUuid: string,
+    rejectionReason?: string
+  ): Promise<void> {
+    await this.dbRepository.update({
+      entity: 'organization_request',
+      where: { uuid: request.uuid },
+      data: {
+        status,
+        rejectionReason: status === 'rejected' ? (rejectionReason ?? null) : null,
+        resolvedAt: new Date(),
+        resolvedByUuid: adminUuid,
+        updatedBy: adminUuid
+      }
+    });
+  }
+
+  private async listPendingRequestOrgUuids(type: OrganizationRequestType): Promise<string[]> {
+    const rows = await this.dbRepository.findMany({
+      entity: 'organization_request',
+      where: {
+        type,
+        status: 'pending',
+        isDeleted: IsNull()
+      },
+      select: { organizationUuid: true } as any
+    });
+    return [...new Set((rows as Array<{ organizationUuid: string }>).map(r => r.organizationUuid))];
+  }
+
+  private async loadPendingRequestsForOrgs(
+    orgUuids: string[]
+  ): Promise<Map<string, { bank?: OrganizationRequestEntity; fiscal?: OrganizationRequestEntity }>> {
+    const map = new Map<
+      string,
+      { bank?: OrganizationRequestEntity; fiscal?: OrganizationRequestEntity }
+    >();
+    if (!orgUuids.length) return map;
+
+    const rows = (await this.dbRepository.findMany({
+      entity: 'organization_request',
+      where: {
+        organizationUuid: In(orgUuids),
+        status: 'pending',
+        isDeleted: IsNull()
+      },
+      other: { order: { createdAt: 'DESC' } }
+    })) as OrganizationRequestEntity[];
+
+    for (const row of rows) {
+      const entry = map.get(row.organizationUuid) ?? {};
+      if (row.type === 'bank_change' && !entry.bank) entry.bank = row;
+      if (row.type === 'fiscal_change' && !entry.fiscal) entry.fiscal = row;
+      map.set(row.organizationUuid, entry);
+    }
+
+    return map;
+  }
+
+  private async enrichOrgWithRequests(organizationUuid: string): Promise<OrgRequestView> {
+    const [pendingBank, pendingFiscal, lastRejectedBank, lastRejectedFiscal] = await Promise.all([
+      this.findPendingRequest(organizationUuid, 'bank_change'),
+      this.findPendingRequest(organizationUuid, 'fiscal_change'),
+      this.findLatestRejectedRequest(organizationUuid, 'bank_change'),
+      this.findLatestRejectedRequest(organizationUuid, 'fiscal_change')
+    ]);
+
+    return {
+      pendingBank,
+      pendingFiscal,
+      lastRejectedBank,
+      lastRejectedFiscal
+    };
+  }
+
   async getMyOrganization(userUuid: string): Promise<OrganizationEntity> {
     return this.resolveMembershipOrganization(userUuid);
+  }
+
+  async getOrgRequestView(organizationUuid: string): Promise<OrgRequestView> {
+    return this.enrichOrgWithRequests(organizationUuid);
+  }
+
+  async getOrgRequestViews(organizationUuids: string[]): Promise<Map<string, OrgRequestView>> {
+    const unique = [...new Set(organizationUuids.filter(Boolean))];
+    const map = new Map<string, OrgRequestView>();
+    if (!unique.length) return map;
+
+    const pendingByOrg = await this.loadPendingRequestsForOrgs(unique);
+    for (const orgUuid of unique) {
+      const pending = pendingByOrg.get(orgUuid);
+      map.set(orgUuid, {
+        pendingBank: pending?.bank ?? null,
+        pendingFiscal: pending?.fiscal ?? null
+      });
+    }
+    return map;
   }
 
   async updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity> {
@@ -478,7 +705,7 @@ export class OrganizationService implements IOrganizationService {
 
     if (status === 'approved' && touchesIdentity) {
       throw new BadRequestException(
-        'Los datos fiscales quedaron bloqueados tras la validación. Si necesitás un cambio excepcional, contactá soporte.'
+        'Para cambiar datos fiscales usá “Solicitar cambio de información fiscal”.'
       );
     }
 
@@ -559,7 +786,8 @@ export class OrganizationService implements IOrganizationService {
       );
     }
 
-    if (org.bankChangeRequestedAt) {
+    const existingPending = await this.findPendingRequest(org.uuid, 'bank_change');
+    if (existingPending) {
       throw new BadRequestException(
         'Ya hay un cambio de cuenta en revisión. Esperá la resolución del administrador.'
       );
@@ -587,18 +815,12 @@ export class OrganizationService implements IOrganizationService {
       throw new BadRequestException('Los datos bancarios son iguales a los actuales');
     }
 
-    await this.dbRepository.update({
-      entity: 'organization',
-      where: { uuid: org.uuid },
-      data: {
-        pendingBankName: bankName,
-        pendingCbu: cbu,
-        pendingBankAlias: bankAlias,
-        bankChangeRequestedAt: new Date(),
-        bankChangeRejectionReason: null,
-        updatedBy: userUuid
-      }
-    });
+    await this.createPendingRequest(
+      org.uuid,
+      'bank_change',
+      { bankName, cbu, bankAlias },
+      userUuid
+    );
 
     const updated = await this.resolveMembershipOrganization(userUuid);
     this.notifyOwnerBankChangeSubmitted(updated, userUuid).catch(err => {
@@ -618,25 +840,26 @@ export class OrganizationService implements IOrganizationService {
       relations: { organizationStatus: true }
     });
     if (!org) throw new NotFoundException('Organización no encontrada');
-    if (!org.bankChangeRequestedAt || !org.pendingCbu) {
+
+    const pending = await this.findPendingRequest(org.uuid, 'bank_change');
+    if (!pending || !isBankChangePayload(pending.type, pending.payload)) {
       throw new BadRequestException('No hay un cambio de cuenta pendiente');
     }
+
+    const { bankName, cbu, bankAlias } = pending.payload;
 
     await this.dbRepository.update({
       entity: 'organization',
       where: { uuid: org.uuid },
       data: {
-        bankName: org.pendingBankName,
-        cbu: org.pendingCbu,
-        bankAlias: org.pendingBankAlias,
-        pendingBankName: null,
-        pendingCbu: null,
-        pendingBankAlias: null,
-        bankChangeRequestedAt: null,
-        bankChangeRejectionReason: null,
+        bankName,
+        cbu,
+        bankAlias,
         updatedBy: adminUuid
       }
     });
+
+    await this.resolvePendingRequest(pending, 'approved', adminUuid);
 
     const updated = await this.dbRepository.findOne({
       entity: 'organization',
@@ -663,7 +886,9 @@ export class OrganizationService implements IOrganizationService {
       relations: { organizationStatus: true }
     });
     if (!org) throw new NotFoundException('Organización no encontrada');
-    if (!org.bankChangeRequestedAt) {
+
+    const pending = await this.findPendingRequest(org.uuid, 'bank_change');
+    if (!pending) {
       throw new BadRequestException('No hay un cambio de cuenta pendiente');
     }
 
@@ -672,18 +897,7 @@ export class OrganizationService implements IOrganizationService {
       throw new BadRequestException('Indicá un motivo de rechazo');
     }
 
-    await this.dbRepository.update({
-      entity: 'organization',
-      where: { uuid: org.uuid },
-      data: {
-        pendingBankName: null,
-        pendingCbu: null,
-        pendingBankAlias: null,
-        bankChangeRequestedAt: null,
-        bankChangeRejectionReason: trimmedReason,
-        updatedBy: adminUuid
-      }
-    });
+    await this.resolvePendingRequest(pending, 'rejected', adminUuid, trimmedReason);
 
     const updated = await this.dbRepository.findOne({
       entity: 'organization',
@@ -750,6 +964,210 @@ export class OrganizationService implements IOrganizationService {
     });
 
     return updated;
+  }
+
+  async requestFiscalIdentityChange(
+    userUuid: string,
+    data: RequestFiscalChangeRequest,
+    files: Express.Multer.File[] = []
+  ): Promise<OrganizationEntity> {
+    const org = await this.resolveMembershipOrganization(userUuid);
+    const status = organizationStatusName(org);
+
+    if (status !== 'approved') {
+      throw new BadRequestException(
+        'Solo productoras aprobadas pueden solicitar un cambio de información fiscal.'
+      );
+    }
+
+    const existingPending = await this.findPendingRequest(org.uuid, 'fiscal_change');
+    if (existingPending) {
+      throw new BadRequestException(
+        'Ya hay un cambio de información fiscal en revisión. Esperá la resolución del administrador.'
+      );
+    }
+
+    const name = data.name.trim();
+    const legalName = data.legalName.trim();
+    const contactEmail = data.contactEmail.trim();
+    const taxCondition = data.taxCondition;
+    const normalizedTaxId = data.taxId.replace(/\D/g, '');
+
+    if (name.length < 2) {
+      throw new BadRequestException('Indicá el nombre comercial');
+    }
+    if (legalName.length < 2) {
+      throw new BadRequestException('Indicá la razón social');
+    }
+    if (normalizedTaxId.length < 10 || normalizedTaxId.length > 11) {
+      throw new BadRequestException('CUIT/CUIL inválido');
+    }
+    if (!contactEmail) {
+      throw new BadRequestException('Indicá el email de contacto');
+    }
+
+    const duplicate = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { taxId: normalizedTaxId, isDeleted: IsNull(), uuid: Not(org.uuid) }
+    });
+    if (duplicate) {
+      throw new BadRequestException('Ya existe una productora con ese CUIT/CUIL');
+    }
+
+    const deleteUuids = [...new Set(data.deleteDocumentUuids ?? [])];
+    const existingDocs = await this.listActiveFiscalDocuments(org.uuid);
+    const existingByUuid = new Map(existingDocs.map(doc => [doc.uuid, doc]));
+
+    for (const documentUuid of deleteUuids) {
+      if (!existingByUuid.has(documentUuid)) {
+        throw new BadRequestException('Uno de los documentos a eliminar no existe');
+      }
+    }
+
+    const remainingAfterDelete = existingDocs.length - deleteUuids.length;
+    if (remainingAfterDelete + files.length > ORGANIZATION_FISCAL_DOC_MAX_FILES) {
+      throw new BadRequestException(`Máximo ${ORGANIZATION_FISCAL_DOC_MAX_FILES} archivos por productora`);
+    }
+    if (remainingAfterDelete + files.length < ORGANIZATION_FISCAL_MIN_DOCS) {
+      throw new BadRequestException('Dejá al menos un documento de respaldo');
+    }
+
+    const identityChanged =
+      (org.name ?? '').trim() !== name ||
+      (org.legalName ?? '').trim() !== legalName ||
+      (org.taxId ?? '') !== normalizedTaxId ||
+      (org.taxCondition ?? null) !== taxCondition ||
+      (org.contactEmail ?? '').trim().toLowerCase() !== contactEmail.toLowerCase();
+
+    const docsChanged = deleteUuids.length > 0 || files.length > 0;
+    if (!identityChanged && !docsChanged) {
+      throw new BadRequestException('No hay cambios para enviar');
+    }
+
+    for (const documentUuid of deleteUuids) {
+      await this.deleteFiscalDocumentInternal(org.uuid, documentUuid, userUuid);
+    }
+
+    let docsAfterDelete = await this.listActiveFiscalDocuments(org.uuid);
+    for (const file of files) {
+      const created = await this.createFiscalDocumentInternal(org, userUuid, file, docsAfterDelete);
+      docsAfterDelete = [...docsAfterDelete, created];
+    }
+
+    await this.createPendingRequest(
+      org.uuid,
+      'fiscal_change',
+      {
+        name,
+        legalName,
+        taxId: normalizedTaxId,
+        taxCondition,
+        contactEmail
+      },
+      userUuid
+    );
+
+    const updated = await this.resolveMembershipOrganization(userUuid);
+    this.notifyOwnerFiscalChangeSubmitted(updated, userUuid).catch(err => {
+      this.logger.error(`Failed to notify fiscal change submitted for ${org.uuid}`, err?.stack);
+    });
+
+    return updated;
+  }
+
+  async approveFiscalIdentityChange(
+    organizationUuid: string,
+    adminUuid: string
+  ): Promise<OrganizationEntity> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() },
+      relations: { organizationStatus: true }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+
+    const pending = await this.findPendingRequest(org.uuid, 'fiscal_change');
+    if (!pending || !isFiscalChangePayload(pending.type, pending.payload)) {
+      throw new BadRequestException('No hay un cambio de información fiscal pendiente');
+    }
+
+    const { name, legalName, taxId, taxCondition, contactEmail } = pending.payload;
+    if (!legalName || !taxId) {
+      throw new BadRequestException('No hay un cambio de información fiscal pendiente');
+    }
+
+    await this.dbRepository.update({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      data: {
+        name: name || org.name,
+        legalName,
+        taxId,
+        taxCondition,
+        contactEmail,
+        updatedBy: adminUuid
+      }
+    });
+
+    await this.resolvePendingRequest(pending, 'approved', adminUuid);
+
+    const updated = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      relations: { organizationStatus: true }
+    });
+    if (!updated) throw new NotFoundException('Organización no encontrada');
+
+    this.notifyOwnerFiscalChangeResult(updated as OrganizationEntity, 'approved').catch(err => {
+      this.logger.error(`Failed to notify fiscal change approved for ${organizationUuid}`, err?.stack);
+    });
+
+    return updated as OrganizationEntity;
+  }
+
+  async rejectFiscalIdentityChange(
+    organizationUuid: string,
+    adminUuid: string,
+    reason: string
+  ): Promise<OrganizationEntity> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() },
+      relations: { organizationStatus: true }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+
+    const pending = await this.findPendingRequest(org.uuid, 'fiscal_change');
+    if (!pending) {
+      throw new BadRequestException('No hay un cambio de información fiscal pendiente');
+    }
+
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 3) {
+      throw new BadRequestException('Indicá un motivo de rechazo');
+    }
+
+    await this.resolvePendingRequest(pending, 'rejected', adminUuid, trimmedReason);
+
+    const updated = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      relations: { organizationStatus: true }
+    });
+    if (!updated) throw new NotFoundException('Organización no encontrada');
+
+    this.notifyOwnerFiscalChangeResult(
+      updated as OrganizationEntity,
+      'rejected',
+      trimmedReason
+    ).catch(err => {
+      this.logger.error(
+        `Failed to notify fiscal change rejected for ${organizationUuid}`,
+        err?.stack
+      );
+    });
+
+    return updated as OrganizationEntity;
   }
 
   async listMyFiscalDocuments(userUuid: string): Promise<FileEntity[]> {
@@ -873,9 +1291,76 @@ export class OrganizationService implements IOrganizationService {
     }
     if (status === 'approved') {
       throw new BadRequestException(
-        'Los documentos fiscales quedaron bloqueados tras la validación.'
+        'Para cambiar documentos usá “Solicitar cambio de información fiscal”.'
       );
     }
+  }
+
+  private async deleteFiscalDocumentInternal(
+    organizationUuid: string,
+    documentUuid: string,
+    actorUuid: string
+  ): Promise<void> {
+    const doc = await this.findActiveDoc(organizationUuid, documentUuid);
+    if (!doc) throw new NotFoundException('Documento no encontrado');
+    if (!doc.relativePath || !doc.storedName) {
+      throw new NotFoundException('Documento no encontrado');
+    }
+
+    const absolutePath = this.storageService.resolveAbsolutePath(doc.relativePath, doc.storedName);
+    await this.storageService.deleteFile(absolutePath);
+
+    await this.dbRepository.update({
+      entity: 'file',
+      where: { uuid: doc.uuid },
+      data: { isDeleted: new Date(), updatedBy: actorUuid }
+    });
+  }
+
+  private async createFiscalDocumentInternal(
+    org: OrganizationEntity,
+    userUuid: string,
+    file: Express.Multer.File,
+    existing: FileEntity[]
+  ): Promise<FileEntity> {
+    const validated = validateFiscalUploadFile(file);
+    const documentKind =
+      this.nextAutoFiscalDocumentKind(
+        existing.map(d => ORGANIZATION_FISCAL_KIND_BY_FILE_TYPE_UUID[d.fileTypeUuid] ?? 'other')
+      );
+
+    const storedName = `${uuidv4()}.${validated.ext}`;
+    const relativePath = `private/organizations/${org.uuid}/fiscal`;
+
+    await this.storageService.savePrivateFile({
+      buffer: validated.buffer,
+      relativePath,
+      filename: storedName
+    });
+
+    const entity = new FileEntity();
+    entity.uuid = uuidv4();
+    entity.userUuid = null;
+    entity.organizationUuid = org.uuid;
+    entity.path = null;
+    entity.type = validated.mimeType;
+    entity.fileTypeUuid = ORGANIZATION_FISCAL_FILE_TYPE_UUID_BY_KIND[documentKind];
+    entity.originalName = validated.originalName;
+    entity.storedName = storedName;
+    entity.sizeBytes = validated.sizeBytes;
+    entity.relativePath = relativePath;
+    entity.isDeleted = null;
+    entity.createdBy = userUuid;
+    entity.updatedBy = userUuid;
+    entity.createdAt = new Date();
+    entity.updatedAt = new Date();
+
+    await this.dbRepository.create({
+      entity: 'file',
+      data: entity
+    });
+
+    return entity;
   }
 
   /** Completa el pack mínimo en orden; extras → other. */
@@ -1207,11 +1692,62 @@ export class OrganizationService implements IOrganizationService {
       return;
     }
 
-    const reason = rejectionReason || org.bankChangeRejectionReason || 'Sin motivo indicado';
+    const reason = rejectionReason || 'Sin motivo indicado';
     await this.userNotificationService.create(
       ownerUuid,
       'Cambio de cuenta rechazado',
       `No pudimos aprobar el cambio de cuenta de ${organizationName}. Motivo: ${reason}. Los datos bancarios actuales se mantienen.`
+    );
+  }
+
+  private async notifyOwnerFiscalChangeSubmitted(
+    org: OrganizationEntity,
+    ownerUserUuid: string
+  ): Promise<void> {
+    const organizationName = org.name || org.legalName || 'tu productora';
+    await this.userNotificationService.create(
+      ownerUserUuid,
+      'Cambio fiscal enviado',
+      `Recibimos la solicitud de cambio de información fiscal de ${organizationName}. Seguís operando con normalidad mientras un administrador la revisa.`
+    );
+
+    await this.notifyAdminsPendingReview(
+      'Cambio fiscal esperando revisión',
+      `${organizationName} solicitó cambiar su información fiscal. Revisalo desde Productoras.`
+    );
+  }
+
+  private async notifyOwnerFiscalChangeResult(
+    org: OrganizationEntity,
+    result: 'approved' | 'rejected',
+    rejectionReason?: string
+  ): Promise<void> {
+    const membership = await this.dbRepository.findOne({
+      entity: 'user_organization',
+      where: { organizationUuid: org.uuid, isDeleted: IsNull() },
+      relations: { user: true },
+      other: { order: { createdAt: 'ASC' } }
+    });
+
+    const owner = membership?.user as { uuid?: string } | undefined;
+    const ownerUuid = owner?.uuid;
+    if (!ownerUuid) return;
+
+    const organizationName = org.name || org.legalName || 'tu productora';
+    if (result === 'approved') {
+      await this.userNotificationService.create(
+        ownerUuid,
+        'Cambio fiscal aprobado',
+        `Actualizamos la información fiscal de ${organizationName}.`
+      );
+      return;
+    }
+
+    const reason = rejectionReason || 'Sin motivo indicado';
+    await this.userNotificationService.create(
+      ownerUuid,
+      'Cambio fiscal rechazado',
+      `No pudimos aprobar el cambio de información fiscal de ${organizationName}. Motivo: ${reason}. Los datos vigentes se mantienen.`
     );
   }
 }

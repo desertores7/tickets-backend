@@ -232,7 +232,9 @@ export class DashboardService {
   }): Promise<number> {
     if (filter.bankChangePending) {
       const rows = await this.dbRepository.query(
-        `SELECT COUNT(*) AS cnt FROM organization WHERE isDeleted IS NULL AND bankChangeRequestedAt IS NOT NULL`
+        `SELECT COUNT(DISTINCT organizationUuid) AS cnt
+         FROM organization_request
+         WHERE isDeleted IS NULL AND status = 'pending' AND type = 'bank_change'`
       );
       return Number(rows?.[0]?.cnt ?? 0);
     }

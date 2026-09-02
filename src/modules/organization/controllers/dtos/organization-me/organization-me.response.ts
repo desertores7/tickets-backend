@@ -6,7 +6,19 @@ import {
   type OrganizationTaxCondition,
   type OrganizationValidationStatus
 } from '@modules/organization/const/organization-fiscal.const';
+import {
+  isBankChangePayload,
+  isFiscalChangePayload
+} from '@modules/organization/const/organization-request.const';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { OrganizationRequestEntity } from '@config/db/entities/user/organization_request.entity';
+
+export type OrgRequestView = {
+  pendingBank?: OrganizationRequestEntity | null;
+  pendingFiscal?: OrganizationRequestEntity | null;
+  lastRejectedBank?: OrganizationRequestEntity | null;
+  lastRejectedFiscal?: OrganizationRequestEntity | null;
+};
 
 export class OrganizationMeResponse {
   @ApiProperty()
@@ -64,6 +76,30 @@ export class OrganizationMeResponse {
   bankChangePending: boolean;
 
   @ApiPropertyOptional({ type: String, nullable: true })
+  pendingName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingLegalName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingTaxId: string | null;
+
+  @ApiPropertyOptional({ enum: ORGANIZATION_TAX_CONDITIONS, nullable: true })
+  pendingTaxCondition: OrganizationTaxCondition | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingContactEmail: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  fiscalChangeRequestedAt: Date | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  fiscalChangeRejectionReason: string | null;
+
+  @ApiProperty()
+  fiscalChangePending: boolean;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
   website: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
@@ -87,7 +123,18 @@ export class OrganizationMeResponse {
   @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
   validationResolvedAt: Date | null;
 
-  constructor(org: OrganizationEntity) {
+  constructor(org: OrganizationEntity, requests: OrgRequestView = {}) {
+    const pendingBank = requests.pendingBank ?? null;
+    const pendingFiscal = requests.pendingFiscal ?? null;
+    const bankPayload =
+      pendingBank && isBankChangePayload(pendingBank.type, pendingBank.payload)
+        ? pendingBank.payload
+        : null;
+    const fiscalPayload =
+      pendingFiscal && isFiscalChangePayload(pendingFiscal.type, pendingFiscal.payload)
+        ? pendingFiscal.payload
+        : null;
+
     this.uuid = org.uuid;
     this.name = org.name;
     this.active = org.active;
@@ -100,14 +147,24 @@ export class OrganizationMeResponse {
     this.bankName = org.bankName ?? null;
     this.cbu = org.cbu ?? null;
     this.bankAlias = org.bankAlias ?? null;
-    this.pendingBankName = org.pendingBankName ?? null;
-    this.pendingCbu = org.pendingCbu ?? null;
-    this.pendingBankAlias = org.pendingBankAlias ?? null;
-    this.bankChangeRequestedAt = org.bankChangeRequestedAt ?? null;
-    this.bankChangeRejectionReason = org.bankChangeRejectionReason ?? null;
-    this.bankChangePending = Boolean(
-      org.pendingBankName || org.pendingCbu || org.pendingBankAlias || org.bankChangeRequestedAt
-    );
+    this.pendingBankName = bankPayload?.bankName ?? null;
+    this.pendingCbu = bankPayload?.cbu ?? null;
+    this.pendingBankAlias = bankPayload?.bankAlias ?? null;
+    this.bankChangeRequestedAt = pendingBank?.createdAt ?? null;
+    this.bankChangePending = Boolean(pendingBank);
+    this.bankChangeRejectionReason = pendingBank
+      ? null
+      : (requests.lastRejectedBank?.rejectionReason ?? null);
+    this.pendingName = fiscalPayload?.name ?? null;
+    this.pendingLegalName = fiscalPayload?.legalName ?? null;
+    this.pendingTaxId = fiscalPayload?.taxId ?? null;
+    this.pendingTaxCondition = fiscalPayload?.taxCondition ?? null;
+    this.pendingContactEmail = fiscalPayload?.contactEmail ?? null;
+    this.fiscalChangeRequestedAt = pendingFiscal?.createdAt ?? null;
+    this.fiscalChangePending = Boolean(pendingFiscal);
+    this.fiscalChangeRejectionReason = pendingFiscal
+      ? null
+      : (requests.lastRejectedFiscal?.rejectionReason ?? null);
     this.website = org.website ?? null;
     this.instagram = org.instagram ?? null;
     this.tiktok = org.tiktok ?? null;

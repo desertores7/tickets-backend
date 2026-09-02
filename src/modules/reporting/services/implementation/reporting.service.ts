@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource, In, IsNull, Not } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
 import { OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
@@ -549,8 +549,12 @@ export class ReportingService implements IReportingService {
       countByStatus(ORGANIZATION_STATUS.PENDING_REVIEW.uuid),
       countByStatus(ORGANIZATION_STATUS.APPROVED.uuid),
       this.dbRepository.count({
-        entity: 'organization',
-        where: { bankChangeRequestedAt: Not(IsNull()), isDeleted: IsNull() } as any
+        entity: 'organization_request',
+        where: {
+          type: 'bank_change',
+          status: 'pending',
+          isDeleted: IsNull()
+        } as any
       }),
       feeQb.getRawOne()
     ]);

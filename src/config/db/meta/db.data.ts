@@ -42,6 +42,7 @@ import { MpMovementEntityData } from '../entities/tickets/mp_movement.entity';
 import { EventChangeEntityData } from '../entities/tickets/event_change.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
+import { OrganizationRequestEntityData } from '../entities/user/organization_request.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
 
 export const entitiesData = [
@@ -88,7 +89,8 @@ export const entitiesData = [
   MpMovementEntityData,
   EventChangeEntityData,
   UserEventCashierEntityData,
-  OrganizationProducerInviteEntityData
+  OrganizationProducerInviteEntityData,
+  OrganizationRequestEntityData
 ] as const;
 
 export const entitiesObj = entitiesData.reduce(

@@ -448,6 +448,10 @@ export const entityRelations = {
     invitedBy: 'user'
   },
 
+  organization_request: {
+    organization: 'organization'
+  },
+
   user_event_cashier: {
     user: 'user',
     event: 'event',
