@@ -491,7 +491,7 @@ export class EventService implements IEventService {
     loggedUser: string
   ): Promise<TTicketTypeResponse> {
     await this.assertOwnership(eventUuid, loggedUser);
-    return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data);
+    return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data, loggedUser);
   }
 
   /**
@@ -515,7 +515,7 @@ export class EventService implements IEventService {
 
     const updated: TTicketTypeResponse[] = [];
     for (const { uuid, ...patch } of items) {
-      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch));
+      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch, loggedUser));
     }
     return updated;
   }
@@ -523,7 +523,8 @@ export class EventService implements IEventService {
   private async applyTicketTypeUpdate(
     eventUuid: string,
     ticketTypeUuid: string,
-    data: ITicketTypeUpdate
+    data: ITicketTypeUpdate,
+    loggedUser: string
   ): Promise<TTicketTypeResponse> {
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
