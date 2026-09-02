@@ -60,12 +60,15 @@ OUTPUT
 ===========================
 
 {
+  "mapArea": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1, "confidence": number } | null,
+
   "stage": {
     "visible": boolean,
-    "position": "top" | "bottom" | "left" | "right" | null,
+    "position": "top" | "bottom" | "left" | "right" | "center" | null,
     "alignment": "start" | "center" | "end" | null,
     "inferred": boolean,
-    "confidence": number
+    "confidence": number,
+    "outline": null
   },
 
   "categories": [
@@ -78,6 +81,7 @@ OUTPUT
       "selectionUnit": "table" | "seat" | "box" | "palco" | "ticket" | "section",
       "detectedCapacity": number | null,
       "includedAdmissions": number | null,
+      "color": "#rrggbb" | null,
       "confidence": number
     }
   ],
@@ -97,13 +101,10 @@ OUTPUT
         "count": number,
         "rows": number | null,
         "columns": number | null,
-
         "ordering": "top_to_bottom" | "bottom_to_top" | "left_to_right" | "right_to_left" | "row_major" | "column_major" | null,
 
         "labels": [string],
-
         "category": string | null,
-
         "categoryAssignments": [
           {
             "category": string,
@@ -116,12 +117,69 @@ OUTPUT
           }
         ],
 
+        "shape": "rect" | "l" | "u" | "ring" | "trapezoid" | "corner_cut",
+        "shapeNotch": "top" | "bottom" | "left" | "right" | "top_left" | "top_right" | "bottom_left" | "bottom_right" | null,
+        "labelOrientation": "horizontal" | "vertical",
+        "containedBy": string | null,
+        "containedAt": "top" | "top_left" | "top_right" | "center" | "bottom" | "bottom_left" | "bottom_right" | null,
+        "widthWeight": number,
+        "heightWeight": number,
+        "level": string | null,
+        "outline": null,
+        "cell": null,
+
         "requiresGeometryFallback": boolean,
         "confidence": number
       }
     ]
   }
 }
+
+GEOMETRY ATTRIBUTES (required — the frontend cannot draw without them):
+- widthWeight / heightWeight: integers 1..10 relative to neighbors.
+  Side columns ≈ 1 wide and tall ≈ label count/2. Center grids/zones ≈ 8 wide.
+  Bottom rows ≈ heightWeight 1. Campo/general zone ≈ heightWeight 4..6.
+- shape / shapeNotch / containedBy / containedAt: see section G (WRAP / L). Critical for theaters.
+- labelOrientation: "vertical" for left/right tribuna/palco/platea/codo columns; "horizontal" otherwise.
+- stage.position = "center" for arena layouts where the stage is in the middle of the campo (not at the top edge).
+- mapArea: bounding box of the venue diagram inside the flyer (0..1). null if the whole image is the map.
+
+===========================
+G. WRAP / L SHAPES (critical — avoids overlapping rectangles)
+===========================
+
+Many theater flyers draw an L-shaped sector that wraps a smaller rectangle. If you stack two full-width rects instead, the frontend paints overlapping blocks and loses the L.
+
+G1. Detect WRAP, do not invent a second full-width row.
+Look for: a smaller premium block (VIP / platea VIP / "REAL G") sitting in a corner of a larger colored block (FANS / platea / similar), OR a side "CODO" whose bottom foot extends inward beside SUPER PULLMAN / pullman.
+
+G2. How to encode a wrap (ONE parent L + ONE nested child):
+- Parent (the wrapping color / larger block):
+  shape = "l"
+  shapeNotch = the corner where the child sits ("top_right" if the nested block is top-right)
+  containedBy = null
+  layoutType = "zone" (or "row" if it is a single labeled band)
+  It occupies ONE slot in the center stack — never put the nested block as a separate stack row above it.
+- Child (the nested rect):
+  shape = "rect"
+  containedBy = parent.id
+  containedAt = same corner as shapeNotch ("top_right")
+  Smaller widthWeight/heightWeight than the parent (e.g. parent 8x3, child 4x2)
+  position can stay "center" / "top_center"; containment overrides free placement.
+
+G3. NEVER return the nested premium and the wrap zone as two independent stacked rectangles of similar width. That is the overlapping bug.
+
+G4. Side strip that widens inward at the bottom (beside a lower band):
+  shape = "l"
+  Left side → shapeNotch "top_right"; right side → shapeNotch "top_left"
+  Keep the upper side strip (if any) as a separate rect column on the same side.
+
+G5. Worked mini-example (generic theater wrap — names are illustrative only):
+
+Parent zone "WRAP ZONE" is L with notch top_right; child "PREMIUM BLOCK" has
+containedBy = wrap-zone and containedAt = top_right. A full-width "FIELD" sits
+below as its own center stack slot. Never emit premium and wrap as two stacked
+full-width rectangles.
 
 ===========================
 A. PHYSICAL STRUCTURE RULES
@@ -394,4 +452,4 @@ F. FINAL CHECKLIST (run before returning)
 Return ONLY valid JSON.`;
 
 export const MAP_LAYOUT_USER_TEXT =
-  'Convert this venue flyer into abstract ticket-map layout JSON. First make a complete visual inventory of every purchasable label (top, left, center, right, bottom), then describe the physical structure (do not split continuous grids by color/price, keep opposite sides as separate groups, never invent or complete missing numbers). Return labels verbatim in visual order and categoryAssignments as zero-based inclusive ranges. Prices as plain numbers. Return ONLY JSON.';
+  'Convert this venue flyer into abstract ticket-map layout JSON. First make a complete visual inventory of every purchasable label (top, left, center, right, bottom), then describe the physical structure (do not split continuous grids by color/price, keep opposite sides as separate groups, never invent or complete missing numbers). Return labels verbatim in visual order and categoryAssignments as zero-based inclusive ranges. ALWAYS include widthWeight/heightWeight (1..10), shape, and labelOrientation on every group. If a sector WRAP another (VIP inside FANS, CODO foot beside SUPER PULLMAN), encode parent shape "l" + shapeNotch and child containedBy/containedAt — NEVER two stacked full-width rects that overlap. For arena maps with a stage in the middle of the campo, set stage.position to "center". Prices as plain numbers. Return ONLY JSON.';

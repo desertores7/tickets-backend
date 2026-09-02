@@ -10,6 +10,7 @@ import { EnvService } from '@config/env/env.service';
 import { RedisService } from '@config/redis/redis.service';
 import OpenAI, { APIError, toFile } from 'openai';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
+import sharp from 'sharp';
 import { HERO_FROM_FLYER_PROMPT } from '../../const/hero-from-flyer.prompt';
 import {
   MAP_LAYOUT_SYSTEM_PROMPT,
@@ -36,10 +37,17 @@ const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/web
 
 /** Extracción: timeout corto. Hero: mucho más largo (imagen tarda). */
 const EXTRACT_TIMEOUT_MS = 90_000;
-/** Una sola vision call de layout abstracto (sin geometría por elemento). */
-const MAP_LAYOUT_TIMEOUT_MS = 120_000;
-const MAP_LAYOUT_MAX_TOKENS = 8_000;
+/**
+ * Una sola vision call de layout abstracto (sin geometría por elemento).
+ * El tiempo casi entero es OpenAI (razonamiento + visión); el normalizer es ms.
+ */
+const MAP_LAYOUT_TIMEOUT_MS = 180_000;
+/** Cap de salida+reasoning: con high/32k el modelo se demora de más. */
+const MAP_LAYOUT_MAX_TOKENS = 16_000;
 const MAP_EMPTY_CONTENT_RETRIES = 2;
+/** Lado máximo del flyer enviado a visión (menos patches = menos latencia). */
+const MAP_VISION_MAX_EDGE_PX = 2048;
+const MAP_VISION_JPEG_QUALITY = 85;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
@@ -277,27 +285,40 @@ export class EventAiService implements IEventAiService {
 
   /**
    * Una sola llamada vision → layout abstracto (stage + categories + groups).
+   * Siempre usa EVENT_AI_MAP_MODEL (nunca EVENT_AI_EXTRACT_MODEL).
    * Sin coordenadas; el frontend genera la geometría.
    */
   private async analyzeSalesMap(
     client: OpenAI,
     mapFile: Express.Multer.File
   ): Promise<AnalyzeMapResult> {
-    const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
+    const model = this.envService.get('EVENT_AI_MAP_MODEL');
+    const reasoningEffort = this.envService.get('EVENT_AI_MAP_REASONING_EFFORT');
     const t0 = Date.now();
 
     try {
-      const parsed = await this.mapVisionJson({
+      const prepared = await this.prepareMapImageForVision(mapFile);
+      this.logger.log(
+        `[MAP] Analyzing with model=${model} reasoning_effort=${reasoningEffort} ` +
+          `image=${prepared.bytes}B ${prepared.width}x${prepared.height} (src=${mapFile.size}B)`
+      );
+
+      const tOpenAi = Date.now();
+      const { parsed, usage } = await this.mapVisionJson({
         label: 'map-layout',
         client,
         model,
         maxTokens: MAP_LAYOUT_MAX_TOKENS,
+        reasoningEffort,
         system: MAP_LAYOUT_SYSTEM_PROMPT,
         userText: MAP_LAYOUT_USER_TEXT,
-        images: this.flyerDataUrlParts([mapFile], 'high')
+        images: this.flyerDataUrlParts([prepared.file], 'high')
       });
+      const openaiMs = Date.now() - tOpenAi;
 
+      const tNorm = Date.now();
       const result = normalizeMapLayout(parsed);
+      const normalizeMs = Date.now() - tNorm;
       const summary = summarizeMapLayout(result);
 
       if (!result.layout.groups.length) {
@@ -307,11 +328,15 @@ export class EventAiService implements IEventAiService {
       }
 
       this.logger.log(
-        `[MAP] Layout: ${Date.now() - t0} ms — groups=${summary.groups}, labels=${summary.labels}, ` +
-          `tables=${summary.tables}, boxes=${summary.boxes}, palcos=${summary.palcos}, zones=${summary.zones}, ` +
-          `freeform=${summary.freeform}, geometryFallback=${summary.requiresGeometryFallback}`
+        `[MAP] Timing: total=${Date.now() - t0}ms openai=${openaiMs}ms normalize=${normalizeMs}ms — ` +
+          `model=${model} effort=${reasoningEffort} ` +
+          `groups=${summary.groups} labels=${summary.labels} ` +
+          `tables=${summary.tables} boxes=${summary.boxes} palcos=${summary.palcos} ` +
+          `zones=${summary.zones} freeform=${summary.freeform} ` +
+          `geometryFallback=${summary.requiresGeometryFallback} ` +
+          `usage(in=${usage?.prompt_tokens ?? 'n/a'} out=${usage?.completion_tokens ?? 'n/a'} ` +
+          `total=${usage?.total_tokens ?? 'n/a'})`
       );
-      this.logger.log(`[MAP] Total: ${Date.now() - t0} ms`);
       return result;
     } catch (err) {
       this.logger.warn(`[MAP] Total (failed): ${Date.now() - t0} ms`);
@@ -329,22 +354,87 @@ export class EventAiService implements IEventAiService {
     }
   }
 
+  /**
+   * Downscale + JPEG para bajar patches de visión sin perder legibilidad de labels.
+   * No cambia el schema de response.
+   */
+  private async prepareMapImageForVision(
+    file: Express.Multer.File
+  ): Promise<{
+    file: Express.Multer.File;
+    bytes: number;
+    width: number;
+    height: number;
+  }> {
+    try {
+      const image = sharp(file.buffer, { failOn: 'none' }).rotate();
+      const meta = await image.metadata();
+      const width = meta.width ?? 0;
+      const height = meta.height ?? 0;
+      const longest = Math.max(width, height);
+
+      let pipeline = image;
+      if (longest > MAP_VISION_MAX_EDGE_PX) {
+        pipeline = pipeline.resize({
+          width: width >= height ? MAP_VISION_MAX_EDGE_PX : undefined,
+          height: height > width ? MAP_VISION_MAX_EDGE_PX : undefined,
+          fit: 'inside',
+          withoutEnlargement: true
+        });
+      }
+
+      const buffer = await pipeline
+        .jpeg({ quality: MAP_VISION_JPEG_QUALITY, mozjpeg: true })
+        .toBuffer();
+      const outMeta = await sharp(buffer).metadata();
+
+      return {
+        file: {
+          ...file,
+          buffer,
+          size: buffer.length,
+          mimetype: 'image/jpeg',
+          originalname: file.originalname.replace(/\.[^.]+$/, '') + '.jpg'
+        },
+        bytes: buffer.length,
+        width: outMeta.width ?? width,
+        height: outMeta.height ?? height
+      };
+    } catch (err) {
+      this.logger.warn(
+        `[MAP] Image prep soft-fail, using original: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return { file, bytes: file.size, width: 0, height: 0 };
+    }
+  }
+
+  /** GPT-5 / o-series: usan max_completion_tokens (+ reasoning_effort). */
+  private usesGpt5StyleTokenBudget(model: string): boolean {
+    return /^(gpt-5|o[1-9]|chatgpt-4o)/i.test(model.trim());
+  }
+
   private async mapVisionJson(params: {
     label: string;
     client: OpenAI;
     model: string;
     maxTokens: number;
+    reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     system: string;
     userText: string;
     images: ChatCompletionContentPart[];
-  }): Promise<Record<string, unknown>> {
+  }): Promise<{
+    parsed: Record<string, unknown>;
+    usage: { prompt_tokens: number | null; completion_tokens: number | null; total_tokens: number | null } | null;
+  }> {
     let lastEmptyDetail = '';
+    const gpt5Style = this.usesGpt5StyleTokenBudget(params.model);
 
     for (let emptyAttempt = 1; emptyAttempt <= MAP_EMPTY_CONTENT_RETRIES; emptyAttempt++) {
       const response = await this.withTransientRetry(params.label, () =>
         params.client.chat.completions.create({
           model: params.model,
-          max_tokens: params.maxTokens,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: params.system },
@@ -352,9 +442,34 @@ export class EventAiService implements IEventAiService {
               role: 'user',
               content: [{ type: 'text', text: params.userText }, ...params.images]
             }
-          ]
+          ],
+          ...(gpt5Style
+            ? {
+                max_completion_tokens: params.maxTokens,
+                ...(params.reasoningEffort
+                  ? { reasoning_effort: params.reasoningEffort }
+                  : {})
+              }
+            : { max_tokens: params.maxTokens })
         })
       );
+
+      const usage = response.usage
+        ? {
+            prompt_tokens:
+              typeof response.usage.prompt_tokens === 'number'
+                ? response.usage.prompt_tokens
+                : null,
+            completion_tokens:
+              typeof response.usage.completion_tokens === 'number'
+                ? response.usage.completion_tokens
+                : null,
+            total_tokens:
+              typeof response.usage.total_tokens === 'number'
+                ? response.usage.total_tokens
+                : null
+          }
+        : null;
 
       const message = response.choices[0]?.message;
       const raw = message?.content?.trim();
@@ -387,7 +502,7 @@ export class EventAiService implements IEventAiService {
       }
 
       try {
-        return parseJsonObjectLoose(raw);
+        return { parsed: parseJsonObjectLoose(raw), usage };
       } catch (parseErr) {
         this.logger.error(
           `${params.label} JSON parse failed (finish_reason=${finishReason ?? 'unknown'}, chars=${raw.length})`,

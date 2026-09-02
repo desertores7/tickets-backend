@@ -4,6 +4,8 @@ import {
   IDashboardSummary,
   IDashboardTopEvent,
   IEventDashboard,
+  ISaleDetail,
+  ISaleDetailItem,
   ISalesRow
 } from '../../services/contracts/ireporting.service';
 
@@ -40,6 +42,83 @@ export class SalesRowResponse {
     this.currency = data.currency;
     this.purchasedAt = data.purchasedAt;
     this.status = data.status;
+  }
+}
+
+export class SaleDetailItemResponse {
+  @ApiProperty() ticketTypeUuid: string;
+  @ApiProperty({ example: 'Campo General' }) ticketTypeName: string;
+  @ApiProperty() quantity: number;
+  @ApiProperty() unitPrice: number;
+  @ApiProperty() subtotal: number;
+
+  constructor(data: ISaleDetailItem) {
+    this.ticketTypeUuid = data.ticketTypeUuid;
+    this.ticketTypeName = data.ticketTypeName;
+    this.quantity = data.quantity;
+    this.unitPrice = data.unitPrice;
+    this.subtotal = data.subtotal;
+  }
+}
+
+export class SaleDetailResponse {
+  @ApiProperty() orderUuid: string;
+  @ApiProperty({ example: 'ORD-20260828-000142' }) orderNumber: string;
+  @ApiProperty({ example: 'paid' }) status: string;
+  @ApiProperty({ example: 'ARS' }) currency: string;
+  @ApiProperty() purchasedAt: Date;
+  @ApiProperty({ nullable: true }) paidAt: Date | null;
+  @ApiProperty({ nullable: true }) paymentProvider: string | null;
+  @ApiProperty({ nullable: true }) paymentMethod: string | null;
+  @ApiProperty({ nullable: true }) paymentId: string | null;
+  @ApiProperty() buyerName: string;
+  @ApiProperty() buyerEmail: string;
+  @ApiProperty({ nullable: true }) buyerPhone: string | null;
+  @ApiProperty({ nullable: true }) buyerDocument: string | null;
+  @ApiProperty() eventUuid: string;
+  @ApiProperty() eventName: string;
+  @ApiProperty({ nullable: true }) eventStartDate: Date | null;
+  @ApiProperty({ nullable: true }) eventVenueName: string | null;
+  @ApiProperty({ nullable: true }) eventVenueCity: string | null;
+  @ApiProperty({ type: [SaleDetailItemResponse] }) items: SaleDetailItemResponse[];
+  @ApiProperty() ticketsCount: number;
+
+  @ApiProperty({
+    description: 'Valor de las entradas SIN costo de servicio (BR-REPORT-001)',
+    example: 46000
+  })
+  ticketsAmount: number;
+
+  @ApiProperty({ required: false, description: 'Solo Administrador (BR-REPORT-001)' })
+  serviceFee?: number;
+
+  @ApiProperty({ required: false, description: 'Solo Administrador (BR-REPORT-001)' })
+  total?: number;
+
+  constructor(data: ISaleDetail) {
+    this.orderUuid = data.orderUuid;
+    this.orderNumber = data.orderNumber;
+    this.status = data.status;
+    this.currency = data.currency;
+    this.purchasedAt = data.purchasedAt;
+    this.paidAt = data.paidAt;
+    this.paymentProvider = data.paymentProvider;
+    this.paymentMethod = data.paymentMethod;
+    this.paymentId = data.paymentId;
+    this.buyerName = data.buyerName;
+    this.buyerEmail = data.buyerEmail;
+    this.buyerPhone = data.buyerPhone;
+    this.buyerDocument = data.buyerDocument;
+    this.eventUuid = data.eventUuid;
+    this.eventName = data.eventName;
+    this.eventStartDate = data.eventStartDate;
+    this.eventVenueName = data.eventVenueName;
+    this.eventVenueCity = data.eventVenueCity;
+    this.items = data.items.map(i => new SaleDetailItemResponse(i));
+    this.ticketsCount = data.ticketsCount;
+    this.ticketsAmount = data.ticketsAmount;
+    if (data.serviceFee !== undefined) this.serviceFee = data.serviceFee;
+    if (data.total !== undefined) this.total = data.total;
   }
 }
 

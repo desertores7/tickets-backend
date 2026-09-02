@@ -42,7 +42,7 @@ import {
   TEventWithTicketTypesResponse,
   TTicketTypeResponse
 } from '../contracts/ievent.service';
-import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
+import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
 import {
   EventMapSectorEntity,
@@ -212,10 +212,11 @@ export class EventService implements IEventService {
     event.isPublished = false;
     event.isActive = true;
     event.organizationUuid = data.organizationUuid;
-    event.venueName = data.venueName;
-    event.venueAddress = data.venueAddress;
-    event.venueCity = data.venueCity;
-    event.venueCountry = data.venueCountry;
+    event.venueName = data.venueName?.trim() ?? '';
+    event.venueAddress = data.venueAddress?.trim() ?? '';
+    event.venueCity = data.venueCity?.trim() ?? '';
+    event.venueCountry = data.venueCountry?.trim() ?? '';
+    event.venuePostalCode = data.venuePostalCode?.trim() ?? '';
     event.googleMapsUrl = data.googleMapsUrl ?? null;
     event.maxCapacity = data.maxCapacity;
 
@@ -255,6 +256,7 @@ export class EventService implements IEventService {
     if (data.venueAddress !== undefined) patch.venueAddress = data.venueAddress;
     if (data.venueCity !== undefined) patch.venueCity = data.venueCity;
     if (data.venueCountry !== undefined) patch.venueCountry = data.venueCountry;
+    if (data.venuePostalCode !== undefined) patch.venuePostalCode = data.venuePostalCode;
     if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
 
@@ -357,10 +359,31 @@ export class EventService implements IEventService {
 
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    return this.persistNewTicketType(event.uuid, data);
+  }
 
+  /**
+   * Alta masiva. La verificacion de permisos se hace una sola vez para todo el
+   * lote: el alta de un evento con 50 tandas es una request, no 50.
+   */
+  async createTicketTypes(
+    eventUuid: string,
+    items: ITicketTypeCreate[],
+    loggedUser: string
+  ): Promise<TTicketTypeResponse[]> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const created: TTicketTypeResponse[] = [];
+    for (const data of items) {
+      created.push(await this.persistNewTicketType(event.uuid, data));
+    }
+    return created;
+  }
+
+  private async persistNewTicketType(eventUuid: string, data: ITicketTypeCreate): Promise<TTicketTypeResponse> {
     const ticketType = new TicketTypeEntity();
     ticketType.uuid = uuidv4();
-    ticketType.eventUuid = event.uuid;
+    ticketType.eventUuid = eventUuid;
     ticketType.name = data.name;
     ticketType.description = data.description ?? null;
     ticketType.price = data.price;
@@ -388,7 +411,40 @@ export class EventService implements IEventService {
     loggedUser: string
   ): Promise<TTicketTypeResponse> {
     await this.assertOwnership(eventUuid, loggedUser);
+    return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data);
+  }
 
+  /**
+   * Edicion masiva. Mismo criterio que el alta: un solo chequeo de permisos y
+   * una sola request para todas las tandas tocadas.
+   */
+  async updateTicketTypes(
+    eventUuid: string,
+    items: ITicketTypeBulkUpdate[],
+    loggedUser: string
+  ): Promise<TTicketTypeResponse[]> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.uuid)) {
+        throw new BadRequestException(`La tanda ${item.uuid} viene repetida en el lote`);
+      }
+      seen.add(item.uuid);
+    }
+
+    const updated: TTicketTypeResponse[] = [];
+    for (const { uuid, ...patch } of items) {
+      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch));
+    }
+    return updated;
+  }
+
+  private async applyTicketTypeUpdate(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    data: ITicketTypeUpdate
+  ): Promise<TTicketTypeResponse> {
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
@@ -440,6 +496,21 @@ export class EventService implements IEventService {
 
   async deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void> {
     await this.assertOwnership(eventUuid, loggedUser);
+    return this.deactivateTicketType(eventUuid, ticketTypeUuid);
+  }
+
+  /**
+   * Baja masiva. La usa la regeneracion del mapa: al reemplazarlo hay que
+   * limpiar de una sola vez las tandas del mapa anterior.
+   */
+  async deleteTicketTypes(eventUuid: string, ticketTypeUuids: string[], loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    for (const uuid of new Set(ticketTypeUuids)) {
+      await this.deactivateTicketType(eventUuid, uuid);
+    }
+  }
+
+  private async deactivateTicketType(eventUuid: string, ticketTypeUuid: string): Promise<void> {
 
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
@@ -733,6 +804,7 @@ export class EventService implements IEventService {
 
   async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    this.assertUniqueSectorNames(data.sectors);
     await this.validateSectorTicketTypes(event.uuid, data.sectors);
 
     let map = await this.dbRepository.findOne({
@@ -830,6 +902,32 @@ export class EventService implements IEventService {
     return this.loadEventMap(map);
   }
 
+  /**
+   * Borra el plano subido. Los sectores ya dibujados se conservan: el plano es
+   * la referencia visual, no el mapa en si.
+   */
+  async removeMapBaseImage(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+    if (!map) return null;
+
+    const previousUrl = map.baseImageUrl ?? null;
+    if (previousUrl) {
+      await this.dbRepository.update({
+        entity: 'event_map',
+        where: { uuid: map.uuid },
+        data: { baseImageUrl: null }
+      });
+      await this.removeStoredMapBase(event.uuid, previousUrl);
+    }
+
+    return this.loadEventMap({ ...map, baseImageUrl: null });
+  }
+
   async setMapBaseFromMedia(
     eventUuid: string,
     mediaUuid: string,
@@ -923,6 +1021,25 @@ export class EventService implements IEventService {
     };
   }
 
+  /**
+   * Dos sectores con el mismo nombre en un mapa se leen como el mismo lugar:
+   * la vista los agrupa y la misma mesa terminaria vendiendose dos veces. Se
+   * compara sin distinguir mayusculas ni espacios de mas.
+   */
+  private assertUniqueSectorNames(sectors: TUpsertEventMap['sectors']): void {
+    const seen = new Map<string, string>();
+    for (const sector of sectors) {
+      const name = sector.name?.trim() ?? '';
+      if (!name) continue;
+      const key = name.toLowerCase().replace(/\s+/g, ' ');
+      const previous = seen.get(key);
+      if (previous) {
+        throw new BadRequestException(`El mapa tiene dos sectores llamados "${previous}"`);
+      }
+      seen.set(key, name);
+    }
+  }
+
   private async validateSectorTicketTypes(
     eventUuid: string,
     sectors: TUpsertEventMap['sectors']
@@ -952,21 +1069,18 @@ export class EventService implements IEventService {
     mapUuid: string,
     sectors: TUpsertEventMap['sectors']
   ): Promise<void> {
-    const existing = await this.dbRepository.findMany({
+    // Los vinculos con tandas se van solos: la FK es ON DELETE CASCADE. Leer
+    // los sectores para borrarlos por lista era una consulta al pedo.
+    await this.dbRepository.delete({
       entity: 'event_map_sector',
-      where: { mapUuid }
+      where: { mapUuid } as any
     });
-    const existingUuids = existing.map(s => s.uuid);
-    if (existingUuids.length) {
-      await this.dbRepository.delete({
-        entity: 'event_map_sector_ticket_type',
-        where: { sectorUuid: In(existingUuids) } as any
-      });
-      await this.dbRepository.delete({
-        entity: 'event_map_sector',
-        where: { mapUuid } as any
-      });
-    }
+
+    // Un mapa de estadio son cientos de sectores: se arma todo en memoria y se
+    // inserta en dos lotes. Insertar de a uno eran ~2N round trips a la base y
+    // el upsert se iba a decenas de segundos.
+    const newSectors: EventMapSectorEntity[] = [];
+    const newLinks: EventMapSectorTicketTypeEntity[] = [];
 
     for (let i = 0; i < sectors.length; i++) {
       const src = sectors[i];
@@ -978,15 +1092,28 @@ export class EventService implements IEventService {
       sector.sortOrder = src.sortOrder ?? i;
       sector.isNumbered = src.isNumbered ?? false;
       sector.capacity = src.capacity ?? null;
-      await this.dbRepository.create({ entity: 'event_map_sector', data: sector });
+      newSectors.push(sector);
 
       for (const ttUuid of src.ticketTypeUuids ?? []) {
         const link = new EventMapSectorTicketTypeEntity();
         link.uuid = uuidv4();
         link.sectorUuid = sector.uuid;
         link.ticketTypeUuid = ttUuid;
-        await this.dbRepository.create({ entity: 'event_map_sector_ticket_type', data: link });
+        newLinks.push(link);
       }
+    }
+
+    if (newSectors.length) {
+      await this.dbRepository.createMany({
+        entity: 'event_map_sector',
+        data: newSectors as never
+      });
+    }
+    if (newLinks.length) {
+      await this.dbRepository.createMany({
+        entity: 'event_map_sector_ticket_type',
+        data: newLinks as never
+      });
     }
   }
 

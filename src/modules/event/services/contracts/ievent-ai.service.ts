@@ -80,7 +80,7 @@ export type SelectionUnit = 'table' | 'seat' | 'box' | 'palco' | 'ticket' | 'sec
 
 export type MapElementType = 'table' | 'box' | 'palco' | 'seat' | 'zone' | 'section';
 
-export type MapStagePosition = 'top' | 'bottom' | 'left' | 'right';
+export type MapStagePosition = 'top' | 'bottom' | 'left' | 'right' | 'center';
 export type MapStageAlignment = 'start' | 'center' | 'end';
 
 export type MapLayoutType = 'column' | 'row' | 'grid' | 'zone' | 'freeform';
@@ -104,15 +104,48 @@ export type MapGroupOrdering =
   | 'row_major'
   | 'column_major';
 
+/** Forma del sector para el motor de dibujo del frontend. */
+export type MapShapeKind = 'rect' | 'l' | 'u' | 'ring' | 'trapezoid' | 'corner_cut';
+export type MapLabelOrientation = 'horizontal' | 'vertical';
+export type MapShapeNotch =
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'top_left'
+  | 'top_right'
+  | 'bottom_left'
+  | 'bottom_right';
+export type MapContainedAt =
+  | 'top'
+  | 'top_left'
+  | 'top_right'
+  | 'center'
+  | 'bottom'
+  | 'bottom_left'
+  | 'bottom_right';
+
+export type AiEventMapPoint = { x: number; y: number };
+
+/** Recuadro del plano dentro del flyer, normalizado 0..1. */
+export type AiEventMapArea = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  confidence: number;
+};
+
+export type AiEventMapCell = {
+  col: number;
+  row: number;
+  colSpan: number;
+  rowSpan: number;
+};
+
 /**
- * Escenario / frente del venue (sin coordenadas). El frontend posiciona.
- *
- * `visible` NO significa "está dibujado en el flyer": significa "el frente del
- * venue es determinable", ya sea porque está dibujado o porque se dedujo de la
- * orientación (dónde arranca la numeración, dónde están las categorías premium,
- * dónde está el campo/general). Si la IA no lo resuelve, el normalizer aplica un
- * fallback determinístico (top/center con confidence baja) para que el frontend
- * siempre tenga una referencia de orientación.
+ * Escenario / frente del venue. El frontend posiciona.
+ * `position: "center"` = arena (escenario en el medio del campo).
  */
 export type AiEventMapStage = {
   visible: boolean;
@@ -121,6 +154,8 @@ export type AiEventMapStage = {
   /** true si el frente se dedujo por orientación en vez de estar dibujado. */
   inferred: boolean;
   confidence: number;
+  /** Contorno opcional; null → el frontend sintetiza la banda. */
+  outline: AiEventMapPoint[] | null;
 };
 
 export type AiEventMapCategory = {
@@ -134,6 +169,8 @@ export type AiEventMapCategory = {
   detectedCapacity: number | null;
   /** Admisiones/precintos incluidos al comprar la unidad completa. */
   includedAdmissions: number | null;
+  /** Color con que el flyer pinta esa categoria, en hex (#rrggbb). null si no se distingue. */
+  color: string | null;
   confidence: number;
 };
 
@@ -177,6 +214,26 @@ export type AiEventMapLayoutGroup = {
   lane: number | null;
   /** 0 = arriba en un stack vertical; mayor = más abajo. null si no aplica. */
   stackOrder: number | null;
+  /** Contorno 0..1 opcional; null → el frontend reparte por pesos. */
+  outline: AiEventMapPoint[] | null;
+  /** Ubicación en grilla de respaldo; null si no aplica. */
+  cell: AiEventMapCell | null;
+  /** Grupo contenedor visual (anillos / L). */
+  containedBy: string | null;
+  /** Apoyo dentro del contenedor. */
+  containedAt: MapContainedAt | null;
+  /** Forma con la que el plano dibuja el sector. */
+  shape: MapShapeKind;
+  /** Etiqueta horizontal o vertical (tribunas laterales). */
+  labelOrientation: MapLabelOrientation;
+  /** Esquina recortada (L), boca (U) o lado ancho (trapecio). */
+  shapeNotch: MapShapeNotch | null;
+  /** Ancho relativo 1..10 vs vecinos. Obligatorio para el motor de layout. */
+  widthWeight: number;
+  /** Alto relativo 1..10 vs vecinos. Obligatorio para el motor de layout. */
+  heightWeight: number;
+  /** Nivel impreso ("planta baja"); null si hay uno solo. */
+  level: string | null;
   count: number;
   rows: number | null;
   columns: number | null;
@@ -185,8 +242,7 @@ export type AiEventMapLayoutGroup = {
   labels: string[];
   /**
    * Categoría única del grupo, o null si el grupo mezcla varias categorías
-   * (grilla multicolor). Atajo para el frontend: si no es null, alcanza con
-   * pintar todo el grupo de un color sin recorrer categoryAssignments.
+   * (grilla multicolor).
    */
   category: string | null;
   /** Bloques de categoría comercial dentro del grupo. */
@@ -204,9 +260,11 @@ export type AiEventMapLayout = {
 
 /**
  * Layout abstracto del mapa de ventas.
- * Sin x/y/width/height/points — el frontend calcula geometría.
+ * El frontend calcula geometría con position/lane/stackOrder/shape/pesos.
  */
 export type AnalyzeMapResult = {
+  /** Recuadro del plano en el flyer; null si no se aisló. */
+  mapArea: AiEventMapArea | null;
   stage: AiEventMapStage;
   categories: AiEventMapCategory[];
   layout: AiEventMapLayout;
