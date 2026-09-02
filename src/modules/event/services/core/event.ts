@@ -31,6 +31,8 @@ export interface IEventUpdate {
   venueCountry?: string;
   googleMapsUrl?: string | null;
   maxCapacity?: number;
+  /** Lineup estructurado (`BR-EVENT-016`). Cambiarlo es material. */
+  lineup?: string[] | null;
 }
 
 export interface ITicketTypeUpdate {

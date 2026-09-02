@@ -98,6 +98,16 @@ export class OrderService implements IOrderService {
 
     const now = new Date();
 
+    // Un evento cancelado no vende más (`BR-EVENT-010`), y el corte manual del
+    // productor (`BR-EVENT-013`) manda por encima de la ventana configurada.
+    if (event.cancelledAt) {
+      throw new UnprocessableEntityException('El evento fue cancelado');
+    }
+
+    if (event.salesClosedAt && now >= new Date(event.salesClosedAt)) {
+      throw new UnprocessableEntityException('La venta de este evento está cerrada');
+    }
+
     if (event.saleStartDate && now < event.saleStartDate) {
       throw new UnprocessableEntityException('El período de venta aún no ha comenzado');
     }

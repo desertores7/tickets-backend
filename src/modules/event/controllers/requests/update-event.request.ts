@@ -1,6 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsDate, IsInt, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsDate,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  MaxLength,
+  Min
+} from 'class-validator';
 
 function parseArgentinaDate({ value }: { value: unknown }): Date | unknown {
   if (value === null || value === undefined || value === '') return value;
@@ -98,4 +107,19 @@ export class UpdateEventRequest {
   @Min(1)
   @ApiProperty({ description: 'Maximum venue capacity', required: false })
   maxCapacity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  @ApiProperty({
+    type: [String],
+    required: false,
+    nullable: true,
+    description:
+      'Lineup estructurado (BR-EVENT-016): lista de artistas o actos. Cambiarlo es un cambio ' +
+      'material y abre ventana de reembolso si hay ventas; reescribir la descripción no.',
+    example: ['Banda A', 'Banda B']
+  })
+  lineup?: string[] | null;
 }

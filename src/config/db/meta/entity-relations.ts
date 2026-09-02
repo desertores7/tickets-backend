@@ -398,6 +398,10 @@ export const entityRelations = {
     mpAccount: 'org_mp_account'
   },
 
+  event_change: {
+    event: 'event'
+  },
+
   coupon: {
     event: 'event'
   },

@@ -10,6 +10,29 @@ import { BannerImages, BannerVariant } from '../../controllers/const/banner-vari
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
+import {
+  EventChangeField,
+  EventChangeType
+} from '@config/db/entities/tickets/event_change.entity';
+
+/** Una entrada del historial de cambios del evento (FP10 / `29` §19). */
+export type TEventChange = {
+  uuid: string;
+  type: EventChangeType;
+  /** Si abre ventana de reembolso cuando hay ventas (`BR-REFUND-010`) */
+  isMaterial: boolean;
+  changes: EventChangeField[];
+  reason: string | null;
+  ticketTypeUuid: string | null;
+  /** Fin de la ventana de reembolso. Null si el cambio no abrió ninguna. */
+  refundWindowEndsAt: Date | null;
+  notifiedAt: Date | null;
+  /** A cuántos compradores les llegó el aviso */
+  buyersNotified: number;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: Date;
+};
 
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
@@ -152,6 +175,23 @@ export interface IEventService {
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
 
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
+
+  // ── Operación post-publicación (FP10 / `29` §19) ──────────────────────────
+
+  /**
+   * Cancela el evento (`BR-EVENT-010`). Siempre es cambio material: con
+   * ventas abre la ventana de reembolso y avisa a los compradores.
+   */
+  cancelEvent(uuid: string, reason: string | null, loggedUser: string): Promise<TEventChange>;
+
+  /**
+   * Corta o reabre la venta a mano (`BR-EVENT-013`). No es material: nadie
+   * que ya compró pierde nada porque dejen de venderse entradas.
+   */
+  setSalesClosed(uuid: string, closed: boolean, loggedUser: string): Promise<Date | null>;
+
+  /** Historial de cambios del evento, del más nuevo al más viejo (`29` §19). */
+  listEventChanges(uuid: string, loggedUser: string): Promise<TEventChange[]>;
 
   publishEvent(uuid: string, loggedUser: string): Promise<boolean>;
 

@@ -25,6 +25,7 @@ import {
   BannerVariant
 } from '../../controllers/const/banner-variant.const';
 import {
+  TEventChange,
   IEventService,
   TEventFilters,
   TEventExpense,
@@ -49,6 +50,8 @@ import {
   EventMapSectorGeometry
 } from '@config/db/entities/tickets/event_map_sector.entity';
 import { EventMapSectorTicketTypeEntity } from '@config/db/entities/tickets/event_map_sector_ticket_type.entity';
+import { EventChangeEntity } from '@config/db/entities/tickets/event_change.entity';
+import { EventChangeService } from './event-change.service';
 
 const BANNERS_BASE_PATH = 'events/banners';
 const GALLERY_BASE_PATH = 'events/gallery';
@@ -64,7 +67,8 @@ export class EventService implements IEventService {
     private readonly redisService: RedisService,
     private readonly userPermission: UserPermissionService,
     private readonly feeSummaryService: FeeSummaryService,
-    private readonly storageService: StorageService
+    private readonly storageService: StorageService,
+    private readonly eventChangeService: EventChangeService
   ) {}
 
   async getEvents(
@@ -257,6 +261,7 @@ export class EventService implements IEventService {
     if (data.venueCountry !== undefined) patch.venueCountry = data.venueCountry;
     if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
+    if (data.lineup !== undefined) patch.lineup = data.lineup;
 
     if (data.slug !== undefined && data.slug !== event.slug) {
       if (event.isPublished) {
@@ -271,6 +276,81 @@ export class EventService implements IEventService {
     }
 
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
+
+    // Detección de cambio material (`BR-EVENT-010` / `BR-REFUND-010`). Va
+    // después de guardar: documenta lo que ya pasó, y un fallo del aviso no
+    // puede dejar el evento a medio actualizar.
+    await this.eventChangeService.recordEventUpdate(event as EventEntity, patch, loggedUser);
+  }
+
+  // ── Operación post-publicación (FP10 / `29` §19) ────────────────────────────
+
+  /**
+   * El nombre de quien hizo el cambio, para el historial.
+   *
+   * Se resuelve al leer y no se congela en la fila: si alguien corrige su
+   * apellido, el historial no tiene por qué seguir mostrando el viejo.
+   */
+  private async resolveAuthors(userUuids: string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(userUuids.filter(Boolean))];
+    if (unique.length === 0) return new Map();
+
+    const users = (await this.dbRepository.findMany({
+      entity: 'user',
+      where: { uuid: In(unique) } as never,
+      select: { uuid: true, firstName: true, lastName: true } as never
+    })) as { uuid: string; firstName?: string; lastName?: string }[];
+
+    return new Map(
+      users.map(u => [u.uuid, `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim()])
+    );
+  }
+
+  private toEventChange(
+    entity: EventChangeEntity,
+    authors: Map<string, string>
+  ): TEventChange {
+    return {
+      uuid: entity.uuid,
+      type: entity.type,
+      isMaterial: Boolean(entity.isMaterial),
+      changes: entity.changes ?? [],
+      reason: entity.reason,
+      ticketTypeUuid: entity.ticketTypeUuid,
+      refundWindowEndsAt: entity.refundWindowEndsAt,
+      notifiedAt: entity.notifiedAt,
+      buyersNotified: Number(entity.buyersNotified ?? 0),
+      createdBy: entity.createdBy,
+      createdByName: (entity.createdBy && authors.get(entity.createdBy)) || null,
+      createdAt: entity.createdAt
+    };
+  }
+
+  async cancelEvent(
+    uuid: string,
+    reason: string | null,
+    loggedUser: string
+  ): Promise<TEventChange> {
+    const event = (await this.assertOwnership(uuid, loggedUser)) as EventEntity;
+    const change = await this.eventChangeService.cancelEvent(event, reason, loggedUser);
+    const authors = await this.resolveAuthors([loggedUser]);
+    return this.toEventChange(change, authors);
+  }
+
+  async setSalesClosed(
+    uuid: string,
+    closed: boolean,
+    loggedUser: string
+  ): Promise<Date | null> {
+    const event = (await this.assertOwnership(uuid, loggedUser)) as EventEntity;
+    return this.eventChangeService.setSalesClosed(event, closed, loggedUser);
+  }
+
+  async listEventChanges(uuid: string, loggedUser: string): Promise<TEventChange[]> {
+    await this.assertOwnership(uuid, loggedUser);
+    const changes = await this.eventChangeService.listChanges(uuid);
+    const authors = await this.resolveAuthors(changes.map(c => c.createdBy ?? ''));
+    return changes.map(c => this.toEventChange(c, authors));
   }
 
   async deleteEvent(uuid: string, loggedUser: string): Promise<boolean> {
@@ -430,6 +510,17 @@ export class EventService implements IEventService {
 
     if (data.quantity !== undefined && patch.availableQuantity !== undefined) {
       await this.redisService.setStock(`stock:${ticketTypeUuid}`, patch.availableQuantity);
+
+      // `BR-EVENT-005` pide trazabilidad de cada cambio de stock: quién, cuándo
+      // y de cuánto a cuánto.
+      await this.eventChangeService.recordStockChange(
+        eventUuid,
+        ticketTypeUuid,
+        ticketType.name,
+        ticketType.quantity,
+        data.quantity,
+        loggedUser
+      );
     }
 
     return this.dbRepository.findOne({

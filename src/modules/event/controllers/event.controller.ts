@@ -63,6 +63,15 @@ import {
   UpsertEventMapRequest
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
+import {
+  CancelEventRequest,
+  SetSalesClosedRequest
+} from './requests/event-operation.request';
+import {
+  EventChangeResponse,
+  EventChangesResponse,
+  EventSalesStateResponse
+} from './responses/event-change.response';
 
 @ApiTags('Events')
 @Controller('events')
@@ -861,5 +870,70 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<void> {
     await this._eventService.deleteExpense(eventUuid, expenseUuid, loggedUser);
+  }
+
+  // ── Operación post-publicación (FP10 / `29` §19) ────────────────────────────
+
+  @UserAuth(null, EventChangesResponse)
+  @ApiOperation({
+    summary: 'Event change history',
+    description:
+      'What changed on this event, newest first (`29` §19): material changes with their refund ' +
+      'window, sales cut-offs and stock adjustments (BR-EVENT-005 auditing).\n\n' +
+      '`openRefundWindowEndsAt` is the furthest window still open, or null.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(200)
+  @Get(':eventUuid/changes')
+  async listEventChanges(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventChangesResponse> {
+    const changes = await this._eventService.listEventChanges(eventUuid, loggedUser);
+    return new EventChangesResponse(changes.map(c => new EventChangeResponse(c)));
+  }
+
+  @UserAuth(CancelEventRequest, EventChangeResponse)
+  @ApiOperation({
+    summary: 'Cancel the event',
+    description:
+      'No Admin gate (`BR-EVENT-010`). Always a material change: with sales it opens the refund ' +
+      'window (BR-REFUND-010) and emails the buyers.\n\n' +
+      'The event is **not** deleted or unpublished — whoever already bought has to be able to ' +
+      'see what happened. Sales are cut as part of the cancellation.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(200)
+  @Post(':eventUuid/cancel')
+  async cancelEvent(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: CancelEventRequest,
+    @User() loggedUser: string
+  ): Promise<EventChangeResponse> {
+    return new EventChangeResponse(
+      await this._eventService.cancelEvent(eventUuid, data.reason ?? null, loggedUser)
+    );
+  }
+
+  @UserAuth(SetSalesClosedRequest, EventSalesStateResponse)
+  @ApiOperation({
+    summary: 'Close or reopen sales',
+    description:
+      'Manual sales cut-off (`BR-EVENT-013`). Not a material change: nobody who already bought ' +
+      'loses anything because tickets stop being sold. A cancelled event cannot be reopened.\n\n' +
+      'Kept apart from `saleEndDate` so the cut-off does not overwrite the window the producer ' +
+      'configured.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @HttpCode(200)
+  @Post(':eventUuid/sales-closed')
+  async setSalesClosed(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: SetSalesClosedRequest,
+    @User() loggedUser: string
+  ): Promise<EventSalesStateResponse> {
+    return new EventSalesStateResponse(
+      await this._eventService.setSalesClosed(eventUuid, data.closed, loggedUser)
+    );
   }
 }

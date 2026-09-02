@@ -39,6 +39,7 @@ import { EventMpAccountEntityData } from '../entities/tickets/event_mp_account.e
 import { EventIncomeEntityData } from '../entities/tickets/event_income.entity';
 import { EventIncomeProductEntityData } from '../entities/tickets/event_income_product.entity';
 import { MpMovementEntityData } from '../entities/tickets/mp_movement.entity';
+import { EventChangeEntityData } from '../entities/tickets/event_change.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
@@ -85,6 +86,7 @@ export const entitiesData = [
   EventIncomeEntityData,
   EventIncomeProductEntityData,
   MpMovementEntityData,
+  EventChangeEntityData,
   UserEventCashierEntityData,
   OrganizationProducerInviteEntityData
 ] as const;

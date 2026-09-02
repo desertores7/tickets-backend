@@ -14,6 +14,7 @@ import { UserPermissionService } from '@root/shared/services/userPermissions.ser
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
 import { EventAiService } from './event/services/implementation/event-ai.service';
+import { EventChangeService } from './event/services/implementation/event-change.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -78,6 +79,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
+    EventChangeService,
     StockService,
     FeeSummaryService,
     EmailService,
@@ -114,6 +116,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
+    EventChangeService,
     StockService,
     FeeSummaryService,
     EmailService,

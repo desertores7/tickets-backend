@@ -27,7 +27,8 @@ export const EMAIL_TEMPLATES = {
   organizationApproved: 'organization-approved',
   organizationRejected: 'organization-rejected',
   organizationSubmitted: 'organization-submitted',
-  producerInvite: 'producer-invite'
+  producerInvite: 'producer-invite',
+  eventChanged: 'event-changed'
 } as const;
 
 export type EmailTemplateName = (typeof EMAIL_TEMPLATES)[keyof typeof EMAIL_TEMPLATES];
