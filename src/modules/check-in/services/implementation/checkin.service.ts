@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException
+} from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
@@ -6,10 +13,17 @@ import { RedisService } from '@config/redis/redis.service';
 import { CheckInResult } from '@config/db/entities/tickets/check_in_log.entity';
 import { TicketStatus } from '@config/db/entities/tickets/ticket.entity';
 import { QrSigningService } from '@modules/qr-generation/services/qr-signing.service';
-import { ICheckInService } from '../contracts/icheckin.service';
+import {
+  ICheckInService,
+  IEventCheckInCounter,
+  ITicketByDocument,
+  IValidatorEvent
+} from '../contracts/icheckin.service';
 import { CheckInResultData, CheckInTicket, CheckInResultEnum } from '../core/checkin';
 
 const CHECKIN_LOCK_TTL = 86400; // 24 horas
+/** El contador vive un poco mas que el evento mas largo razonable. */
+const CHECKIN_COUNTER_TTL = 172800; // 48 horas
 
 @Injectable()
 export class CheckInService implements ICheckInService {
@@ -147,17 +161,51 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 7. Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
+    return this.commitCheckIn(ticket, event, scannedBy, deviceInfo);
+  }
+
+  /**
+   * Camino comun de confirmacion: lock, transaccion y log.
+   *
+   * Lo comparten el escaneo de QR y el check-in manual por documento
+   * (`BR-QR-002`) para que no puedan divergir: una sola implementacion del
+   * lock que evita que dos validadores marquen la misma entrada.
+   */
+  private async commitCheckIn(
+    ticket: { uuid: string; orderItemUuid: string; userUuid: string; eventUuid: string; ticketTypeUuid: string; ticketNumber: string; qrCode: string | null; qrUrl: string | null; pdfUrl: string | null; status: string },
+    event: { uuid: string; startDate: Date; endDate: Date },
+    scannedBy: string,
+    deviceInfo?: Record<string, unknown>
+  ): Promise<CheckInResultData> {
+    const now = new Date();
+
+    const windowStart = new Date(event.startDate);
+    const windowEnd = new Date(event.endDate);
+    if (now < windowStart || now > windowEnd) {
+      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: event.uuid, scannedBy, result: CheckInResult.INVALID, deviceInfo });
+      return {
+        success: false,
+        message: 'El check-in de este evento no está abierto',
+        result: CheckInResultEnum.INVALID
+      };
+    }
+
+    if (ticket.status === TicketStatus.USED) {
+      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: event.uuid, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
+      return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
+    }
+
+    // Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
     const lockKey = `checkin:${ticket.uuid}`;
     const acquired = await this.redisService.markIdempotency(lockKey, CHECKIN_LOCK_TTL);
 
     if (!acquired) {
       this.logger.log(`Check-in fallido: ticket ${ticket.uuid} bloqueado por otro proceso (Redis)`);
-      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: eventId, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
+      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: event.uuid, scannedBy, result: CheckInResult.ALREADY_USED, deviceInfo });
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
-    // 8. Actualizar ticket + crear log en transacción
+    // Actualizar ticket + crear log en transacción
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -191,6 +239,13 @@ export class CheckInService implements ICheckInService {
       await queryRunner.commitTransaction();
 
       this.logger.log(`Check-in exitoso: ticket=${ticket.uuid} scannedBy=${scannedBy}`);
+
+      // Contador vivo (`BR-QR-003`). Fuera de la transaccion y sin await que
+      // frene la respuesta: si Redis falla, el contador se resiembra desde la
+      // base en la proxima consulta y el check-in no se ve afectado.
+      this.redisService
+        .incrWithExpire(`checkin:count:${event.uuid}`, CHECKIN_COUNTER_TTL)
+        .catch(err => this.logger.warn(`No se pudo incrementar el contador: ${err}`));
 
       const updatedTicket: CheckInTicket = {
         uuid: ticket.uuid,
@@ -271,6 +326,185 @@ export class CheckInService implements ICheckInService {
       where: { userUuid, eventUuid } as any
     });
     return !!assignment;
+  }
+
+
+  // ── App Validador (29 §20) ──────────────────────────────────────────────────
+
+  /**
+   * Eventos del turno del validador.
+   *
+   * La ventana es `endDate >= ahora` y `startDate <= fin de hoy`: eso cubre el
+   * caso overnight sin necesidad de calcular "dia de trabajo" a mano. Un evento
+   * de ayer 22:00 a hoy 06:00 sigue apareciendo a las 02:00, porque todavia no
+   * termino; y uno que arranca hoy 23:00 aparece desde temprano.
+   *
+   * Una sola consulta con join y columnas explicitas: es la pantalla que abre
+   * el validador al llegar a la puerta y no debe pagar hidratacion de entidades.
+   */
+  async getMyEventsToday(userUuid: string): Promise<IValidatorEvent[]> {
+    const now = new Date();
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const rows = await this.dataSource
+      .createQueryBuilder()
+      .select('e.uuid', 'uuid')
+      .addSelect('e.name', 'name')
+      .addSelect('e.startDate', 'startDate')
+      .addSelect('e.endDate', 'endDate')
+      .addSelect('e.venueName', 'venueName')
+      .from('event_validator', 'ev')
+      .innerJoin('event', 'e', 'e.uuid = ev.eventUuid')
+      .where('ev.userUuid = :userUuid', { userUuid })
+      .andWhere('e.isActive = 1')
+      .andWhere('e.endDate >= :now', { now })
+      .andWhere('e.startDate <= :endOfToday', { endOfToday })
+      .orderBy('e.startDate', 'ASC')
+      .getRawMany<{
+        uuid: string;
+        name: string;
+        startDate: Date;
+        endDate: Date;
+        venueName: string | null;
+      }>();
+
+    return rows.map(r => {
+      const start = new Date(r.startDate);
+      const end = new Date(r.endDate);
+      return {
+        uuid: r.uuid,
+        name: r.name,
+        startDate: start,
+        endDate: end,
+        venueName: r.venueName,
+        // Misma ventana que aplica `validateQr`, para que la UI no ofrezca
+        // escanear algo que el backend va a rechazar.
+        checkInOpen: now >= start && now <= end
+      };
+    });
+  }
+
+  /**
+   * Busca entradas por documento del titular dentro de un evento.
+   *
+   * El documento se normaliza a digitos: la gente lo tipea con puntos y el
+   * campo se guarda sin formato. Se limita a 20 filas — es una busqueda de
+   * puerta, no un listado.
+   */
+  async findTicketsByDocument(
+    eventId: string,
+    document: string,
+    scannedBy: string
+  ): Promise<ITicketByDocument[]> {
+    await this.assertCanOperateEvent(eventId, scannedBy);
+
+    const normalized = document.replace(/\D/g, '');
+    if (normalized.length < 6) {
+      throw new BadRequestException('Ingresá al menos 6 dígitos del documento');
+    }
+
+    return this.dataSource
+      .createQueryBuilder()
+      .select('t.uuid', 'ticketUuid')
+      .addSelect('t.ticketNumber', 'ticketNumber')
+      .addSelect("CONCAT(u.firstName, ' ', u.lastName)", 'holderName')
+      .addSelect('tt.name', 'ticketTypeName')
+      .addSelect('t.status', 'status')
+      .addSelect('t.checkedInAt', 'checkedInAt')
+      .from('ticket', 't')
+      .innerJoin('user', 'u', 'u.uuid = t.userUuid')
+      .leftJoin('ticket_type', 'tt', 'tt.uuid = t.ticketTypeUuid')
+      .where('t.eventUuid = :eventId', { eventId })
+      .andWhere('u.dni = :document', { document: normalized })
+      .orderBy('t.ticketNumber', 'ASC')
+      .limit(20)
+      .getRawMany<ITicketByDocument>();
+  }
+
+  /**
+   * Check-in manual (`BR-QR-002`): la entrada ya se identifico por documento,
+   * asi que no hay QR que verificar. El resto del camino es el mismo que el
+   * escaneo — misma ventana, mismo lock de Redis, misma transaccion y el mismo
+   * log — para que las dos vias no puedan divergir.
+   */
+  async checkInManually(
+    ticketUuid: string,
+    eventId: string,
+    scannedBy: string,
+    deviceInfo?: Record<string, unknown>
+  ): Promise<CheckInResultData> {
+    await this.assertCanOperateEvent(eventId, scannedBy);
+
+    const ticket = await this.dbRepository.findOne({ entity: 'ticket', where: { uuid: ticketUuid } });
+
+    if (!ticket || ticket.eventUuid !== eventId) {
+      await this.writeLog({ ticketUuid: ticket?.uuid ?? null, eventUuid: eventId, scannedBy, result: CheckInResult.WRONG_EVENT, deviceInfo });
+      return { success: false, message: 'Esta entrada no corresponde a este evento', result: CheckInResultEnum.WRONG_EVENT };
+    }
+
+    const event = await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventId } });
+    if (!event) {
+      return { success: false, message: 'Evento no encontrado', result: CheckInResultEnum.INVALID };
+    }
+
+    return this.commitCheckIn(ticket, event, scannedBy, deviceInfo);
+  }
+
+  /**
+   * Contador vivo de ingresos del evento (`BR-QR-003`).
+   *
+   * Se lee de Redis, que se incrementa en cada check-in exitoso: con varios
+   * validadores refrescando en la puerta, un COUNT contra la base por cada
+   * consulta seria el camino a saturarla. Si la key no existe (primer arranque,
+   * expiro, se reinicio Redis) se siembra desde la base una sola vez.
+   */
+  async getEventCounter(eventId: string, requestedBy: string): Promise<IEventCheckInCounter> {
+    await this.assertCanOperateEvent(eventId, requestedBy);
+
+    const key = `checkin:count:${eventId}`;
+    let checkedIn = await this.redisService.getCounter(key);
+
+    if (checkedIn === 0) {
+      // Puede ser un cero real o una key ausente. Se resuelve contra la base y
+      // se siembra, asi el resto de las consultas vuelven a ser O(1).
+      const row = await this.dataSource
+        .createQueryBuilder()
+        .select('COUNT(*)', 'n')
+        .from('ticket', 't')
+        .where('t.eventUuid = :eventId', { eventId })
+        .andWhere('t.status = :status', { status: TicketStatus.USED })
+        .getRawOne<{ n: string }>();
+
+      checkedIn = Number(row?.n ?? 0);
+      if (checkedIn > 0) {
+        await this.redisService.setCounter(key, checkedIn, CHECKIN_COUNTER_TTL);
+      }
+    }
+
+    const totalRow = await this.dataSource
+      .createQueryBuilder()
+      .select('COUNT(*)', 'n')
+      .from('ticket', 't')
+      .where('t.eventUuid = :eventId', { eventId })
+      .andWhere('t.status IN (:...statuses)', {
+        statuses: [TicketStatus.ACTIVE, TicketStatus.USED]
+      })
+      .getRawOne<{ n: string }>();
+
+    return { eventUuid: eventId, checkedIn, totalTickets: Number(totalRow?.n ?? 0) };
+  }
+
+  /**
+   * Autorizacion para operar un evento: Administrador, miembro de la
+   * organizacion duenia, o validador asignado a ese evento.
+   */
+  private async assertCanOperateEvent(eventUuid: string, userUuid: string): Promise<void> {
+    const event = await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventUuid } });
+    if (!event) throw new NotFoundException('Evento no encontrado');
+
+    const allowed = await this.isAuthorizedForEvent(userUuid, eventUuid, event.organizationUuid);
+    if (!allowed) throw new ForbiddenException('No tenés acceso a este evento');
   }
 
 }

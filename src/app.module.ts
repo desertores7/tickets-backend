@@ -12,6 +12,7 @@ import { ControllerModule } from './modules/controller.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { CheckInModule } from './modules/check-in/checkin.module';
+import { EventCashSyncModule } from './modules/event-cash/event-cash-sync.module';
 import { QrGenerationModule } from './modules/qr-generation/qr-generation.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorageModule } from './shared/services/storage.module';
@@ -64,7 +65,8 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     ControllerModule,
     OrdersModule,
     PaymentsModule,
-    CheckInModule
+    CheckInModule,
+    EventCashSyncModule
   ],
   controllers: [AppController],
   providers: [

@@ -33,6 +33,8 @@ import {
   TicketStatus
 } from '../core/order';
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
+import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
+import { ICouponService } from '@modules/coupons/services/contracts/icoupon.service';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
 /** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
@@ -56,7 +58,11 @@ export class OrderService implements IOrderService {
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue,
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue,
     @Inject('IUserNotificationService')
-    private readonly userNotificationService: IUserNotificationService
+    private readonly userNotificationService: IUserNotificationService,
+    @Inject('IStockAlertService')
+    private readonly stockAlertService: IStockAlertService,
+    @Inject('ICouponService')
+    private readonly couponService: ICouponService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -164,8 +170,29 @@ export class OrderService implements IOrderService {
       subtotal += dto.items[i].quantity * Number(ticketTypes[i]!.price);
     }
     subtotal = Math.round(subtotal * 100) / 100;
-    const serviceFee = Math.round(subtotal * SERVICE_FEE_RATE * 100) / 100;
-    const total = Math.round((subtotal + serviceFee) * 100) / 100;
+
+    // Orden fijado por `BR-COUPON-008`: subtotal -> cupón -> fee 15% sobre el
+    // subtotal YA descontado -> total. Calcular el fee sobre el subtotal sin
+    // descuento le cobraría de más al comprador.
+    const coupon = dto.couponCode
+      ? await this.couponService.applyToSubtotal(
+          dto.eventUuid,
+          dto.couponCode,
+          // Las lineas, no el total: el cupon puede estar limitado a ciertas
+          // tandas y el descuento se calcula solo sobre esas (BR-COUPON-009).
+          dto.items.map((item, i) => ({
+            ticketTypeUuid: item.ticketTypeUuid,
+            subtotal: Math.round(item.quantity * Number(ticketTypes[i]!.price) * 100) / 100
+          })),
+          userId
+        )
+      : null;
+
+    const discountAmount = coupon?.discountAmount ?? 0;
+    const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
+
+    const serviceFee = Math.round(discountedSubtotal * SERVICE_FEE_RATE * 100) / 100;
+    const total = Math.round((discountedSubtotal + serviceFee) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails
     const stockItems = dto.items.map(item => ({
@@ -199,6 +226,8 @@ export class OrderService implements IOrderService {
         eventUuid: dto.eventUuid,
         status: OrderStatus.PENDING_PAYMENT,
         subtotal,
+        couponUuid: coupon?.couponUuid ?? null,
+        discountAmount,
         serviceFee,
         total,
         currency,
@@ -375,6 +404,11 @@ export class OrderService implements IOrderService {
         quantity: item.quantity
       }));
       await this.stockService.confirmStock(stockItems, queryRunner);
+
+      // Alertas de stock (`BR-EVENT-017`). Sin await: el aviso no puede
+      // demorar ni tumbar una compra que ya se cobró. El servicio traga sus
+      // propios errores.
+      void this.stockAlertService.evaluateAfterSale(stockItems.map(i => i.ticketTypeId));
 
       // 5. Generate individual tickets within the same transaction
       for (const item of order.items as any[]) {
@@ -597,3 +631,4 @@ export class OrderService implements IOrderService {
     }
   }
 }
+

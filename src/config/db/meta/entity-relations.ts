@@ -379,6 +379,57 @@ export const entityRelations = {
     creator: 'user'
   },
 
+  event_mp_account: {
+    event: 'event',
+    mpAccount: 'org_mp_account'
+  },
+
+  event_income: {
+    event: 'event',
+    creator: 'user'
+  },
+
+  event_income_product: {
+    income: 'event_income'
+  },
+
+  mp_movement: {
+    event: 'event',
+    mpAccount: 'org_mp_account'
+  },
+
+  coupon: {
+    event: 'event'
+  },
+
+  coupon_ticket_type: {
+    coupon: 'coupon',
+    ticketType: 'ticket_type'
+  },
+
+  coupon_redemption: {
+    coupon: 'coupon'
+  },
+
+  stock_alert: {
+    event: 'event',
+    ticketType: 'ticket_type'
+  },
+
+  payout: {
+    organization: 'organization',
+    event: 'event'
+  },
+
+  org_manual_item: {
+    organization: 'organization'
+  },
+
+  mp_catalog_item: {
+    organization: 'organization',
+    mpAccount: 'org_mp_account'
+  },
+
   org_mp_account: {
     organization: 'organization'
   },

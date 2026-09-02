@@ -7,17 +7,26 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { IsNull } from 'typeorm';
-import { MercadoPagoConfig, OAuth } from 'mercadopago';
+import { MercadoPagoConfig, OAuth, Payment as MPPayment } from 'mercadopago';
 import { DBRepository } from '@config/db/db.repository';
 import { EnvService } from '@config/env/env.service';
 import { OrgMpAccountEntity } from '@config/db/entities/tickets/org_mp_account.entity';
+import { MpCatalogItemEntity } from '@config/db/entities/tickets/mp_catalog_item.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-status.const';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
-import { IMpAccount, IOrgMpService } from '../contracts/iorg-mp.service';
+import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
+import { v4 as uuidv4 } from 'uuid';
+import { ICatalogSyncResult, IMpAccount, IOrgMpService } from '../contracts/iorg-mp.service';
 
 /** El `state` del OAuth vive poco: solo tiene que sobrevivir el viaje a MP. */
 const STATE_TTL = '10m';
+
+/** Ventana hacia atras que se recorre buscando productos en los pagos. */
+const CATALOG_LOOKBACK_DAYS = 90;
+const CATALOG_PAGE_SIZE = 50;
+/** Tope de paginas: una cuenta con mucho volumen no debe colgar el request. */
+const CATALOG_MAX_PAGES = 20;
 
 type ConnectState = {
   organizationUuid: string;
@@ -32,7 +41,8 @@ export class OrgMpService implements IOrgMpService {
     private readonly dbRepository: DBRepository,
     private readonly envService: EnvService,
     private readonly tokenCipher: TokenCipher,
-    private readonly jwt: JwtService
+    private readonly jwt: JwtService,
+    private readonly mpTokenService: MpTokenService
   ) {}
 
   // ── Configuracion ───────────────────────────────────────────────────────────
@@ -252,6 +262,167 @@ export class OrgMpService implements IOrgMpService {
         tokenExpiresAt: null
       }
     });
+  }
+
+
+  // ── Sincronizacion de catalogo (BR-CASH-002) ────────────────────────────────
+
+  /**
+   * Mercado Pago NO expone un catalogo de productos: su API tiene pagos,
+   * ordenes, tiendas y terminales, pero ningun recurso de items. Lo unico que
+   * puede traer nombres de productos es `additional_info.items` de cada pago, y
+   * solo si quien cobro los envio.
+   *
+   * Por eso el "catalogo MP" se reconstruye recorriendo los pagos de la cuenta.
+   * Un posnet donde se tipea el monto no manda items: esos pagos se cuentan y
+   * se ignoran, nunca ensucian el catalogo con filas vacias.
+   */
+  async syncCatalog(loggedUser: string, accountUuid: string): Promise<ICatalogSyncResult> {
+    const account = await this.requireOwnAccount(loggedUser, accountUuid);
+
+    if (account.status !== 'connected') {
+      throw new BadRequestException('La cuenta está desconectada. Reconectala para sincronizar.');
+    }
+
+    const accessToken = await this.resolveUsableAccessToken(account);
+    const since = new Date(Date.now() - CATALOG_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const syncedAt = new Date();
+
+    const paymentClient = new MPPayment(new MercadoPagoConfig({ accessToken }));
+
+    let offset = 0;
+    let scanned = 0;
+    let withItems = 0;
+    let withoutItems = 0;
+    const found = new Map<string, { name: string; price: number | null }>();
+
+    try {
+      for (let page = 0; page < CATALOG_MAX_PAGES; page++) {
+        const result = await paymentClient.search({
+          options: {
+            range: 'date_created',
+            begin_date: since.toISOString(),
+            end_date: syncedAt.toISOString(),
+            limit: CATALOG_PAGE_SIZE,
+            offset
+          }
+        });
+
+        const results = result?.results ?? [];
+        if (results.length === 0) break;
+
+        for (const payment of results) {
+          scanned++;
+          const items = payment?.additional_info?.items ?? [];
+
+          if (items.length === 0) {
+            withoutItems++;
+            continue;
+          }
+          withItems++;
+
+          for (const item of items) {
+            const name = item?.title?.trim();
+            if (!name) continue;
+
+            // `id` lo define quien integra el cobro y puede venir vacio. El
+            // titulo es el fallback: es lo que identifica al producto para una
+            // persona, y mantiene estable el matcheo entre sincronizaciones.
+            const externalId = String(item.id ?? '').trim() || `title:${name.toLowerCase()}`;
+            const price = Number(item.unit_price);
+
+            found.set(externalId, {
+              name,
+              price: Number.isFinite(price) ? price : null
+            });
+          }
+        }
+
+        if (results.length < CATALOG_PAGE_SIZE) break;
+        offset += CATALOG_PAGE_SIZE;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error consultando Mercado Pago';
+      await this.dbRepository.update({
+        entity: 'org_mp_account',
+        where: { uuid: account.uuid },
+        data: { status: 'error', lastErrorMessage: message.slice(0, 500) }
+      });
+      throw new BadRequestException(`No se pudo leer los pagos de Mercado Pago: ${message}`);
+    }
+
+    const { created, updated } = await this.upsertCatalogItems(account, found, syncedAt);
+
+    await this.dbRepository.update({
+      entity: 'org_mp_account',
+      where: { uuid: account.uuid },
+      data: { lastCatalogSyncAt: syncedAt, lastErrorMessage: null }
+    });
+
+    return {
+      paymentsScanned: scanned,
+      paymentsWithItems: withItems,
+      paymentsWithoutItems: withoutItems,
+      itemsCreated: created,
+      itemsUpdated: updated,
+      since,
+      syncedAt
+    };
+  }
+
+  /**
+   * Upsert por `(cuenta, externalId)`: reimportar el mismo producto refresca su
+   * nombre y precio en vez de duplicarlo. El indice unico de la tabla lo respalda.
+   */
+  private async upsertCatalogItems(
+    account: OrgMpAccountEntity,
+    found: Map<string, { name: string; price: number | null }>,
+    syncedAt: Date
+  ): Promise<{ created: number; updated: number }> {
+    let created = 0;
+    let updated = 0;
+
+    for (const [externalId, data] of found) {
+      const existing = (await this.dbRepository.findOne({
+        entity: 'mp_catalog_item',
+        where: { orgMpAccountUuid: account.uuid, externalId }
+      })) as MpCatalogItemEntity | null;
+
+      if (existing) {
+        await this.dbRepository.update({
+          entity: 'mp_catalog_item',
+          where: { uuid: existing.uuid },
+          data: { name: data.name, price: data.price, lastSyncAt: syncedAt, isDeleted: null }
+        });
+        updated++;
+        continue;
+      }
+
+      const item = new MpCatalogItemEntity();
+      item.uuid = uuidv4();
+      item.organizationUuid = account.organizationUuid;
+      item.orgMpAccountUuid = account.uuid;
+      item.externalId = externalId;
+      item.name = data.name;
+      item.price = data.price;
+      item.lastSyncAt = syncedAt;
+      item.isDeleted = null;
+
+      await this.dbRepository.create({ entity: 'mp_catalog_item', data: item });
+      created++;
+    }
+
+    return { created, updated };
+  }
+
+  /**
+   * Devuelve un access token utilizable, renovandolo si esta por vencer.
+   *
+   * El margen evita el caso borde de un token que vence en mitad de la
+   * sincronizacion, que puede recorrer varias paginas de pagos.
+   */
+  private resolveUsableAccessToken(account: OrgMpAccountEntity): Promise<string> {
+    return this.mpTokenService.resolveUsableAccessToken(account);
   }
 
   private async requireOwnAccount(

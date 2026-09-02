@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -6,8 +6,11 @@ import {
   IsArray,
   IsInt,
   IsNotEmpty,
+  IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested
 } from 'class-validator';
@@ -46,4 +49,15 @@ export class CreateOrderRequest {
     ]
   })
   items: CreateOrderItemRequest[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @ApiPropertyOptional({
+    description:
+      'Código de cupón. El descuento se aplica sobre el subtotal y el costo de servicio se ' +
+      'calcula después, sobre el subtotal ya descontado (BR-COUPON-008).',
+    example: 'EARLY20'
+  })
+  couponCode?: string;
 }

@@ -82,6 +82,8 @@ export interface ICreateOrderItem {
 export interface ICreateOrder {
   eventUuid: string;
   items: ICreateOrderItem[];
+  /** Código de cupón opcional (BR-COUPON-008). */
+  couponCode?: string;
 }
 
 export interface PaymentConfirmationData {

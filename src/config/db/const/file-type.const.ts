@@ -63,3 +63,22 @@ export const ORGANIZATION_FISCAL_FILE_TYPE_UUID_BY_KIND: Record<
 export function isOrganizationFiscalFileType(fileTypeUuid: string): boolean {
   return (ORGANIZATION_FISCAL_FILE_TYPE_UUIDS as readonly string[]).includes(fileTypeUuid);
 }
+
+/** Adjuntos de una liquidación (BR-REPORT-003). Los sube el Administrador. */
+export const PAYOUT_FILE_TYPES = {
+  transfer_proof: {
+    uuid: 'c3333333-3333-4333-8333-333333333301',
+    name: 'payout_transfer_proof',
+    kind: 'transfer-proof' as const
+  },
+  arca_invoice: {
+    uuid: 'c3333333-3333-4333-8333-333333333302',
+    name: 'payout_arca_invoice',
+    kind: 'arca-invoice' as const
+  }
+} as const;
+
+export const PAYOUT_FILE_TYPE_UUID_BY_KIND: Record<'transfer-proof' | 'arca-invoice', string> = {
+  'transfer-proof': PAYOUT_FILE_TYPES.transfer_proof.uuid,
+  'arca-invoice': PAYOUT_FILE_TYPES.arca_invoice.uuid
+};

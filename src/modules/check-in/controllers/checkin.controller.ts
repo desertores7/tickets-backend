@@ -1,10 +1,17 @@
-import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { ValidatorAuth } from '@root/shared/auth/decorator/validator-auth.decorator';
 import { ICheckInService } from '../services/contracts/icheckin.service';
 import { ValidateQrRequest } from './dtos/validate-qr.request';
 import { ValidateQrResponse } from './dtos/validate-qr.response';
+import {
+  EventCounterResponse,
+  FindByDocumentRequest,
+  ManualCheckInRequest,
+  TicketByDocumentResponse,
+  ValidatorEventResponse
+} from './dtos/validator-app.dto';
 
 @ApiTags('Check-In')
 @Controller('check-in')
@@ -57,5 +64,86 @@ export class CheckInController {
       body.deviceInfo
     );
     return new ValidateQrResponse(result);
+  }
+
+  @ValidatorAuth(null, ValidatorEventResponse)
+  @ApiOperation({
+    summary: 'My events for the working day',
+    description:
+      'Events assigned to the logged-in validator whose check-in window is open or opens today. ' +
+      'Overnight is covered: an event that started yesterday 22:00 and ends today 06:00 still ' +
+      'shows up at 02:00, because it has not finished yet. Single joined query with explicit ' +
+      'columns — this is the screen the validator opens at the door.'
+  })
+  @HttpCode(200)
+  @Get('my-events')
+  async getMyEventsToday(@User() userId: string): Promise<ValidatorEventResponse[]> {
+    const events = await this.checkInService.getMyEventsToday(userId);
+    return events.map(e => new ValidatorEventResponse(e));
+  }
+
+  @ValidatorAuth(FindByDocumentRequest, TicketByDocumentResponse)
+  @ApiOperation({
+    summary: 'Find tickets by document',
+    description:
+      'Manual check-in path (`BR-QR-002`): for when the QR fails or the buyer phone is dead. ' +
+      'The document is normalised to digits, so it can be typed with dots. Capped at 20 rows.'
+  })
+  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @HttpCode(200)
+  @Post('find-by-document')
+  async findByDocument(
+    @Body() body: FindByDocumentRequest,
+    @User() userId: string
+  ): Promise<TicketByDocumentResponse[]> {
+    const tickets = await this.checkInService.findTicketsByDocument(
+      body.eventId,
+      body.document,
+      userId
+    );
+    return tickets.map(t => new TicketByDocumentResponse(t));
+  }
+
+  @ValidatorAuth(ManualCheckInRequest, ValidateQrResponse)
+  @ApiOperation({
+    summary: 'Manual check-in by ticket',
+    description:
+      'Confirms entry for a ticket already identified by document (`BR-QR-002`). Shares the exact ' +
+      'same path as the QR scan — same window, same Redis lock, same transaction and log — so the ' +
+      'two ways in cannot diverge.\n\n' +
+      'As with `validate`, `success: false` is not an HTTP error: inspect `result`.'
+  })
+  @HttpCode(200)
+  @Post('manual')
+  async manualCheckIn(
+    @Body() body: ManualCheckInRequest,
+    @User() userId: string
+  ): Promise<ValidateQrResponse> {
+    const result = await this.checkInService.checkInManually(
+      body.ticketUuid,
+      body.eventId,
+      userId,
+      body.deviceInfo
+    );
+    return new ValidateQrResponse(result);
+  }
+
+  @ValidatorAuth(null, EventCounterResponse)
+  @ApiOperation({
+    summary: 'Live entry counter for the event',
+    description:
+      'Aggregated across ALL access points, not per scanner (`BR-QR-003`). Served from a Redis ' +
+      'counter incremented on every successful check-in: with several validators refreshing at ' +
+      'the door, a COUNT per request would be the way to saturate the database. If the key is ' +
+      'missing it is seeded from the database once.'
+  })
+  @ApiParam({ name: 'eventId' })
+  @HttpCode(200)
+  @Get('counter/:eventId')
+  async getCounter(
+    @Param('eventId') eventId: string,
+    @User() userId: string
+  ): Promise<EventCounterResponse> {
+    return new EventCounterResponse(await this.checkInService.getEventCounter(eventId, userId));
   }
 }

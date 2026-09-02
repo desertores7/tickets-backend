@@ -191,6 +191,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return v ? Number(v) || 0 : 0;
   }
 
+  /** Siembra un contador con TTL. Se usa para el contador de ingresos por evento. */
+  async setCounter(key: string, value: number, ttlSeconds: number): Promise<void> {
+    await this.redis.set(key, String(value), 'EX', ttlSeconds);
+  }
+
   async deleteKey(key: string): Promise<void> {
     await this.redis.del(key);
   }

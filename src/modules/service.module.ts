@@ -29,7 +29,13 @@ import { UserNotificationService } from './notifications/services/implementation
 import { SupportService } from './support/services/implementation/support.service';
 import { DashboardService } from './dashboard/services/implementation/dashboard.service';
 import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
+import { OrgCatalogService } from './org-catalog/services/implementation/org-catalog.service';
+import { PayoutService } from './payouts/services/implementation/payout.service';
+import { StockAlertService } from './stock-alerts/services/implementation/stock-alert.service';
+import { CouponService } from './coupons/services/implementation/coupon.service';
+import { EventCashService } from './event-cash/services/implementation/event-cash.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 
@@ -57,7 +63,13 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
+    { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
+    { provide: 'IPayoutService', useClass: PayoutService },
+    { provide: 'IStockAlertService', useClass: StockAlertService },
+    { provide: 'ICouponService', useClass: CouponService },
+    { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
@@ -87,7 +99,13 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IEventService', useClass: EventService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
+    { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
+    { provide: 'IPayoutService', useClass: PayoutService },
+    { provide: 'IStockAlertService', useClass: StockAlertService },
+    { provide: 'ICouponService', useClass: CouponService },
+    { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },

@@ -19,6 +19,17 @@ import { DashboardController } from './dashboard/controllers/dashboard.controlle
 import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
 import { BackofficeDashboardController } from './reporting/controllers/backoffice-dashboard.controller';
 import { OrgMpController } from './org-mp/controllers/org-mp.controller';
+import { OrgCatalogController } from './org-catalog/controllers/org-catalog.controller';
+import {
+  AdminPayoutController,
+  ProducerPayoutController
+} from './payouts/controllers/payout.controller';
+import { StockAlertController } from './stock-alerts/controllers/stock-alert.controller';
+import { CouponController } from './coupons/controllers/coupon.controller';
+import { EventCashController } from './event-cash/controllers/event-cash.controller';
+import { MpMovementController } from './event-cash/controllers/mp-movement.controller';
+import { EventDashboardController } from './reporting/controllers/event-dashboard.controller';
+import { EventMpAccountController } from './event-cash/controllers/event-mp-account.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -34,6 +45,15 @@ import { OrgMpController } from './org-mp/controllers/org-mp.controller';
     ProducerSalesController,
     BackofficeDashboardController,
     OrgMpController,
+    OrgCatalogController,
+    ProducerPayoutController,
+    AdminPayoutController,
+    StockAlertController,
+    CouponController,
+    EventCashController,
+    MpMovementController,
+    EventDashboardController,
+    EventMpAccountController,
     OrderController,
     PaymentController,
     CheckInController,
