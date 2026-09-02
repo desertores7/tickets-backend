@@ -25,8 +25,8 @@ export class BackofficeDashboardController {
       'Aggregated KPIs (BR-BACKOFFICE-002). Scope depends on the role: a `Productor` gets their ' +
       "organizations' events; an `Administrador` gets all.\n\n" +
       '**BR-REPORT-001**: `webRevenue` excludes the service fee.\n\n' +
-      '`cashRevenue` is 0 and `cashModuleAvailable` is false until the Caja module (FP11) exists — ' +
-      'the frontend should say so rather than present the total as complete.\n\n' +
+      '`cashRevenue` are the operational cash incomes (BR-CASH-007), computed by the Caja ' +
+      'module so this endpoint and the per-event dashboard cannot disagree.\n\n' +
       'For the role-based workspace home (incl. Caja today events), see `GET /backoffice/home`.'
   })
   @ApiQuery({ name: 'dateFrom', required: false, description: 'YYYY-MM-DD, inclusive.' })

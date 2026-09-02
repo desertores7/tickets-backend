@@ -3,6 +3,7 @@ import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.r
 import {
   IDashboardSummary,
   IDashboardTopEvent,
+  IEventDashboard,
   ISalesRow
 } from '../../services/contracts/ireporting.service';
 
@@ -224,5 +225,66 @@ export class DashboardResponse {
     }
 
     this.kpis = common;
+  }
+}
+
+/**
+ * Dashboard de un evento (`29` §17).
+ *
+ * Solo agregados: sin líneas de gasto, sin productos por ingreso y sin costo
+ * de servicio (`BR-REPORT-001`).
+ */
+export class EventDashboardResponse {
+  @ApiProperty() eventUuid: string;
+  @ApiProperty() eventName: string;
+  @ApiProperty({ description: 'ISO-8601' }) startDate: string;
+  @ApiProperty({ description: 'ISO-8601' }) endDate: string;
+  @ApiProperty() isPublished: boolean;
+
+  @ApiProperty({ description: 'Entradas web vendidas, en unidades' }) ticketsSold: number;
+
+  @ApiProperty({ description: 'Recaudación de entradas web, SIN costo de servicio' })
+  webRevenue: number;
+
+  @ApiProperty({ description: 'Entradas vendidas en puerta (BR-CASH-006)' }) doorTickets: number;
+  @ApiProperty({ description: 'Cobros por posnet MP' }) mpIncome: number;
+  @ApiProperty({ description: 'MP sin producto mapeado' }) transfersAndOthers: number;
+  @ApiProperty({ description: 'Ingresos cargados a mano' }) manualIncome: number;
+  @ApiProperty({ description: 'Devoluciones y contracargos: restan' }) mpRefunds: number;
+
+  @ApiProperty({ description: 'Ingresos operativos netos de la caja (BR-CASH-007)' })
+  cashRevenue: number;
+
+  @ApiProperty({ description: 'webRevenue + cashRevenue' }) totalIncome: number;
+  @ApiProperty() expensesTotal: number;
+
+  @ApiProperty({
+    description: 'Agregado por categoría, sin líneas ni proveedores',
+    example: [{ category: 'venue', total: 180000 }]
+  })
+  expensesByCategory: { category: string; total: number }[];
+
+  @ApiProperty({ description: 'totalIncome − expensesTotal' }) estimatedResult: number;
+  @ApiProperty({ example: 'ARS' }) currency: string;
+
+  constructor(data: IEventDashboard) {
+    this.eventUuid = data.eventUuid;
+    this.eventName = data.eventName;
+    this.startDate = new Date(data.startDate).toISOString();
+    this.endDate = new Date(data.endDate).toISOString();
+    this.isPublished = data.isPublished;
+    this.ticketsSold = data.ticketsSold;
+    this.webRevenue = data.webRevenue;
+    this.doorTickets = data.doorTickets;
+    this.mpIncome = data.mpIncome;
+    this.transfersAndOthers = data.transfersAndOthers;
+    this.manualIncome = data.manualIncome;
+    this.mpRefunds = data.mpRefunds;
+    this.cashRevenue = data.cashRevenue;
+    this.totalIncome = data.totalIncome;
+    this.expensesTotal = data.expensesTotal;
+    this.expensesByCategory = data.expensesByCategory;
+    this.estimatedResult = data.estimatedResult;
+    this.currency = data.currency;
   }
 }

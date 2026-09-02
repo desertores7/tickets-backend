@@ -70,7 +70,7 @@ export interface IDashboardSummary {
   ticketsSold: number;
   /** Recaudación de entradas web, sin costo de servicio */
   webRevenue: number;
-  /** Ingresos operativos de caja. 0 hasta que exista el módulo FP11. */
+  /** Ingresos operativos de caja (`BR-CASH-007`) */
   cashRevenue: number;
   totalIncome: number;
   expensesTotal: number;
@@ -79,10 +79,52 @@ export interface IDashboardSummary {
   expensesByCategory: { category: string; total: number }[];
   topEvents: IDashboardTopEvent[];
   currency: string;
-  /** Avisa al frontend que el número de caja todavía no es real */
+  /**
+   * Los ingresos de caja son reales. Queda como bandera del contrato: el
+   * frontend la usa para decidir si muestra los KPIs de caja.
+   */
   cashModuleAvailable: boolean;
   /** Solo se completa para el Administrador */
   admin?: IAdminDashboardSummary;
+}
+
+/**
+ * Dashboard de un evento (`29` §17).
+ *
+ * Son los KPIs de `29` §6 acotados al evento: solo agregados, sin detalle de
+ * productos por ingreso ni líneas de gasto. La recaudación web nunca incluye
+ * el costo de servicio (`BR-REPORT-001`).
+ */
+export interface IEventDashboard {
+  eventUuid: string;
+  eventName: string;
+  startDate: Date;
+  endDate: Date;
+  isPublished: boolean;
+
+  /** Entradas web vendidas, en unidades */
+  ticketsSold: number;
+  /** Recaudación de entradas web, sin costo de servicio */
+  webRevenue: number;
+
+  /** Σ productos tipo `entrada` de la caja (`BR-CASH-006`) */
+  doorTickets: number;
+  mpIncome: number;
+  transfersAndOthers: number;
+  manualIncome: number;
+  /** Devoluciones y contracargos: restan */
+  mpRefunds: number;
+  /** Ingresos operativos netos de la caja (`BR-CASH-007`) */
+  cashRevenue: number;
+
+  /** webRevenue + cashRevenue */
+  totalIncome: number;
+  expensesTotal: number;
+  /** Agregado por categoría, sin líneas ni proveedores (`29` §17) */
+  expensesByCategory: { category: string; total: number }[];
+  /** totalIncome − expensesTotal */
+  estimatedResult: number;
+  currency: string;
 }
 
 export interface IReportingService {
@@ -99,6 +141,13 @@ export interface IReportingService {
     role: string | null,
     filters: ISalesFilters
   ): Promise<ISalesRow[]>;
+
+  /** Dashboard de un evento (`29` §17). Solo el dueño del evento o el Administrador. */
+  getEventDashboard(
+    eventUuid: string,
+    loggedUser: string,
+    role: string | null
+  ): Promise<IEventDashboard>;
 
   getDashboard(
     loggedUser: string,

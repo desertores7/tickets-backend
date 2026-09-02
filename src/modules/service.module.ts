@@ -33,7 +33,9 @@ import { OrgCatalogService } from './org-catalog/services/implementation/org-cat
 import { PayoutService } from './payouts/services/implementation/payout.service';
 import { StockAlertService } from './stock-alerts/services/implementation/stock-alert.service';
 import { CouponService } from './coupons/services/implementation/coupon.service';
+import { EventCashService } from './event-cash/services/implementation/event-cash.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 
@@ -65,7 +67,9 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IPayoutService', useClass: PayoutService },
     { provide: 'IStockAlertService', useClass: StockAlertService },
     { provide: 'ICouponService', useClass: CouponService },
+    { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },
@@ -99,7 +103,9 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IPayoutService', useClass: PayoutService },
     { provide: 'IStockAlertService', useClass: StockAlertService },
     { provide: 'ICouponService', useClass: CouponService },
+    { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     { provide: 'IOrderService', useClass: OrderService },

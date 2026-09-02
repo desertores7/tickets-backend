@@ -59,6 +59,16 @@ const DEFAULT_JOB_OPTIONS = {
           attempts: 1,
           removeOnComplete: { count: 30 }
         }
+      },
+      {
+        name: QUEUE_NAMES.MP_SYNC,
+        defaultJobOptions: {
+          ...DEFAULT_JOB_OPTIONS,
+          // Un fallo del sync es silencioso y se reintenta solo en la próxima
+          // corrida (BR-CASH-003): no hace falta insistir dentro del mismo job.
+          attempts: 1,
+          removeOnComplete: { count: 30 }
+        }
       }
     )
   ],

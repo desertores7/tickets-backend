@@ -4,7 +4,9 @@ export const QUEUE_NAMES = {
   PAYMENTS: 'payments',
   ORDERS: 'orders',
   WAITING_ROOM: 'waiting-room',
-  MAINTENANCE: 'maintenance'
+  MAINTENANCE: 'maintenance',
+  /** Sincronización de movimientos MP durante la ventana del evento (BR-CASH-003) */
+  MP_SYNC: 'mp-event-sync'
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

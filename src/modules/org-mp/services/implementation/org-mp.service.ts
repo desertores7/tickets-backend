@@ -15,6 +15,7 @@ import { MpCatalogItemEntity } from '@config/db/entities/tickets/mp_catalog_item
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-status.const';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { v4 as uuidv4 } from 'uuid';
 import { ICatalogSyncResult, IMpAccount, IOrgMpService } from '../contracts/iorg-mp.service';
 
@@ -26,8 +27,6 @@ const CATALOG_LOOKBACK_DAYS = 90;
 const CATALOG_PAGE_SIZE = 50;
 /** Tope de paginas: una cuenta con mucho volumen no debe colgar el request. */
 const CATALOG_MAX_PAGES = 20;
-/** Margen para renovar el token antes de que venza en mitad del recorrido. */
-const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 type ConnectState = {
   organizationUuid: string;
@@ -42,7 +41,8 @@ export class OrgMpService implements IOrgMpService {
     private readonly dbRepository: DBRepository,
     private readonly envService: EnvService,
     private readonly tokenCipher: TokenCipher,
-    private readonly jwt: JwtService
+    private readonly jwt: JwtService,
+    private readonly mpTokenService: MpTokenService
   ) {}
 
   // ── Configuracion ───────────────────────────────────────────────────────────
@@ -421,52 +421,8 @@ export class OrgMpService implements IOrgMpService {
    * El margen evita el caso borde de un token que vence en mitad de la
    * sincronizacion, que puede recorrer varias paginas de pagos.
    */
-  private async resolveUsableAccessToken(account: OrgMpAccountEntity): Promise<string> {
-    const expiresSoon =
-      account.tokenExpiresAt !== null &&
-      account.tokenExpiresAt.getTime() - Date.now() < TOKEN_REFRESH_MARGIN_MS;
-
-    if (!expiresSoon || !account.refreshTokenEncrypted) {
-      return this.tokenCipher.decrypt(account.accessTokenEncrypted);
-    }
-
-    const { clientId, clientSecret } = this.requireAppCredentials();
-
-    try {
-      const refreshed = await this.oauthClient().refresh({
-        body: {
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: this.tokenCipher.decrypt(account.refreshTokenEncrypted)
-        }
-      });
-
-      if (!refreshed?.access_token) throw new Error('Mercado Pago no devolvió un token nuevo');
-
-      await this.dbRepository.update({
-        entity: 'org_mp_account',
-        where: { uuid: account.uuid },
-        data: {
-          accessTokenEncrypted: this.tokenCipher.encrypt(refreshed.access_token),
-          refreshTokenEncrypted: refreshed.refresh_token
-            ? this.tokenCipher.encrypt(refreshed.refresh_token)
-            : account.refreshTokenEncrypted,
-          tokenExpiresAt: refreshed.expires_in
-            ? new Date(Date.now() + refreshed.expires_in * 1000)
-            : null
-        }
-      });
-
-      return refreshed.access_token;
-    } catch (error) {
-      this.logger.warn(
-        `No se pudo renovar el token de la cuenta ${account.uuid}: ${
-          error instanceof Error ? error.message : error
-        }`
-      );
-      // Se intenta igual con el token viejo: puede que todavia sirva.
-      return this.tokenCipher.decrypt(account.accessTokenEncrypted);
-    }
+  private resolveUsableAccessToken(account: OrgMpAccountEntity): Promise<string> {
+    return this.mpTokenService.resolveUsableAccessToken(account);
   }
 
   private async requireOwnAccount(

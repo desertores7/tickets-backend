@@ -28,7 +28,8 @@ export type MpMovementType = (typeof MP_MOVEMENT_TYPES)[number];
  * `mpPaymentId` es único: el job corre cada 5 minutos sobre ventanas que se
  * solapan, así que la idempotencia la garantiza el índice, no el código.
  *
- * `egreso_mp` son devoluciones y contracargos: restan del total (`BR-CASH-007`).
+ * `egreso_mp` marca el pago que volvió entero. Las devoluciones parciales
+ * quedan en `refundedAmount` sin cambiar el tipo de origen.
  */
 @Entity(tableName, { database: DB_NAME.tickets, synchronize: false })
 export class MpMovementEntity {
@@ -45,8 +46,18 @@ export class MpMovementEntity {
   @Column({ type: 'varchar', length: 64 })
   mpPaymentId: string;
 
+  /** Lo que entró por este pago, siempre bruto. */
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   amount: number;
+
+  /**
+   * Parte devuelta o contracargada de ese mismo pago (`BR-CASH-007`).
+   *
+   * Va aparte porque MP no emite un pago nuevo por la devolución: la anota
+   * sobre el original, y esta tabla tiene una sola fila por pago.
+   */
+  @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
+  refundedAmount: number;
 
   @Column({ type: 'enum', enum: MP_MOVEMENT_TYPES, default: 'otro' })
   type: MpMovementType;

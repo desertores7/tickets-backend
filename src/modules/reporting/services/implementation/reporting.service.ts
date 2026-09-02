@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull, Not } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
 import { OrderStatus } from '@config/db/entities/tickets/order.entity';
@@ -9,11 +9,13 @@ import {
   IDashboardFilters,
   IDashboardSummary,
   IDashboardTopEvent,
+  IEventDashboard,
   IReportingService,
   ISalesFilters,
   ISalesRow
 } from '../contracts/ireporting.service';
 
+import { IEventCashService } from '@modules/event-cash/services/contracts/ievent-cash.service';
 import { ORGANIZATION_STATUS } from '@root/modules/organization/const/organization-status.const';
 
 /** Estados que cuentan como venta concretada */
@@ -26,7 +28,8 @@ const TOP_EVENTS_LIMIT = 5;
 export class ReportingService implements IReportingService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    @Inject('IEventCashService') private readonly eventCashService: IEventCashService
   ) {}
 
   // ── Ventas (BR-REPORT-002) ──────────────────────────────────────────────────
@@ -154,6 +157,70 @@ export class ReportingService implements IReportingService {
 
   // ── Dashboard (BR-BACKOFFICE-002) ───────────────────────────────────────────
 
+  /**
+   * Dashboard de un evento (`29` §17).
+   *
+   * Los mismos KPIs del dashboard general, acotados al evento. El alcance lo
+   * resuelve `resolveEventScope`: un productor que pide un evento ajeno cae en
+   * `empty` y recibe un 404, no un tablero en cero.
+   */
+  async getEventDashboard(
+    eventUuid: string,
+    loggedUser: string,
+    role: string | null
+  ): Promise<IEventDashboard> {
+    const scope = await this.resolveEventScope(loggedUser, role, eventUuid);
+    if (scope.empty) {
+      throw new NotFoundException('El evento no existe o no es de tu productora');
+    }
+
+    const event = (await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: eventUuid }
+    })) as {
+      uuid: string;
+      name: string;
+      startDate: Date;
+      endDate: Date;
+      isPublished: boolean;
+    } | null;
+
+    if (!event) throw new NotFoundException('El evento no existe o no es de tu productora');
+
+    const [sales, expenses, cash] = await Promise.all([
+      this.aggregateWebSales([eventUuid], {}),
+      this.aggregateExpenses([eventUuid], {}),
+      this.eventCashService.getOperationalIncome([eventUuid])
+    ]);
+
+    const totalIncome = this.round(sales.revenue + cash.total);
+
+    return {
+      eventUuid: event.uuid,
+      eventName: event.name,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      isPublished: event.isPublished,
+
+      ticketsSold: sales.tickets,
+      webRevenue: sales.revenue,
+
+      doorTickets: cash.doorTickets,
+      mpIncome: cash.mpIncome,
+      transfersAndOthers: cash.transfersAndOthers,
+      manualIncome: cash.manualIncome,
+      mpRefunds: cash.mpRefunds,
+      cashRevenue: cash.total,
+
+      totalIncome,
+      expensesTotal: expenses.total,
+      expensesByCategory: expenses.byCategory,
+      estimatedResult: this.round(totalIncome - expenses.total),
+      currency: 'ARS'
+    };
+  }
+
+
   async getDashboard(
     loggedUser: string,
     role: string | null,
@@ -172,10 +239,12 @@ export class ReportingService implements IReportingService {
 
     const eventsCount = eventCounts.total;
 
-    // El módulo de Caja (FP11) todavía no existe: los ingresos operativos van en
-    // 0 y se avisa con `cashModuleAvailable` para que el frontend no muestre un
-    // "total" que parezca completo cuando no lo es.
-    const cashRevenue = 0;
+    // Ingresos operativos de caja (BR-CASH-007). La cuenta la hace event-cash
+    // para que el dashboard general, el del evento y el resumen de caja no
+    // puedan dar números distintos.
+    const cashRevenue = (
+      await this.eventCashService.getOperationalIncome(scope.eventUuids, filters)
+    ).total;
     const totalIncome = this.round(sales.revenue + cashRevenue);
 
     return {
@@ -191,7 +260,7 @@ export class ReportingService implements IReportingService {
       expensesByCategory: expenses.byCategory,
       topEvents,
       currency: 'ARS',
-      cashModuleAvailable: false,
+      cashModuleAvailable: true,
       admin: role === 'Administrador' ? await this.aggregateAdminKpis(filters) : undefined
     };
   }
@@ -409,7 +478,7 @@ export class ReportingService implements IReportingService {
       expensesByCategory: [],
       topEvents: [],
       currency: 'ARS',
-      cashModuleAvailable: false
+      cashModuleAvailable: true
     };
   }
 
