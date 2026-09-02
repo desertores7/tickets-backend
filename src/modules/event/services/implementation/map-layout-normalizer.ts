@@ -1,13 +1,20 @@
 import type {
+  AiEventMapArea,
   AiEventMapCategory,
   AiEventMapCategoryAssignment,
+  AiEventMapCell,
   AiEventMapLayoutGroup,
+  AiEventMapPoint,
   AiEventMapStage,
   AnalyzeMapResult,
+  MapContainedAt,
   MapElementType,
   MapGroupOrdering,
   MapGroupPosition,
+  MapLabelOrientation,
   MapLayoutType,
+  MapShapeKind,
+  MapShapeNotch,
   MapStageAlignment,
   MapStagePosition,
   SaleMode,
@@ -141,8 +148,8 @@ function parseElementType(raw: unknown): MapElementType | null {
   if (s === 'box' || s === 'boxes') return 'box';
   if (s === 'palco') return 'palco';
   if (s === 'seat' || s === 'silla' || s === 'asiento') return 'seat';
-  if (s === 'zone' || s === 'zona') return 'zone';
-  if (s === 'section' || s === 'sector') return 'section';
+  if (s === 'zone' || s === 'zona' || s === 'campo' || s === 'pista') return 'zone';
+  if (s === 'section' || s === 'sector' || s === 'tribuna') return 'section';
   return null;
 }
 
@@ -174,7 +181,9 @@ function defaultSelectionForType(type: MapElementType, saleMode: SaleMode): Sele
 function parseStagePosition(raw: unknown): MapStagePosition | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const s = String(raw).trim().toLowerCase();
-  if (s === 'top' || s === 'bottom' || s === 'left' || s === 'right') return s;
+  if (s === 'top' || s === 'bottom' || s === 'left' || s === 'right' || s === 'center') {
+    return s;
+  }
   return null;
 }
 
@@ -253,7 +262,8 @@ function normalizeStage(raw: unknown): AiEventMapStage {
       position: null,
       alignment: null,
       inferred: false,
-      confidence: 0.5
+      confidence: 0.5,
+      outline: null
     };
   }
   const s = raw as Record<string, unknown>;
@@ -263,7 +273,250 @@ function normalizeStage(raw: unknown): AiEventMapStage {
     position: parseStagePosition(s.position),
     alignment: parseStageAlignment(s.alignment),
     inferred: Boolean(s.inferred),
-    confidence: round3(clamp01(Number(s.confidence ?? 0.7)))
+    confidence: round3(clamp01(Number(s.confidence ?? 0.7))),
+    outline: parseOutline(s.outline)
+  };
+}
+
+function parseOutline(raw: unknown): AiEventMapPoint[] | null {
+  if (!Array.isArray(raw) || raw.length < 3) return null;
+  const points: AiEventMapPoint[] = [];
+  for (const p of raw) {
+    if (!p || typeof p !== 'object') continue;
+    const o = p as Record<string, unknown>;
+    const x = Number(o.x);
+    const y = Number(o.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    points.push({ x: round3(clamp01(x)), y: round3(clamp01(y)) });
+  }
+  return points.length >= 3 ? points : null;
+}
+
+function parseMapArea(raw: unknown): AiEventMapArea | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = raw as Record<string, unknown>;
+  const x = Number(a.x);
+  const y = Number(a.y);
+  const w = Number(a.w);
+  const h = Number(a.h);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  return {
+    x: round3(clamp01(x)),
+    y: round3(clamp01(y)),
+    w: round3(Math.min(1, Math.max(0.05, w))),
+    h: round3(Math.min(1, Math.max(0.05, h))),
+    confidence: round3(clamp01(Number(a.confidence ?? 0.7)))
+  };
+}
+
+function parseShape(raw: unknown): MapShapeKind | null {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  const allowed: MapShapeKind[] = ['rect', 'l', 'u', 'ring', 'trapezoid', 'corner_cut'];
+  return (allowed as string[]).includes(s) ? (s as MapShapeKind) : null;
+}
+
+function parseShapeNotch(raw: unknown): MapShapeNotch | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const s = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const allowed: MapShapeNotch[] = [
+    'top',
+    'bottom',
+    'left',
+    'right',
+    'top_left',
+    'top_right',
+    'bottom_left',
+    'bottom_right'
+  ];
+  return (allowed as string[]).includes(s) ? (s as MapShapeNotch) : null;
+}
+
+function parseLabelOrientation(raw: unknown): MapLabelOrientation | null {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  if (s === 'horizontal' || s === 'vertical') return s;
+  return null;
+}
+
+function parseContainedAt(raw: unknown): MapContainedAt | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const s = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const allowed: MapContainedAt[] = [
+    'top',
+    'top_left',
+    'top_right',
+    'center',
+    'bottom',
+    'bottom_left',
+    'bottom_right'
+  ];
+  return (allowed as string[]).includes(s) ? (s as MapContainedAt) : null;
+}
+
+function parseWeight(raw: unknown, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(10, Math.max(1, Math.round(n)));
+}
+
+function isSidePosition(position: MapGroupPosition): boolean {
+  return (
+    position === 'left' ||
+    position === 'right' ||
+    position === 'top_left' ||
+    position === 'top_right' ||
+    position === 'bottom_left' ||
+    position === 'bottom_right'
+  );
+}
+
+/** Defaults determinísticos: sin pesos el frontend dibuja NaN y solo queda el escenario. */
+function defaultWidthWeight(
+  layoutType: MapLayoutType,
+  position: MapGroupPosition
+): number {
+  if (layoutType === 'column' && isSidePosition(position)) return 1;
+  if (layoutType === 'zone') return 8;
+  if (layoutType === 'grid') return 8;
+  if (layoutType === 'row') return 8;
+  return 5;
+}
+
+function defaultHeightWeight(
+  layoutType: MapLayoutType,
+  count: number,
+  rows: number | null
+): number {
+  if (layoutType === 'column') return Math.min(10, Math.max(3, Math.ceil(count / 2)));
+  if (layoutType === 'row') return 1;
+  if (layoutType === 'grid') return Math.min(10, Math.max(2, rows ?? 4));
+  if (layoutType === 'zone') return 5;
+  return 4;
+}
+
+function defaultShape(layoutType: MapLayoutType): MapShapeKind {
+  if (layoutType === 'zone') return 'corner_cut';
+  return 'rect';
+}
+
+function defaultLabelOrientation(
+  layoutType: MapLayoutType,
+  position: MapGroupPosition
+): MapLabelOrientation {
+  if (layoutType === 'column' && (position === 'left' || position === 'right')) {
+    return 'vertical';
+  }
+  return 'horizontal';
+}
+
+function parseCell(raw: unknown): AiEventMapCell | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Record<string, unknown>;
+  const col = Number(c.col);
+  const row = Number(c.row);
+  const colSpan = Number(c.colSpan ?? 1);
+  const rowSpan = Number(c.rowSpan ?? 1);
+  if (![col, row, colSpan, rowSpan].every(n => Number.isFinite(n) && n >= 1)) return null;
+  return {
+    col: Math.round(col),
+    row: Math.round(row),
+    colSpan: Math.round(colSpan),
+    rowSpan: Math.round(rowSpan)
+  };
+}
+
+/**
+ * Acepta el formato partido { inventory, layout } (labels en inventory.groups,
+ * geometría en layout.groups) y lo aplana al contrato del frontend.
+ */
+function coalesceInventoryLayout(raw: Record<string, unknown>): Record<string, unknown> {
+  const inventory =
+    raw.inventory && typeof raw.inventory === 'object'
+      ? (raw.inventory as Record<string, unknown>)
+      : null;
+  const layout =
+    raw.layout && typeof raw.layout === 'object'
+      ? (raw.layout as Record<string, unknown>)
+      : null;
+  if (!inventory || !layout) return raw;
+  if (!Array.isArray(inventory.groups) || !Array.isArray(layout.groups)) return raw;
+
+  const invById = new Map<string, Record<string, unknown>>();
+  for (const item of inventory.groups) {
+    if (!item || typeof item !== 'object') continue;
+    const g = item as Record<string, unknown>;
+    const id = String(g.id ?? '').trim();
+    if (id) invById.set(id, g);
+  }
+
+  const mergedGroups = (layout.groups as unknown[]).map(item => {
+    if (!item || typeof item !== 'object') return item;
+    const lg = item as Record<string, unknown>;
+    const inv = invById.get(String(lg.id ?? '').trim());
+    if (!inv) return lg;
+
+    const categoryRanges = Array.isArray(inv.categoryRanges) ? inv.categoryRanges : [];
+    const categoryAssignments =
+      Array.isArray(lg.categoryAssignments) && lg.categoryAssignments.length
+        ? lg.categoryAssignments
+        : categoryRanges.map((r: unknown) => {
+            const range = (r ?? {}) as Record<string, unknown>;
+            return {
+              category: range.categoryId ?? range.category,
+              from: range.from,
+              to: range.to,
+              rowStart: null,
+              rowEnd: null,
+              columnStart: null,
+              columnEnd: null
+            };
+          });
+
+    return {
+      ...lg,
+      labels: lg.labels ?? inv.labels,
+      count: lg.count ?? inv.count,
+      elementType: lg.elementType ?? inv.elementType ?? inv.sectorType,
+      category:
+        lg.category ??
+        (Array.isArray(inv.categoryIds) && inv.categoryIds.length === 1
+          ? inv.categoryIds[0]
+          : null),
+      categoryAssignments,
+      confidence: lg.confidence ?? inv.confidence
+    };
+  });
+
+  const categories = Array.isArray(raw.categories)
+    ? raw.categories
+    : Array.isArray(inventory.categories)
+      ? (inventory.categories as unknown[]).map(item => {
+          if (!item || typeof item !== 'object') return item;
+          const c = item as Record<string, unknown>;
+          return {
+            ...c,
+            elementType: c.elementType ?? c.sectorType
+          };
+        })
+      : raw.categories;
+
+  return {
+    ...raw,
+    stage: layout.stage ?? raw.stage,
+    categories,
+    layout: {
+      ...layout,
+      groups: mergedGroups
+    }
   };
 }
 
@@ -279,7 +532,7 @@ function normalizeCategories(raw: unknown): AiEventMapCategory[] {
     if (!label) continue;
 
     const elementType =
-      parseElementType(c.elementType) ?? inferElementTypeFromLabel(label);
+      parseElementType(c.elementType ?? c.sectorType) ?? inferElementTypeFromLabel(label);
 
     const saleMode =
       parseSaleMode(c.saleMode ?? c.purchaseMode ?? c.entryType) ??
@@ -685,14 +938,41 @@ function normalizeGroups(
       layoutType === 'freeform' || Boolean(g.requiresGeometryFallback);
 
     const id = ensureUniqueId(slugify(String(g.id ?? labels[0] ?? 'group')), usedIds);
+    const position = parseGroupPosition(g.position);
+    const widthWeight = parseWeight(
+      g.widthWeight,
+      defaultWidthWeight(layoutType, position)
+    );
+    const heightWeight = parseWeight(
+      g.heightWeight,
+      defaultHeightWeight(layoutType, count, shape.rows)
+    );
 
     groups.push({
       id,
       elementType,
       layoutType,
-      position: parseGroupPosition(g.position),
+      position,
       lane: parseNonNegIntOrNull(g.lane),
       stackOrder: parseNonNegIntOrNull(g.stackOrder),
+      outline: parseOutline(g.outline),
+      cell: parseCell(g.cell),
+      containedBy:
+        g.containedBy === null || g.containedBy === undefined || g.containedBy === ''
+          ? null
+          : slugify(String(g.containedBy)),
+      containedAt: parseContainedAt(g.containedAt),
+      shape: parseShape(g.shape) ?? defaultShape(layoutType),
+      labelOrientation:
+        parseLabelOrientation(g.labelOrientation) ??
+        defaultLabelOrientation(layoutType, position),
+      shapeNotch: parseShapeNotch(g.shapeNotch),
+      widthWeight,
+      heightWeight,
+      level:
+        g.level === null || g.level === undefined || g.level === ''
+          ? null
+          : String(g.level).trim().slice(0, 80),
       count,
       rows: shape.rows,
       columns: shape.columns,
@@ -788,7 +1068,8 @@ function resolveStage(
     position: stage.position ?? position,
     alignment: stage.alignment ?? 'center',
     inferred: true,
-    confidence: round3(Math.min(stage.confidence, 0.4))
+    confidence: round3(Math.min(stage.confidence, 0.4)),
+    outline: stage.outline
   };
 }
 
@@ -920,15 +1201,163 @@ function normalizeStackOrders(
   );
 }
 
+function isLeftSide(g: AiEventMapLayoutGroup): boolean {
+  return (
+    g.position === 'left' || g.position === 'top_left' || g.position === 'bottom_left'
+  );
+}
+
+function isRightSide(g: AiEventMapLayoutGroup): boolean {
+  return (
+    g.position === 'right' || g.position === 'top_right' || g.position === 'bottom_right'
+  );
+}
+
+function notchFromContainedAt(at: MapContainedAt | null): MapShapeNotch {
+  if (
+    at === 'top_left' ||
+    at === 'top_right' ||
+    at === 'bottom_left' ||
+    at === 'bottom_right'
+  ) {
+    return at;
+  }
+  if (at === 'top') return 'top_right';
+  if (at === 'bottom') return 'bottom_right';
+  return 'top_right';
+}
+
+/**
+ * Si hay un hijo contenido, el padre DEBE ser L (o U) con notch en la esquina
+ * del hijo. Regla estructural: no depende de nombres de sectores.
+ */
+function applyParentLFromContainment(
+  groups: AiEventMapLayoutGroup[]
+): AiEventMapLayoutGroup[] {
+  const childrenByParent = new Map<string, AiEventMapLayoutGroup[]>();
+  for (const g of groups) {
+    if (!g.containedBy) continue;
+    const list = childrenByParent.get(g.containedBy) ?? [];
+    list.push(g);
+    childrenByParent.set(g.containedBy, list);
+  }
+
+  return groups.map(g => {
+    const kids = childrenByParent.get(g.id);
+    if (!kids?.length) return g;
+    const primary = kids[0]!;
+    const notch = notchFromContainedAt(primary.containedAt);
+    return {
+      ...g,
+      shape: g.shape === 'rect' || g.shape === 'corner_cut' ? 'l' : g.shape,
+      shapeNotch: g.shapeNotch ?? notch
+    };
+  });
+}
+
+/**
+ * Inferencia ESTRUCTURAL (sin nombres de flyer):
+ * Si un grupo ya es L con notch y hay otro grupo libre, más chico, en la misma
+ * banda central, anidarlo en la esquina del notch. Cubre VIP-en-FANS, platea
+ * premium dentro de una zona, etc., sin hardcodear "vip"/"fans"/"codo".
+ */
+function inferNestedWrapFromLShape(
+  groups: AiEventMapLayoutGroup[]
+): AiEventMapLayoutGroup[] {
+  const centerish = (p: MapGroupPosition) =>
+    p === 'center' || p === 'top_center' || p === 'bottom_center';
+
+  const free = groups.filter(g => !g.containedBy && centerish(g.position));
+  const parents = free.filter(g => g.shape === 'l' && g.shapeNotch);
+
+  if (!parents.length) return groups;
+
+  const claimed = new Set<string>();
+  const nest = new Map<string, { parentId: string; at: MapContainedAt }>();
+
+  for (const parent of parents) {
+    if (groups.some(g => g.containedBy === parent.id)) continue;
+
+    const notch = parent.shapeNotch!;
+    const at: MapContainedAt =
+      notch === 'top' ||
+      notch === 'bottom' ||
+      notch === 'left' ||
+      notch === 'right'
+        ? notch === 'top'
+          ? 'top_right'
+          : notch === 'bottom'
+            ? 'bottom_right'
+            : notch === 'left'
+              ? 'top_left'
+              : 'top_right'
+        : notch;
+
+    const child = free
+      .filter(
+        g =>
+          g.id !== parent.id &&
+          !claimed.has(g.id) &&
+          g.shape === 'rect' &&
+          g.widthWeight < parent.widthWeight &&
+          g.heightWeight <= parent.heightWeight
+      )
+      .sort(
+        (a, b) =>
+          a.widthWeight * a.heightWeight - b.widthWeight * b.heightWeight
+      )[0];
+
+    if (!child) continue;
+    claimed.add(child.id);
+    nest.set(child.id, { parentId: parent.id, at });
+  }
+
+  if (!nest.size) return groups;
+
+  return groups.map(g => {
+    const n = nest.get(g.id);
+    if (!n) return g;
+    return {
+      ...g,
+      shape: 'rect' as const,
+      shapeNotch: null,
+      containedBy: n.parentId,
+      containedAt: n.at,
+      widthWeight: Math.min(
+        g.widthWeight,
+        Math.max(2, Math.round((groups.find(p => p.id === n.parentId)?.widthWeight ?? 8) * 0.5))
+      ),
+      heightWeight: Math.min(
+        g.heightWeight,
+        Math.max(2, Math.round((groups.find(p => p.id === n.parentId)?.heightWeight ?? 4) * 0.65))
+      )
+    };
+  });
+}
+
+/**
+ * Si la IA marca shape "l" en un lateral sin notch, completa el notch hacia
+ * el centro (L típica de codo/platea que se ensancha adentro). Estructural.
+ */
+function completeSideLNotches(groups: AiEventMapLayoutGroup[]): AiEventMapLayoutGroup[] {
+  return groups.map(g => {
+    if (g.shape !== 'l' || g.shapeNotch) return g;
+    if (isLeftSide(g)) return { ...g, shapeNotch: 'top_right' as MapShapeNotch };
+    if (isRightSide(g)) return { ...g, shapeNotch: 'top_left' as MapShapeNotch };
+    return g;
+  });
+}
+
 export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResult {
-  const rawStage = normalizeStage(raw.stage);
-  let categories = normalizeCategories(raw.categories);
+  const coalesced = coalesceInventoryLayout(raw);
+  const rawStage = normalizeStage(coalesced.stage);
+  let categories = normalizeCategories(coalesced.categories);
 
   const layoutRaw =
-    raw.layout && typeof raw.layout === 'object'
-      ? (raw.layout as Record<string, unknown>)
-      : raw;
-  let groups = normalizeGroups(layoutRaw.groups ?? raw.groups, categories);
+    coalesced.layout && typeof coalesced.layout === 'object'
+      ? (coalesced.layout as Record<string, unknown>)
+      : coalesced;
+  let groups = normalizeGroups(layoutRaw.groups ?? coalesced.groups, categories);
   categories = ensureCategoriesForAssignments(categories, groups);
 
   groups = groups.map(g => {
@@ -945,14 +1374,25 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
     };
   });
 
+  // Re-slug containedBy against final group ids (inventory may use raw ids).
+  const idSet = new Set(groups.map(g => g.id));
+  groups = groups.map(g => ({
+    ...g,
+    containedBy: g.containedBy && idSet.has(g.containedBy) ? g.containedBy : null
+  }));
+
   groups = relocateMisplacedCampoGeneral(groups);
   groups = normalizeSideColumnLanes(groups);
   groups = normalizeStackOrders(groups);
+  groups = completeSideLNotches(groups);
+  groups = inferNestedWrapFromLShape(groups);
+  groups = applyParentLFromContainment(groups);
 
   const anyGroupFallback = groups.some(g => g.requiresGeometryFallback);
   const layoutFallback = anyGroupFallback || Boolean(layoutRaw.requiresGeometryFallback);
 
   return {
+    mapArea: parseMapArea(coalesced.mapArea ?? layoutRaw.mapArea),
     stage: resolveStage(rawStage, groups),
     categories,
     layout: {

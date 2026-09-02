@@ -138,7 +138,8 @@ export class EventController {
       'Accepts 1 sales map image (multipart field `mapImage`). Returns an abstract venue layout: ' +
       'stage (semantic position), commercial categories, and structural groups (column/row/grid/zone) ' +
       'with every visible label. No per-element x/y geometry — the frontend renders SVG. ' +
-      'Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
+      'Uses EVENT_AI_MAP_MODEL exclusively (never EVENT_AI_EXTRACT_MODEL) with optional ' +
+      'EVENT_AI_MAP_REASONING_EFFORT for GPT-5 family. Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
