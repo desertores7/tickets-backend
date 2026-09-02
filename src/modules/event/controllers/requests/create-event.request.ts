@@ -77,29 +77,35 @@ export class CreateEventRequest {
   @ApiProperty({ description: 'Organization UUID that owns this event', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
   organizationUuid: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(255)
-  @ApiProperty({ description: 'Venue name', example: 'Estadio Nacional' })
-  venueName: string;
+  @ApiProperty({ description: 'Venue name', required: false, example: 'Estadio Nacional' })
+  venueName?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(500)
-  @ApiProperty({ description: 'Venue full address', example: 'Av. José Díaz s/n, Lima' })
-  venueAddress: string;
+  @ApiProperty({ description: 'Venue full address', required: false, example: 'Av. José Díaz s/n, Lima' })
+  venueAddress?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  @ApiProperty({ description: 'Venue city', example: 'Lima' })
-  venueCity: string;
+  @ApiProperty({ description: 'Venue city', required: false, example: 'Lima' })
+  venueCity?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  @ApiProperty({ description: 'Venue country', example: 'Perú' })
-  venueCountry: string;
+  @ApiProperty({ description: 'Venue country', required: false, example: 'Perú' })
+  venueCountry?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @ApiProperty({ description: 'Venue postal code', required: false, example: 'C1048' })
+  venuePostalCode?: string;
 
   @IsOptional()
   @IsUrl({ require_protocol: true }, { message: 'googleMapsUrl debe ser una URL válida (https://...)' })

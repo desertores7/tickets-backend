@@ -97,6 +97,9 @@ export class EventEntity {
   @Column({ type: 'varchar', length: 100 })
   venueCountry: string;
 
+  @Column({ type: 'varchar', length: 20, default: '' })
+  venuePostalCode: string;
+
   /** Link de Google Maps para “Cómo llegar” en la ficha pública. */
   @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
   googleMapsUrl: string | null;

@@ -1,15 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type {
+  AiEventMapArea,
   AiEventMapCategory,
   AiEventMapCategoryAssignment,
+  AiEventMapCell,
   AiEventMapLayout,
   AiEventMapLayoutGroup,
+  AiEventMapPoint,
   AiEventMapStage,
   AnalyzeMapResult,
+  MapContainedAt,
   MapElementType,
   MapGroupOrdering,
   MapGroupPosition,
+  MapLabelOrientation,
   MapLayoutType,
+  MapShapeKind,
+  MapShapeNotch,
   MapStageAlignment,
   MapStagePosition,
   SaleMode,
@@ -33,7 +40,7 @@ const ELEMENT_TYPE_ENUM: MapElementType[] = [
   'zone',
   'section'
 ];
-const STAGE_POSITION_ENUM: MapStagePosition[] = ['top', 'bottom', 'left', 'right'];
+const STAGE_POSITION_ENUM: MapStagePosition[] = ['top', 'bottom', 'left', 'right', 'center'];
 const STAGE_ALIGNMENT_ENUM: MapStageAlignment[] = ['start', 'center', 'end'];
 const LAYOUT_TYPE_ENUM: MapLayoutType[] = ['column', 'row', 'grid', 'zone', 'freeform'];
 const GROUP_POSITION_ENUM: MapGroupPosition[] = [
@@ -55,6 +62,66 @@ const GROUP_ORDERING_ENUM: MapGroupOrdering[] = [
   'row_major',
   'column_major'
 ];
+const SHAPE_ENUM: MapShapeKind[] = ['rect', 'l', 'u', 'ring', 'trapezoid', 'corner_cut'];
+const LABEL_ORIENTATION_ENUM: MapLabelOrientation[] = ['horizontal', 'vertical'];
+const SHAPE_NOTCH_ENUM: MapShapeNotch[] = [
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'top_left',
+  'top_right',
+  'bottom_left',
+  'bottom_right'
+];
+const CONTAINED_AT_ENUM: MapContainedAt[] = [
+  'top',
+  'top_left',
+  'top_right',
+  'center',
+  'bottom',
+  'bottom_left',
+  'bottom_right'
+];
+
+export class AiEventMapPointResponse implements AiEventMapPoint {
+  @ApiProperty({ example: 0.1 })
+  x: number;
+
+  @ApiProperty({ example: 0.2 })
+  y: number;
+}
+
+export class AiEventMapAreaResponse implements AiEventMapArea {
+  @ApiProperty({ example: 0.1 })
+  x: number;
+
+  @ApiProperty({ example: 0.2 })
+  y: number;
+
+  @ApiProperty({ example: 0.6 })
+  w: number;
+
+  @ApiProperty({ example: 0.5 })
+  h: number;
+
+  @ApiProperty({ example: 0.9 })
+  confidence: number;
+}
+
+export class AiEventMapCellResponse implements AiEventMapCell {
+  @ApiProperty({ example: 1 })
+  col: number;
+
+  @ApiProperty({ example: 1 })
+  row: number;
+
+  @ApiProperty({ example: 4 })
+  colSpan: number;
+
+  @ApiProperty({ example: 2 })
+  rowSpan: number;
+}
 
 export class AiEventMapStageResponse implements AiEventMapStage {
   @ApiProperty({ description: 'Si el escenario/frente es inferible en el mapa' })
@@ -74,6 +141,13 @@ export class AiEventMapStageResponse implements AiEventMapStage {
 
   @ApiProperty({ description: '0–1' })
   confidence: number;
+
+  @ApiPropertyOptional({
+    type: [AiEventMapPointResponse],
+    nullable: true,
+    description: 'Contorno opcional del escenario; null → el frontend sintetiza'
+  })
+  outline: AiEventMapPoint[] | null;
 }
 
 export class AiEventMapCategoryResponse implements AiEventMapCategory {
@@ -108,6 +182,13 @@ export class AiEventMapCategoryResponse implements AiEventMapCategory {
     description: 'Admisiones incluidas al comprar la unidad; distinto de capacity'
   })
   includedAdmissions: number | null;
+
+  @ApiProperty({
+    nullable: true,
+    example: '#f5b301',
+    description: 'Color con que el flyer pinta la categoría; null si no se distingue'
+  })
+  color: string | null;
 
   @ApiProperty({ description: '0–1' })
   confidence: number;
@@ -186,6 +267,50 @@ export class AiEventMapLayoutGroupResponse implements AiEventMapLayoutGroup {
   })
   stackOrder: number | null;
 
+  @ApiPropertyOptional({
+    type: [AiEventMapPointResponse],
+    nullable: true,
+    description: 'Contorno 0..1; null → el frontend reparte por pesos'
+  })
+  outline: AiEventMapPoint[] | null;
+
+  @ApiPropertyOptional({ type: AiEventMapCellResponse, nullable: true })
+  cell: AiEventMapCell | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: null,
+    description: 'Id del grupo contenedor visual'
+  })
+  containedBy: string | null;
+
+  @ApiPropertyOptional({ enum: CONTAINED_AT_ENUM, nullable: true })
+  containedAt: MapContainedAt | null;
+
+  @ApiProperty({ enum: SHAPE_ENUM, example: 'rect' })
+  shape: MapShapeKind;
+
+  @ApiProperty({ enum: LABEL_ORIENTATION_ENUM, example: 'horizontal' })
+  labelOrientation: MapLabelOrientation;
+
+  @ApiPropertyOptional({ enum: SHAPE_NOTCH_ENUM, nullable: true })
+  shapeNotch: MapShapeNotch | null;
+
+  @ApiProperty({
+    example: 8,
+    description: 'Ancho relativo 1..10 — obligatorio para el motor de layout del frontend'
+  })
+  widthWeight: number;
+
+  @ApiProperty({
+    example: 4,
+    description: 'Alto relativo 1..10 — obligatorio para el motor de layout del frontend'
+  })
+  heightWeight: number;
+
+  @ApiPropertyOptional({ nullable: true, example: null })
+  level: string | null;
+
   @ApiProperty({ example: 35 })
   count: number;
 
@@ -244,6 +369,13 @@ export class AiEventMapLayoutResponse implements AiEventMapLayout {
 }
 
 export class AnalyzeFromMapResponse implements AnalyzeMapResult {
+  @ApiPropertyOptional({
+    type: AiEventMapAreaResponse,
+    nullable: true,
+    description: 'Recuadro del plano dentro del flyer (0..1)'
+  })
+  mapArea: AiEventMapArea | null;
+
   @ApiProperty({ type: AiEventMapStageResponse })
   stage: AiEventMapStageResponse;
 
@@ -252,11 +384,13 @@ export class AnalyzeFromMapResponse implements AnalyzeMapResult {
 
   @ApiProperty({
     type: AiEventMapLayoutResponse,
-    description: 'Estructura física abstracta; categoría por rangos en labels'
+    description:
+      'Estructura física con pesos/forma; el frontend dibuja SVG con semantic-layout'
   })
   layout: AiEventMapLayoutResponse;
 
   constructor(partial: AnalyzeMapResult) {
+    this.mapArea = partial.mapArea;
     this.stage = partial.stage;
     this.categories = partial.categories;
     this.layout = partial.layout;

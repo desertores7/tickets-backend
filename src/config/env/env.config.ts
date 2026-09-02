@@ -96,8 +96,21 @@ export const envSchema = z.object({
 
   /** OpenAI — análisis de flyers + generación de hero (opcional en local) */
   OPENIA_API_KEY: z.string().optional(),
-  /** Modelo multimodal para extracción JSON (visión) */
+  /** Modelo multimodal para extracción JSON de flyers (visión). NO se usa en /ai/from-map. */
   EVENT_AI_EXTRACT_MODEL: z.string().default('gpt-4o'),
+  /**
+   * Modelo multimodal EXCLUSIVO de POST /events/ai/from-map (visión → layout abstracto).
+   * Siempre se usa este valor; nunca cae a EVENT_AI_EXTRACT_MODEL.
+   */
+  EVENT_AI_MAP_MODEL: z.string().default('gpt-5.6-sol'),
+  /**
+   * reasoning_effort para EVENT_AI_MAP_MODEL (familia GPT-5 / o-series).
+   * `medium` = buen balance calidad/latencia (~30–60s).
+   * `high`/`xhigh` = más calidad, suele ir a 1–2 min.
+   */
+  EVENT_AI_MAP_REASONING_EFFORT: z
+    .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .default('medium'),
   /** Modelo de imagen (images.edit con flyer de referencia) */
   EVENT_AI_IMAGE_MODEL: z.string().default('gpt-image-2'),
   /**

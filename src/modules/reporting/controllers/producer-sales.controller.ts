@@ -1,6 +1,6 @@
-import { Controller, Get, HttpCode, Inject, Query, Res } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Param, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
@@ -11,7 +11,7 @@ import {
 } from '@root/shared/decorators/pagination-query.decorator';
 import { IReportingService, ISalesFilters } from '../services/contracts/ireporting.service';
 import { ISalesExportService } from '../services/contracts/isales-export.service';
-import { GetSalesResponse, SalesRowResponse } from './responses/reporting.response';
+import { GetSalesResponse, SaleDetailResponse, SalesRowResponse } from './responses/reporting.response';
 
 /**
  * Ruta bajo `/producer` y no `/events/sales` a propósito: es la que declara el
@@ -87,5 +87,26 @@ export class ProducerSalesController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="ventas-${stamp}.xlsx"`);
     res.send(xlsx);
+  }
+
+  @UserAuth(null, SaleDetailResponse)
+  @ApiOperation({
+    summary: 'Sale detail (producer)',
+    description:
+      'Full detail of one order: buyer, event, purchased ticket types and payment data.\n\n' +
+      '**BR-REPORT-001**: `serviceFee` and `total` are only returned to an `Administrador`. ' +
+      'An order outside the caller scope answers 404, not 403.'
+  })
+  @ApiParam({ name: 'orderUuid', description: 'Order UUID, from the sales listing.' })
+  @ApiResponse({ status: 404, description: 'Sale not found or out of scope.' })
+  @HttpCode(200)
+  @Get('sales/:orderUuid')
+  async getSaleDetail(
+    @Param('orderUuid') orderUuid: string,
+    @User() loggedUser: string,
+    @UserRole() role: string | null
+  ): Promise<SaleDetailResponse> {
+    const detail = await this.reportingService.getSaleDetail(loggedUser, role, orderUuid);
+    return new SaleDetailResponse(detail);
   }
 }

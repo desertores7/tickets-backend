@@ -34,6 +34,48 @@ export interface ISalesRow {
   status: string;
 }
 
+/** Renglon del detalle de una venta: una tanda comprada. */
+export interface ISaleDetailItem {
+  ticketTypeUuid: string;
+  ticketTypeName: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+/**
+ * Detalle completo de una orden para la vista Ventas del productor.
+ *
+ * Igual que el listado, `ticketsAmount` es solo el valor de las entradas.
+ * `serviceFee` y `total` viajan unicamente para el Administrador
+ * (`BR-REPORT-001`).
+ */
+export interface ISaleDetail {
+  orderUuid: string;
+  orderNumber: string;
+  status: string;
+  currency: string;
+  purchasedAt: Date;
+  paidAt: Date | null;
+  paymentProvider: string | null;
+  paymentMethod: string | null;
+  paymentId: string | null;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string | null;
+  buyerDocument: string | null;
+  eventUuid: string;
+  eventName: string;
+  eventStartDate: Date | null;
+  eventVenueName: string | null;
+  eventVenueCity: string | null;
+  items: ISaleDetailItem[];
+  ticketsCount: number;
+  ticketsAmount: number;
+  serviceFee?: number;
+  total?: number;
+}
+
 export interface IDashboardFilters {
   dateFrom?: string;
   dateTo?: string;
@@ -136,6 +178,9 @@ export interface IReportingService {
   ): Promise<{ meta: PaginationMetaResponse; items: ISalesRow[] }>;
 
   /** Todas las filas que matcheen, sin paginar — para armar el archivo de export */
+  /** Detalle de una venta puntual, con el mismo scope que el listado. */
+  getSaleDetail(loggedUser: string, role: string | null, orderUuid: string): Promise<ISaleDetail>;
+
   getAllSalesForExport(
     loggedUser: string,
     role: string | null,

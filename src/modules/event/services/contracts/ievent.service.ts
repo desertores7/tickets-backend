@@ -7,7 +7,7 @@ import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
 import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
-import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate } from '../core/event';
+import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { eventFilters } from '../../controllers/const/event.filters';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
 import {
@@ -209,7 +209,24 @@ export interface IEventService {
     loggedUser: string
   ): Promise<TTicketTypeResponse>;
 
+  /** Alta masiva: una sola request para todas las tandas de un evento. */
+  createTicketTypes(
+    eventUuid: string,
+    items: ITicketTypeCreate[],
+    loggedUser: string
+  ): Promise<TTicketTypeResponse[]>;
+
+  /** Edicion masiva: cada item lleva el uuid de la tanda que actualiza. */
+  updateTicketTypes(
+    eventUuid: string,
+    items: ITicketTypeBulkUpdate[],
+    loggedUser: string
+  ): Promise<TTicketTypeResponse[]>;
+
   deleteTicketType(eventUuid: string, ticketTypeUuid: string, loggedUser: string): Promise<void>;
+
+  /** Baja masiva; falla si alguna tanda del lote tiene ventas. */
+  deleteTicketTypes(eventUuid: string, ticketTypeUuids: string[], loggedUser: string): Promise<void>;
 
   getEventMedia(eventUuid: string, loggedUser?: string | null): Promise<TEventMediaItem[]>;
 
@@ -245,6 +262,9 @@ export interface IEventService {
   ): Promise<TEventMap>;
 
   setMapBaseFromMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<TEventMap>;
+
+  /** Quita el plano del mapa; devuelve null si el evento no tiene mapa todavia. */
+  removeMapBaseImage(eventUuid: string, loggedUser: string): Promise<TEventMap | null>;
 
   getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]>;
 

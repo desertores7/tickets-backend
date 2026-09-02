@@ -8,10 +8,11 @@ export interface IEventCreate {
   saleStartDate?: Date | null;
   saleEndDate?: Date | null;
   organizationUuid: string;
-  venueName: string;
-  venueAddress: string;
-  venueCity: string;
-  venueCountry: string;
+  venueName?: string;
+  venueAddress?: string;
+  venueCity?: string;
+  venueCountry?: string;
+  venuePostalCode?: string;
   googleMapsUrl?: string | null;
   maxCapacity: number;
 }
@@ -29,6 +30,7 @@ export interface IEventUpdate {
   venueAddress?: string;
   venueCity?: string;
   venueCountry?: string;
+  venuePostalCode?: string;
   googleMapsUrl?: string | null;
   maxCapacity?: number;
   /** Lineup estructurado (`BR-EVENT-016`). Cambiarlo es material. */
@@ -45,6 +47,11 @@ export interface ITicketTypeUpdate {
   saleStartDate?: Date | null;
   saleEndDate?: Date | null;
   sortOrder?: number;
+}
+
+/** Un item de la actualizacion masiva: el patch mas el uuid al que aplica. */
+export interface ITicketTypeBulkUpdate extends ITicketTypeUpdate {
+  uuid: string;
 }
 
 export interface ITicketTypeCreate {

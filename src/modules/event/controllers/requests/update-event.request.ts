@@ -95,6 +95,12 @@ export class UpdateEventRequest {
   venueCountry?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @ApiProperty({ description: 'Venue postal code', required: false })
+  venuePostalCode?: string;
+
+  @IsOptional()
   @Transform(({ value }) => (value === '' || value === undefined ? null : value))
   @IsUrl({ require_protocol: true }, { message: 'googleMapsUrl debe ser una URL válida (https://...)' })
   @MaxLength(1000)
