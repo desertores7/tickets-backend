@@ -6,7 +6,12 @@ import {
   type OrganizationTaxCondition,
   type OrganizationValidationStatus
 } from '@modules/organization/const/organization-fiscal.const';
+import {
+  isBankChangePayload,
+  isFiscalChangePayload
+} from '@modules/organization/const/organization-request.const';
 import { TOrganizationResponseWithUserOrganizations } from '@modules/organization/services/contracts/iorganization.service';
+import type { OrgRequestView } from '../organization-me/organization-me.response';
 
 export class OrganizationListOwnerResponse {
   @ApiProperty()
@@ -68,6 +73,24 @@ export class GetAllOrganizationResponse {
   bankChangePending: boolean;
 
   @ApiPropertyOptional({ type: String, nullable: true })
+  pendingName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingLegalName: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingTaxId: string | null;
+
+  @ApiPropertyOptional({ enum: ORGANIZATION_TAX_CONDITIONS, nullable: true })
+  pendingTaxCondition: OrganizationTaxCondition | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingContactEmail: string | null;
+
+  @ApiProperty()
+  fiscalChangePending: boolean;
+
+  @ApiPropertyOptional({ type: String, nullable: true })
   contactEmail: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true })
@@ -88,44 +111,42 @@ export class GetAllOrganizationResponse {
   @ApiPropertyOptional({ type: OrganizationListOwnerResponse, nullable: true })
   owner: OrganizationListOwnerResponse | null;
 
-  constructor(data: TOrganizationResponseWithUserOrganizations) {
-    const row = data as TOrganizationResponseWithUserOrganizations & {
-      legalName?: string | null;
-      taxId?: string | null;
-      taxCondition?: OrganizationTaxCondition | null;
-      bankName?: string | null;
-      cbu?: string | null;
-      bankAlias?: string | null;
-      pendingBankName?: string | null;
-      pendingCbu?: string | null;
-      pendingBankAlias?: string | null;
-      bankChangeRequestedAt?: Date | null;
-      contactEmail?: string | null;
-      contactPhone?: string | null;
-      rejectionReason?: string | null;
-      validationSubmittedAt?: Date | null;
-    };
+  constructor(data: TOrganizationResponseWithUserOrganizations, requests: OrgRequestView = {}) {
+    const pendingBank = requests.pendingBank ?? null;
+    const pendingFiscal = requests.pendingFiscal ?? null;
+    const bankPayload =
+      pendingBank && isBankChangePayload(pendingBank.type, pendingBank.payload)
+        ? pendingBank.payload
+        : null;
+    const fiscalPayload =
+      pendingFiscal && isFiscalChangePayload(pendingFiscal.type, pendingFiscal.payload)
+        ? pendingFiscal.payload
+        : null;
 
     this.uuid = data.uuid;
     this.name = data.name;
-    this.legalName = row.legalName ?? null;
-    this.taxId = row.taxId ?? null;
-    this.taxCondition = row.taxCondition ?? null;
-    this.bankName = row.bankName ?? null;
-    this.cbu = row.cbu ?? null;
-    this.bankAlias = row.bankAlias ?? null;
-    this.pendingBankName = row.pendingBankName ?? null;
-    this.pendingCbu = row.pendingCbu ?? null;
-    this.pendingBankAlias = row.pendingBankAlias ?? null;
-    this.bankChangePending = Boolean(
-      row.pendingBankName || row.pendingCbu || row.pendingBankAlias || row.bankChangeRequestedAt
-    );
-    this.contactEmail = row.contactEmail ?? null;
-    this.contactPhone = row.contactPhone ?? null;
+    this.legalName = data.legalName ?? null;
+    this.taxId = data.taxId ?? null;
+    this.taxCondition = data.taxCondition ?? null;
+    this.bankName = data.bankName ?? null;
+    this.cbu = data.cbu ?? null;
+    this.bankAlias = data.bankAlias ?? null;
+    this.pendingBankName = bankPayload?.bankName ?? null;
+    this.pendingCbu = bankPayload?.cbu ?? null;
+    this.pendingBankAlias = bankPayload?.bankAlias ?? null;
+    this.bankChangePending = Boolean(pendingBank);
+    this.pendingName = fiscalPayload?.name ?? null;
+    this.pendingLegalName = fiscalPayload?.legalName ?? null;
+    this.pendingTaxId = fiscalPayload?.taxId ?? null;
+    this.pendingTaxCondition = fiscalPayload?.taxCondition ?? null;
+    this.pendingContactEmail = fiscalPayload?.contactEmail ?? null;
+    this.fiscalChangePending = Boolean(pendingFiscal);
+    this.contactEmail = data.contactEmail ?? null;
+    this.contactPhone = data.contactPhone ?? null;
     this.validationStatus = organizationStatusName(data as any);
-    this.rejectionReason = row.rejectionReason ?? null;
+    this.rejectionReason = data.rejectionReason ?? null;
     this.createdAt = data.createdAt;
-    this.validationSubmittedAt = row.validationSubmittedAt ?? null;
+    this.validationSubmittedAt = data.validationSubmittedAt ?? null;
 
     const firstMembership = data.userOrganizations?.[0];
     const user = firstMembership?.user as

@@ -13,9 +13,10 @@ import {
   Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { createReadStream } from 'fs';
@@ -41,6 +42,7 @@ import {
 import { OrganizationMeResponse } from './dtos/organization-me/organization-me.response';
 import { UpdateOrganizationMeRequest } from './dtos/organization-me/update-organization-me.request';
 import { RequestBankChangeRequest } from './dtos/organization-me/request-bank-change.request';
+import { RequestFiscalChangeRequest } from './dtos/organization-me/request-fiscal-change.request';
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
 import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
 import { organizationFilters } from './const/organization.filters';
@@ -49,7 +51,10 @@ import { CreateStaffRequest } from './dtos/organization-staff/create-staff.reque
 import { InviteProducerStaffRequest } from './dtos/organization-staff/invite-producer-staff.request';
 import { UpdateStaffRequest } from './dtos/organization-staff/update-staff.request';
 import { StaffListResponse, StaffMemberResponse } from './dtos/organization-staff/staff-member.response';
-import { ORGANIZATION_FISCAL_DOC_MAX_BYTES } from '@modules/organization/const/organization-fiscal.const';
+import {
+  ORGANIZATION_FISCAL_DOC_MAX_BYTES,
+  ORGANIZATION_FISCAL_DOC_MAX_FILES
+} from '@modules/organization/const/organization-fiscal.const';
 
 @ApiTags('Organizations')
 @Controller('organizations')
@@ -59,6 +64,11 @@ export class OrganizationController {
     private readonly organizationStaffService: OrganizationStaffService
   ) {}
 
+  private async toMeResponse(org: Awaited<ReturnType<IOrganizationService['getMyOrganization']>>) {
+    const requests = await this._organizationService.getOrgRequestView(org.uuid);
+    return new OrganizationMeResponse(org, requests);
+  }
+
   @UserAuth(null, OrganizationMeResponse)
   @ApiOperation({
     summary: 'Get my organization (producer)',
@@ -67,7 +77,7 @@ export class OrganizationController {
   @Get('me')
   async getMyOrganization(@User() userId: string): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.getMyOrganization(userId);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @UserAuth(UpdateOrganizationMeRequest, OrganizationMeResponse)
@@ -81,7 +91,7 @@ export class OrganizationController {
     @Body() body: UpdateOrganizationMeRequest
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.updateMyOrganization(userId, body);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @UserAuth(null, OrganizationMeResponse)
@@ -93,7 +103,7 @@ export class OrganizationController {
   @Post('me/submit-validation')
   async submitMyOrganizationValidation(@User() userId: string): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.submitMyOrganizationValidation(userId);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @UserAuth(RequestBankChangeRequest, OrganizationMeResponse)
@@ -109,7 +119,30 @@ export class OrganizationController {
     @Body() body: RequestBankChangeRequest
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.requestBankAccountChange(userId, body);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
+  }
+
+  @UserAuth(RequestFiscalChangeRequest, OrganizationMeResponse, 'multipart/form-data')
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiOperation({
+    summary: 'Request fiscal identity change (approved producer)',
+    description:
+      'Queues identity fields for admin review and optionally applies document add/delete. Does not change validationStatus; producer stays operational.'
+  })
+  @UseInterceptors(FilesInterceptor('files', ORGANIZATION_FISCAL_DOC_MAX_FILES))
+  @HttpCode(200)
+  @Post('me/fiscal-change-request')
+  async requestFiscalIdentityChange(
+    @User() userId: string,
+    @Body() body: RequestFiscalChangeRequest,
+    @UploadedFiles() files?: Express.Multer.File[]
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.requestFiscalIdentityChange(
+      userId,
+      body,
+      files ?? []
+    );
+    return this.toMeResponse(org);
   }
 
   @UserAuth(null, StaffListResponse)
@@ -268,7 +301,7 @@ export class OrganizationController {
     @User() adminId: string
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.approveOrganization(organizationUuid, adminId);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
@@ -281,7 +314,7 @@ export class OrganizationController {
     @Body() body: RejectOrganizationRequest
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.rejectOrganization(organizationUuid, adminId, body.reason);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @AdminAuth(null, OrganizationMeResponse)
@@ -293,7 +326,7 @@ export class OrganizationController {
     @User() adminId: string
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.approveBankAccountChange(organizationUuid, adminId);
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
   }
 
   @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
@@ -310,7 +343,39 @@ export class OrganizationController {
       adminId,
       body.reason
     );
-    return new OrganizationMeResponse(org);
+    return this.toMeResponse(org);
+  }
+
+  @AdminAuth(null, OrganizationMeResponse)
+  @ApiOperation({ summary: 'Approve pending fiscal identity change' })
+  @HttpCode(200)
+  @Post(':organizationUuid/approve-fiscal-change')
+  async approveFiscalIdentityChange(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.approveFiscalIdentityChange(
+      organizationUuid,
+      adminId
+    );
+    return this.toMeResponse(org);
+  }
+
+  @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
+  @ApiOperation({ summary: 'Reject pending fiscal identity change' })
+  @HttpCode(200)
+  @Post(':organizationUuid/reject-fiscal-change')
+  async rejectFiscalIdentityChange(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string,
+    @Body() body: RejectOrganizationRequest
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.rejectFiscalIdentityChange(
+      organizationUuid,
+      adminId,
+      body.reason
+    );
+    return this.toMeResponse(org);
   }
 
   @UserAuth(null, GetAllOrganizationResponse)
@@ -338,9 +403,14 @@ export class OrganizationController {
       loggedUser,
       filters
     );
+    const requestViews = await this._organizationService.getOrgRequestViews(
+      organization.items.map(item => item.uuid)
+    );
     return {
       meta: organization.meta,
-      items: organization.items.map(item => new GetAllOrganizationResponse(item))
+      items: organization.items.map(
+        item => new GetAllOrganizationResponse(item, requestViews.get(item.uuid) ?? {})
+      )
     };
   }
 

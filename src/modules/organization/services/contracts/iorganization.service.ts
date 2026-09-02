@@ -11,9 +11,11 @@ import {
 } from '../core/organization';
 import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
 import { RequestBankChangeRequest } from '../../controllers/dtos/organization-me/request-bank-change.request';
+import { RequestFiscalChangeRequest } from '../../controllers/dtos/organization-me/request-fiscal-change.request';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { organizationFilters } from '../../controllers/const/organization.filters';
+import type { OrgRequestView } from '../../controllers/dtos/organization-me/organization-me.response';
 
 export type TOrganizationResponse = TEntityResponse<'organization', undefined, undefined>;
 
@@ -54,6 +56,8 @@ export interface IOrganizationService {
   deleteOrganization(id: string): Promise<boolean>;
 
   getMyOrganization(userUuid: string): Promise<OrganizationEntity>;
+  getOrgRequestView(organizationUuid: string): Promise<OrgRequestView>;
+  getOrgRequestViews(organizationUuids: string[]): Promise<Map<string, OrgRequestView>>;
   updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity>;
   submitMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
   requestBankAccountChange(
@@ -62,6 +66,20 @@ export interface IOrganizationService {
   ): Promise<OrganizationEntity>;
   approveBankAccountChange(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
   rejectBankAccountChange(
+    organizationUuid: string,
+    adminUuid: string,
+    reason: string
+  ): Promise<OrganizationEntity>;
+  requestFiscalIdentityChange(
+    userUuid: string,
+    data: RequestFiscalChangeRequest,
+    files?: Express.Multer.File[]
+  ): Promise<OrganizationEntity>;
+  approveFiscalIdentityChange(
+    organizationUuid: string,
+    adminUuid: string
+  ): Promise<OrganizationEntity>;
+  rejectFiscalIdentityChange(
     organizationUuid: string,
     adminUuid: string,
     reason: string

@@ -13,5 +13,11 @@ export const organizationFilters = [
     type: String,
     required: false,
     enumValues: ['true', 'false']
+  },
+  {
+    name: 'fiscalChangePending',
+    type: String,
+    required: false,
+    enumValues: ['true', 'false']
   }
 ] as const satisfies IFilterData[];
