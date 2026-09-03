@@ -1,4 +1,8 @@
 import { PayoutStatus } from '@config/db/entities/tickets/payout.entity';
+import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
+import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
+import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
+import { payoutFilters } from '../../controllers/const/payout.filters';
 
 export interface IPayout {
   uuid: string;
@@ -23,6 +27,23 @@ export interface IPayoutEventBlock {
   payouts: IPayout[];
 }
 
+export interface IPayoutEventOption {
+  eventUuid: string;
+  eventName: string;
+}
+
+export interface IPayoutListResult {
+  items: IPayoutEventBlock[];
+  /** Eventos con liquidaciones (sin aplicar search/status), para armar el filtro. */
+  eventOptions: IPayoutEventOption[];
+  /** Presente cuando el listado se pidió paginado (productor / infinite scroll). */
+  total?: number;
+  page?: number;
+  limit?: number;
+}
+
+export type TPayoutFilters = IFiltersParams<typeof payoutFilters>;
+
 export interface ICreatePayoutPayload {
   eventUuid: string;
   amount: number;
@@ -41,7 +62,12 @@ export interface IPayoutFileDownload {
 
 export interface IPayoutService {
   /** Liquidaciones de la productora del usuario, agrupadas por evento. */
-  listMyPayouts(loggedUser: string): Promise<IPayoutEventBlock[]>;
+  listMyPayouts(
+    loggedUser: string,
+    search?: ISearchParams,
+    filters?: TPayoutFilters,
+    pagination?: IPaginationParams
+  ): Promise<IPayoutListResult>;
 
   getMyPayout(loggedUser: string, payoutUuid: string): Promise<IPayout>;
 
@@ -53,7 +79,11 @@ export interface IPayoutService {
 
   // ── Administrador ─────────────────────────────────────────────────────────
 
-  listOrganizationPayouts(organizationUuid: string): Promise<IPayoutEventBlock[]>;
+  listOrganizationPayouts(
+    organizationUuid: string,
+    search?: ISearchParams,
+    filters?: TPayoutFilters
+  ): Promise<IPayoutListResult>;
 
   createPayout(
     organizationUuid: string,

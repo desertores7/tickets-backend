@@ -29,6 +29,9 @@ export class ProducerInviteValidationResponse {
   valid: boolean;
 
   @ApiPropertyOptional()
+  email?: string;
+
+  @ApiPropertyOptional()
   emailMasked?: string;
 
   @ApiPropertyOptional()
@@ -42,12 +45,14 @@ export class ProducerInviteValidationResponse {
 
   constructor(data: {
     valid: boolean;
+    email?: string;
     emailMasked?: string;
     organizationName?: string;
     expiresAt?: string;
     message?: string;
   }) {
     this.valid = data.valid;
+    this.email = data.email;
     this.emailMasked = data.emailMasked;
     this.organizationName = data.organizationName;
     this.expiresAt = data.expiresAt;

@@ -19,7 +19,16 @@ import { ApiConsumes, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
+import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
+import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
+import {
+  ApiPagination,
+  IPaginationParams,
+  PaginationParams
+} from '@root/shared/decorators/pagination-query.decorator';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IPayoutService, PayoutFileKind } from '../services/contracts/ipayout.service';
+import { payoutFilters } from './const/payout.filters';
 import {
   CreatePayoutRequest,
   PayoutBlocksResponse,
@@ -50,13 +59,30 @@ export class ProducerPayoutController {
     summary: 'List my payouts, grouped by event',
     description:
       'One block per event with its payouts. A payout belongs to exactly one event and an event ' +
-      'can have several (BR-PAY-005). Amounts exclude the service fee.'
+      'can have several (BR-PAY-005). Amounts exclude the service fee. Supports `search` (event name), ' +
+      'filters `eventUuid`, `status` (complete|pending), and pagination (`page`, `limit`; default 10).'
   })
+  @ApiSearch()
+  @ApiFilter(payoutFilters)
+  @ApiPagination()
   @HttpCode(200)
   @Get()
-  async listMine(@User() loggedUser: string): Promise<PayoutBlocksResponse> {
-    const blocks = await this.payoutService.listMyPayouts(loggedUser);
-    return new PayoutBlocksResponse(blocks.map(b => new PayoutEventBlockResponse(b)));
+  async listMine(
+    @User() loggedUser: string,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(payoutFilters) filters: IFiltersParams<typeof payoutFilters>,
+    @PaginationParams() pagination: IPaginationParams
+  ): Promise<PayoutBlocksResponse> {
+    const result = await this.payoutService.listMyPayouts(loggedUser, search, filters, pagination);
+    return new PayoutBlocksResponse(
+      result.items.map(b => new PayoutEventBlockResponse(b)),
+      result.eventOptions,
+      new PaginationMetaResponse({
+        total: result.total ?? 0,
+        page: result.page ?? pagination.page,
+        limit: result.limit ?? pagination.limit
+      })
+    );
   }
 
   @UserAuth(null, PayoutResponse)
@@ -122,11 +148,24 @@ export class AdminPayoutController {
   @AdminAuth(null, PayoutBlocksResponse)
   @ApiOperation({ summary: 'List payouts of an organization' })
   @ApiParam({ name: 'organizationUuid' })
+  @ApiSearch()
+  @ApiFilter(payoutFilters)
   @HttpCode(200)
   @Get()
-  async list(@Param('organizationUuid') organizationUuid: string): Promise<PayoutBlocksResponse> {
-    const blocks = await this.payoutService.listOrganizationPayouts(organizationUuid);
-    return new PayoutBlocksResponse(blocks.map(b => new PayoutEventBlockResponse(b)));
+  async list(
+    @Param('organizationUuid') organizationUuid: string,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(payoutFilters) filters: IFiltersParams<typeof payoutFilters>
+  ): Promise<PayoutBlocksResponse> {
+    const result = await this.payoutService.listOrganizationPayouts(
+      organizationUuid,
+      search,
+      filters
+    );
+    return new PayoutBlocksResponse(
+      result.items.map(b => new PayoutEventBlockResponse(b)),
+      result.eventOptions
+    );
   }
 
   @AdminAuth(CreatePayoutRequest, PayoutResponse)

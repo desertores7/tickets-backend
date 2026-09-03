@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsISO8601, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { PAYOUT_STATUSES, PayoutStatus } from '@config/db/entities/tickets/payout.entity';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IPayout, IPayoutEventBlock } from '../../services/contracts/ipayout.service';
 
 /** Sin constructor: `plainToInstance` instancia los request sin argumentos. */
@@ -75,7 +76,28 @@ export class PayoutEventBlockResponse {
 
 export class PayoutBlocksResponse {
   @ApiProperty({ type: [PayoutEventBlockResponse] }) items: PayoutEventBlockResponse[];
-  constructor(items: PayoutEventBlockResponse[]) {
+  @ApiProperty({
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        eventUuid: { type: 'string' },
+        eventName: { type: 'string' }
+      }
+    }
+  })
+  eventOptions: { eventUuid: string; eventName: string }[];
+
+  @ApiPropertyOptional({ type: PaginationMetaResponse })
+  meta?: PaginationMetaResponse;
+
+  constructor(
+    items: PayoutEventBlockResponse[],
+    eventOptions: { eventUuid: string; eventName: string }[] = [],
+    meta?: PaginationMetaResponse
+  ) {
     this.items = items;
+    this.eventOptions = eventOptions;
+    this.meta = meta;
   }
 }
