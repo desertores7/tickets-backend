@@ -28,7 +28,10 @@ export const EMAIL_TEMPLATES = {
   organizationRejected: 'organization-rejected',
   organizationSubmitted: 'organization-submitted',
   producerInvite: 'producer-invite',
-  eventMaterialChange: 'event-material-change'
+  /** Template de mario: aviso de cambio material a compradores */
+  eventMaterialChange: 'event-material-change',
+  /** Alias legacy de main (mismo flujo; preferir `eventMaterialChange`) */
+  eventChanged: 'event-changed'
 } as const;
 
 export type EmailTemplateName = (typeof EMAIL_TEMPLATES)[keyof typeof EMAIL_TEMPLATES];

@@ -156,7 +156,7 @@ export interface IEventService {
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
 
-  /** Historial de cambios (FP10 / `29` §17). */
+  /** Historial de cambios (FP10 / `29` §17 / §19). */
   listEventChanges(eventUuid: string, loggedUser: string): Promise<TEventChangesResult>;
 
   /** Cancela el evento sin borrar ni despublicar (BR-EVENT-010). */
@@ -168,6 +168,12 @@ export interface IEventService {
 
   /** Cierre manual de venta — solo Admin (BR-EVENT-013). */
   closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem>;
+
+  /**
+   * Corta o reabre la venta a mano (`BR-EVENT-013`). Productor dueño o Admin.
+   * No es material. Un evento cancelado no se puede reabrir.
+   */
+  setSalesClosed(eventUuid: string, closed: boolean, loggedUser: string): Promise<Date | null>;
 
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
 

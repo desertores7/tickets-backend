@@ -313,6 +313,14 @@ export class EventService implements IEventService {
     return this.eventChangeService.closeSalesAdmin(eventUuid, loggedUser);
   }
 
+  async setSalesClosed(
+    eventUuid: string,
+    closed: boolean,
+    loggedUser: string
+  ): Promise<Date | null> {
+    return this.eventChangeService.setSalesClosed(eventUuid, closed, loggedUser);
+  }
+
   async deleteEvent(uuid: string, loggedUser: string): Promise<boolean> {
     const event = await this.assertOwnership(uuid, loggedUser);
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: { isActive: false } });

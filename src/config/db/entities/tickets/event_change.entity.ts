@@ -30,6 +30,9 @@ export type EventChangeFieldSnapshot = {
   after: string | null;
 };
 
+/** Alias usado en main / docs (`EventChangeField`). */
+export type EventChangeField = EventChangeFieldSnapshot;
+
 const tableName = 'event_change' as const;
 
 /**

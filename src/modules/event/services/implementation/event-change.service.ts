@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -129,7 +130,6 @@ export class EventChangeService {
 
   /**
    * Cierre manual de venta — solo Admin / interno (BR-EVENT-013).
-   * El Productor no tiene UI ni permiso para esto.
    */
   async closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem> {
     const isAdmin = await this.userPermission.userPermission(loggedUser);
@@ -166,6 +166,56 @@ export class EventChangeService {
       newStartDate: null,
       forceNotifyWithSales: false
     });
+  }
+
+  /**
+   * Corta o reabre la venta a mano (`BR-EVENT-013`). Productor dueño o Admin.
+   * No es material: quien ya compró no pierde nada porque dejen de venderse entradas.
+   * Un evento cancelado no se puede reabrir.
+   */
+  async setSalesClosed(
+    eventUuid: string,
+    closed: boolean,
+    loggedUser: string
+  ): Promise<Date | null> {
+    await this.assertProducerAccess(eventUuid, loggedUser);
+    const event = await this.findActiveEvent(eventUuid);
+
+    if (event.cancelledAt && !closed) {
+      throw new BadRequestException('No se puede reabrir la venta de un evento cancelado');
+    }
+
+    const alreadyClosed = Boolean(event.salesClosedAt);
+    if (closed === alreadyClosed) {
+      return event.salesClosedAt;
+    }
+
+    const salesClosedAt = closed ? new Date() : null;
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: { salesClosedAt }
+    });
+
+    await this.persistChangeAndMaybeNotify({
+      event,
+      type: 'sales_close',
+      isMaterial: false,
+      reason: null,
+      changes: [
+        {
+          field: 'salesClosedAt',
+          label: 'Venta',
+          before: alreadyClosed ? 'Cerrada' : 'Abierta',
+          after: closed ? 'Cerrada' : 'Abierta'
+        }
+      ],
+      createdByUuid: loggedUser,
+      newStartDate: null,
+      forceNotifyWithSales: false
+    });
+
+    return salesClosedAt;
   }
 
   /**

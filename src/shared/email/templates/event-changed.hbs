@@ -1,0 +1,95 @@
+{{!-- event-changed: aviso de cambio material o cancelacion de un evento (FP10 / BR-REFUND-010).
+      Informativo: NO promete reembolso mientras el flujo de solicitudes no exista. --}}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{#if isCancellation}}Evento cancelado{{else}}Cambios en tu evento{{/if}}</title>
+  {{> styles}}
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden;">
+    {{#if isCancellation}}Se canceló {{eventName}}{{else}}Cambió información de {{eventName}}{{/if}}
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+          {{> header}}
+
+          <tr>
+            <td class="mobile-padding" style="padding:32px 40px;">
+              <h1 style="margin:0 0 12px; color:#0f172a; font-size:24px; font-weight:800;">
+                {{#if isCancellation}}Se canceló el evento{{else}}Cambió información del evento{{/if}}
+              </h1>
+
+              {{#if firstName}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">Hola {{firstName}},</p>
+              {{/if}}
+
+              {{#if isCancellation}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                  El organizador canceló <strong>{{eventName}}</strong>.
+                </p>
+                {{#if reason}}
+                  <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                    Motivo: {{reason}}
+                  </p>
+                {{/if}}
+              {{else}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                  El organizador actualizó datos de <strong>{{eventName}}</strong>. Esto es lo que cambió:
+                </p>
+
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;">
+                  {{#each changes}}
+                    <tr>
+                      <td style="padding:12px 16px; border-bottom:1px solid #e2e8f0; color:#64748b; font-size:13px; font-weight:700; width:35%;">
+                        {{this.label}}
+                      </td>
+                      <td style="padding:12px 16px; border-bottom:1px solid #e2e8f0; color:#0f172a; font-size:14px;">
+                        <span style="color:#94a3b8; text-decoration:line-through;">{{this.before}}</span>
+                        <span style="color:#0f172a; font-weight:700;">&nbsp;&rarr;&nbsp;{{this.after}}</span>
+                      </td>
+                    </tr>
+                  {{/each}}
+                </table>
+              {{/if}}
+
+              <p style="margin:0 0 24px; color:#334155; font-size:15px; line-height:1.7;">
+                {{#if isCancellation}}
+                  Vas a recibir novedades sobre tu compra por este mismo medio. Si necesitás ayuda antes,
+                  respondé este email.
+                {{else}}
+                  Tus entradas siguen siendo válidas. Si el cambio no te sirve, respondé este email y te
+                  ayudamos.
+                {{/if}}
+              </p>
+
+              {{#if ticketsUrl}}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 20px;">
+                  <tr>
+                    <td align="center" style="border-radius:12px; background-color:#0284c7;">
+                      <a href="{{ticketsUrl}}" target="_blank" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px;">
+                        Ver mis entradas
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0; color:#64748b; font-size:13px; line-height:1.6;">
+                  Si el botón no funciona: <a href="{{ticketsUrl}}" style="color:#0284c7; word-break:break-all;">{{ticketsUrl}}</a>
+                </p>
+              {{/if}}
+            </td>
+          </tr>
+
+          {{> footer}}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

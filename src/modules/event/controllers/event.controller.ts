@@ -40,6 +40,7 @@ import {
 import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
 import { CancelEventRequest } from './requests/cancel-event.request';
+import { SetSalesClosedRequest } from './requests/event-operation.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import {
@@ -58,7 +59,11 @@ import {
 } from './responses/event-expense.response';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
-import { EventChangeResponse, EventChangesResponse } from './responses/event-change.response';
+import {
+  EventChangeResponse,
+  EventChangesResponse,
+  EventSalesStateResponse
+} from './responses/event-change.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
@@ -363,24 +368,25 @@ export class EventController {
     return new EventChangeResponse(change);
   }
 
-  @AdminAuth(null, EventChangeResponse)
+  @UserAuth(SetSalesClosedRequest, EventSalesStateResponse)
   @ApiOperation({
-    summary: 'Close event sales (Admin)',
+    summary: 'Close or reopen sales',
     description:
-      'Cierre manual de venta. Deprecado para Productor (BR-EVENT-013): el cierre es automático al fin del evento. ' +
-      'Solo Administrador. Productor recibe 403.'
+      'Manual sales cut-off (`BR-EVENT-013`). Not a material change. Productor dueño o Admin. ' +
+      'A cancelled event cannot be reopened. Kept apart from `saleEndDate`.'
   })
-  @ApiResponse({ status: 200, type: EventChangeResponse })
-  @ApiResponse({ status: 403, description: 'No es Administrador' })
-  @ApiResponse({ status: 409, description: 'La venta ya está cerrada' })
+  @ApiResponse({ status: 200, type: EventSalesStateResponse })
+  @ApiResponse({ status: 400, description: 'No se puede reabrir un evento cancelado' })
   @HttpCode(200)
   @Post(':eventUuid/sales-closed')
-  async closeSales(
+  async setSalesClosed(
     @Param('eventUuid') eventUuid: string,
+    @Body() data: SetSalesClosedRequest,
     @User() loggedUser: string
-  ): Promise<EventChangeResponse> {
-    const change = await this._eventService.closeSalesAdmin(eventUuid, loggedUser);
-    return new EventChangeResponse(change);
+  ): Promise<EventSalesStateResponse> {
+    return new EventSalesStateResponse(
+      await this._eventService.setSalesClosed(eventUuid, data.closed, loggedUser)
+    );
   }
 
   @OptionalUserAuth(null, EventMapResponse)
