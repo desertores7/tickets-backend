@@ -9,6 +9,9 @@ import { FeeSummaryService } from '@modules/orders/services/implementation/fee-s
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 import {
   BackofficeAdminKpisResponse,
+  BackofficeAdminSectionsResponse,
+  BackofficeAdminTopEventResponse,
+  BackofficePendingOrganizationResponse,
   BackofficeCashierSectionsResponse,
   BackofficeProducerKpisResponse,
   BackofficeProducerSectionsResponse,
@@ -88,20 +91,18 @@ export class DashboardService {
     const org = await this.resolveMembershipOrganization(userUuid);
     const orgUuid = org.uuid;
 
-    const events = await this.dbRepository.findMany({
-      entity: 'event',
-      where: { organizationUuid: orgUuid, isActive: true } as any
-    });
-
-    const eventsPublished = events.filter(e => e.isPublished).length;
-    const eventsDraft = events.length - eventsPublished;
-    const aggregates = await this.feeSummaryService.aggregateByOrganization(orgUuid);
-    const topRows = await this.feeSummaryService.topEventsByOrganization(orgUuid, 5);
+    // Tres numeros que salen de un COUNT agregado: traer las filas para contarlas
+    // en memoria escala con la cantidad de eventos de la productora.
+    const [counts, aggregates, topRows] = await Promise.all([
+      this.countOrganizationEvents(orgUuid),
+      this.feeSummaryService.aggregateByOrganization(orgUuid),
+      this.feeSummaryService.topEventsByOrganization(orgUuid, 5)
+    ]);
 
     const kpis = new BackofficeProducerKpisResponse({
-      eventsTotal: events.length,
-      eventsPublished,
-      eventsDraft,
+      eventsTotal: counts.total,
+      eventsPublished: counts.published,
+      eventsDraft: counts.draft,
       ticketsSoldWeb: aggregates.totalTicketsSold,
       ticketRevenueWeb: aggregates.ticketAmount
     });
@@ -136,22 +137,23 @@ export class DashboardService {
   }
 
   private async buildAdminDashboard(generatedAt: Date): Promise<GetBackofficeDashboardResponse> {
-    const pendingReview = await this.countOrganizations({
-      organizationStatusUuid: ORGANIZATION_STATUS.PENDING_REVIEW.uuid
-    });
-    const approved = await this.countOrganizations({
-      organizationStatusUuid: ORGANIZATION_STATUS.APPROVED.uuid
-    });
-    const bankChangePending = await this.countOrganizations({ bankChangePending: true });
-
-    const eventsPublished = await this.dbRepository.query(
-      `SELECT COUNT(*) AS cnt FROM event WHERE isActive = 1 AND isPublished = 1`
-    );
-    const aggregates = await this.feeSummaryService.aggregatePlatform();
+    // Son consultas independientes: en serie el dashboard paga la suma de todas.
+    const [pendingReview, approved, bankChangePending, fiscalChangePending, eventsPublished, aggregates, topRows, pendingOrgs] =
+      await Promise.all([
+        this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.PENDING_REVIEW.uuid }),
+        this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.APPROVED.uuid }),
+        this.countOrganizations({ requestPending: 'bank_change' }),
+        this.countOrganizations({ requestPending: 'fiscal_change' }),
+        this.dbRepository.query(`SELECT COUNT(*) AS cnt FROM event WHERE isActive = 1 AND isPublished = 1`),
+        this.feeSummaryService.aggregatePlatform(),
+        this.feeSummaryService.topEventsPlatform(5),
+        this.listPendingOrganizations(5)
+      ]);
 
     const kpis = new BackofficeAdminKpisResponse({
       organizationsPendingReview: pendingReview,
       organizationsBankChangePending: bankChangePending,
+      organizationsFiscalChangePending: fiscalChangePending,
       organizationsApproved: approved,
       eventsPublished: Number(eventsPublished?.[0]?.cnt ?? 0),
       ticketsSold: aggregates.totalTicketsSold,
@@ -160,11 +162,28 @@ export class DashboardService {
       grossRevenue: aggregates.grossAmount
     });
 
+    const sections = new BackofficeAdminSectionsResponse(
+      topRows.map(
+        row =>
+          new BackofficeAdminTopEventResponse({
+            uuid: row.eventUuid,
+            name: row.name,
+            totalTicketsSold: row.totalTicketsSold,
+            ticketRevenue: row.ticketAmount,
+            lastOrderPaidAt: row.lastOrderPaidAt,
+            organizationUuid: row.organizationUuid,
+            organizationName: row.organizationName
+          })
+      ),
+      pendingOrgs
+    );
+
     return new GetBackofficeDashboardResponse({
       role: 'admin',
       currency: aggregates.currency,
       generatedAt,
       kpis,
+      sections,
       unavailable: [],
       quickActions: [
         new BackofficeQuickActionResponse({
@@ -228,13 +247,15 @@ export class DashboardService {
 
   private async countOrganizations(filter: {
     organizationStatusUuid?: string;
-    bankChangePending?: boolean;
+    /** Tipo de pedido pendiente a contar (organization_request.type). */
+    requestPending?: 'bank_change' | 'fiscal_change';
   }): Promise<number> {
-    if (filter.bankChangePending) {
+    if (filter.requestPending) {
       const rows = await this.dbRepository.query(
         `SELECT COUNT(DISTINCT organizationUuid) AS cnt
          FROM organization_request
-         WHERE isDeleted IS NULL AND status = 'pending' AND type = 'bank_change'`
+         WHERE isDeleted IS NULL AND status = 'pending' AND type = ?`,
+        [filter.requestPending]
       );
       return Number(rows?.[0]?.cnt ?? 0);
     }
@@ -244,6 +265,54 @@ export class DashboardService {
       [filter.organizationStatusUuid]
     );
     return Number(rows?.[0]?.cnt ?? 0);
+  }
+
+  /** Totales de eventos de una productora en una sola pasada. */
+  private async countOrganizationEvents(
+    organizationUuid: string
+  ): Promise<{ total: number; published: number; draft: number }> {
+    const rows = await this.dbRepository.query(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(isPublished = 1), 0) AS published
+       FROM event
+       WHERE organizationUuid = ? AND isActive = 1`,
+      [organizationUuid]
+    );
+
+    const total = Number(rows?.[0]?.total ?? 0);
+    const published = Number(rows?.[0]?.published ?? 0);
+    return { total, published, draft: total - published };
+  }
+
+  /**
+   * Cola de decisiones del admin: validaciones fiscales esperando revision y
+   * pedidos de cambio (banco / identidad fiscal), en una sola consulta.
+   */
+  private async listPendingOrganizations(limit: number): Promise<BackofficePendingOrganizationResponse[]> {
+    const rows = await this.dbRepository.query(
+      `
+        SELECT o.uuid AS uuid, o.name AS name, 'validation' AS kind, o.updatedAt AS requestedAt
+        FROM organization o
+        WHERE o.isDeleted IS NULL AND o.organizationStatusUuid = ?
+        UNION ALL
+        SELECT o.uuid AS uuid, o.name AS name, r.type AS kind, r.createdAt AS requestedAt
+        FROM organization_request r
+        INNER JOIN organization o ON o.uuid = r.organizationUuid AND o.isDeleted IS NULL
+        WHERE r.isDeleted IS NULL AND r.status = 'pending'
+        ORDER BY requestedAt DESC
+        LIMIT ?
+      `,
+      [ORGANIZATION_STATUS.PENDING_REVIEW.uuid, limit]
+    );
+
+    return (rows ?? []).map(
+      (row: Record<string, unknown>) =>
+        new BackofficePendingOrganizationResponse({
+          uuid: String(row.uuid),
+          name: String(row.name),
+          kind: row.kind as 'validation' | 'bank_change' | 'fiscal_change',
+          requestedAt: row.requestedAt ? new Date(row.requestedAt as string) : null
+        })
+    );
   }
 
   private async resolveMembershipOrganization(userUuid: string): Promise<OrganizationEntity> {

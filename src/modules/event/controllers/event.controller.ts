@@ -29,7 +29,8 @@ import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
-import { eventFilters } from './const/event.filters';
+import { EVENT_ORDER_COLUMNS, eventFilters } from './const/event.filters';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import {
   BANNER_VARIANT_NAMES,
   BannerImages,
@@ -38,6 +39,7 @@ import {
 } from './const/banner-variant.const';
 import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
+import { CancelEventRequest } from './requests/cancel-event.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import {
@@ -56,6 +58,7 @@ import {
 } from './responses/event-expense.response';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
+import { EventChangeResponse, EventChangesResponse } from './responses/event-change.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
@@ -193,11 +196,13 @@ export class EventController {
   @ApiSearch()
   @ApiFilter(eventFilters)
   @HttpCode(200)
+  @ApiOrder(EVENT_ORDER_COLUMNS)
   @Get()
   async getEvents(
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
     @FilterParams(eventFilters) filters: IFiltersParams<typeof eventFilters>,
+    @OrderParams() order: IOrderParams<typeof EVENT_ORDER_COLUMNS>,
     @UserRole() role: string | null,
     @OptionalUser() loggedUser: string | null,
     @Query('mine') mine?: string
@@ -206,7 +211,8 @@ export class EventController {
     const isMine = mine === 'true' && !!loggedUser;
     const result = await this._eventService.getEvents(pagination, search, filters, role, {
       mine: isMine,
-      loggedUser
+      loggedUser,
+      order
     });
     return {
       meta: result.meta,
@@ -316,6 +322,65 @@ export class EventController {
   @Post(':eventUuid/unpublish')
   async unpublishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.unpublishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, EventChangesResponse)
+  @ApiOperation({
+    summary: 'List event changes',
+    description:
+      'Historial de cambios del evento (FP10 / `29` §17): cancelaciones, materiales, stock, cierre de venta. ' +
+      'Orden: más nuevo → más viejo. Solo productor dueño (404 si no es suyo).'
+  })
+  @ApiResponse({ status: 200, type: EventChangesResponse })
+  @ApiResponse({ status: 404, description: 'Evento no encontrado o sin acceso' })
+  @HttpCode(200)
+  @Get(':eventUuid/changes')
+  async listEventChanges(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventChangesResponse> {
+    const result = await this._eventService.listEventChanges(eventUuid, loggedUser);
+    return new EventChangesResponse(result);
+  }
+
+  @UserAuth(CancelEventRequest, EventChangeResponse)
+  @ApiOperation({
+    summary: 'Cancel event',
+    description:
+      'Cancela el evento (BR-EVENT-010): marca cancelledAt, corta la venta, persiste event_change. ' +
+      'Con ventas → email + ventana 72 h. No borra ni despublica. Idempotente → 409 si ya cancelado.'
+  })
+  @ApiResponse({ status: 200, type: EventChangeResponse })
+  @ApiResponse({ status: 409, description: 'El evento ya está cancelado' })
+  @HttpCode(200)
+  @Post(':eventUuid/cancel')
+  async cancelEvent(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: CancelEventRequest,
+    @User() loggedUser: string
+  ): Promise<EventChangeResponse> {
+    const change = await this._eventService.cancelEvent(eventUuid, loggedUser, body?.reason);
+    return new EventChangeResponse(change);
+  }
+
+  @AdminAuth(null, EventChangeResponse)
+  @ApiOperation({
+    summary: 'Close event sales (Admin)',
+    description:
+      'Cierre manual de venta. Deprecado para Productor (BR-EVENT-013): el cierre es automático al fin del evento. ' +
+      'Solo Administrador. Productor recibe 403.'
+  })
+  @ApiResponse({ status: 200, type: EventChangeResponse })
+  @ApiResponse({ status: 403, description: 'No es Administrador' })
+  @ApiResponse({ status: 409, description: 'La venta ya está cerrada' })
+  @HttpCode(200)
+  @Post(':eventUuid/sales-closed')
+  async closeSales(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventChangeResponse> {
+    const change = await this._eventService.closeSalesAdmin(eventUuid, loggedUser);
+    return new EventChangeResponse(change);
   }
 
   @OptionalUserAuth(null, EventMapResponse)

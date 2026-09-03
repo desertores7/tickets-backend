@@ -416,6 +416,12 @@ export const entityRelations = {
     ticketType: 'ticket_type'
   },
 
+  event_change: {
+    event: 'event',
+    ticketType: 'ticket_type',
+    createdBy: 'user'
+  },
+
   payout: {
     organization: 'organization',
     event: 'event'

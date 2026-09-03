@@ -5,7 +5,8 @@ import { IUserService } from '../contracts/iuser.service';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
-import { userFilters } from '../../controllers/const/user.filters';
+import { USER_ORDER_COLUMNS, userFilters } from '../../controllers/const/user.filters';
+import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { v4 as uuidv4 } from 'uuid';
 import { ILike, DataSource, In, IsNull, QueryRunner, Raw } from 'typeorm';
@@ -46,7 +47,8 @@ export class UserService implements IUserService {
   async getUsers(
     pagination: IPaginationParams,
     search: ISearchParams,
-    filters?: IFiltersParams<typeof userFilters>
+    filters?: IFiltersParams<typeof userFilters>,
+    order?: IOrderParams<typeof USER_ORDER_COLUMNS>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: (TEntityResponse<'user', { files: true }, undefined> & {
@@ -115,9 +117,7 @@ export class UserService implements IUserService {
       other: {
         take: pagination.limit,
         skip: (pagination.page - 1) * pagination.limit,
-        order: {
-          createdAt: 'DESC'
-        }
+        order: resolveListOrder(order, USER_ORDER_COLUMNS, { createdAt: 'DESC' })
       }
     });
 

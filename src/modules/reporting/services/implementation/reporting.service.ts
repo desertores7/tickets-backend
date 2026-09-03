@@ -26,6 +26,9 @@ const SOLD_STATUSES = [OrderStatus.PAID, OrderStatus.REFUNDED];
 /** Cuantos eventos entran en el ranking del dashboard */
 const TOP_EVENTS_LIMIT = 5;
 
+/** Tope de filas de un export: evita traer la plataforma entera a memoria. */
+const SALES_EXPORT_MAX_ROWS = 20000;
+
 @Injectable()
 export class ReportingService implements IReportingService {
   constructor(
@@ -42,7 +45,12 @@ export class ReportingService implements IReportingService {
     filters: ISalesFilters,
     pagination: IPaginationParams
   ): Promise<{ meta: PaginationMetaResponse; items: ISalesRow[] }> {
-    const scope = await this.resolveEventScope(loggedUser, role, filters.eventUuid);
+    const scope = await this.resolveEventScope(
+      loggedUser,
+      role,
+      filters.eventUuid,
+      filters.organizationUuid
+    );
     if (scope.empty) {
       return {
         meta: new PaginationMetaResponse({ limit: pagination.limit, page: pagination.page, total: 0 }),
@@ -168,11 +176,18 @@ export class ReportingService implements IReportingService {
     role: string | null,
     filters: ISalesFilters
   ): Promise<ISalesRow[]> {
-    const scope = await this.resolveEventScope(loggedUser, role, filters.eventUuid);
+    const scope = await this.resolveEventScope(
+      loggedUser,
+      role,
+      filters.eventUuid,
+      filters.organizationUuid
+    );
     if (scope.empty) return [];
 
+    // Tope duro: un admin sin filtros exportaria la base entera en memoria.
     const rows = await this.buildSalesQuery(scope.eventUuids, filters)
       .orderBy('o.createdAt', 'DESC')
+      .limit(SALES_EXPORT_MAX_ROWS)
       .getRawMany();
 
     return rows.map(r => this.toSalesRow(r));
@@ -427,17 +442,36 @@ export class ReportingService implements IReportingService {
   private async resolveEventScope(
     loggedUser: string,
     role: string | null,
-    eventUuidFilter?: string
+    eventUuidFilter?: string,
+    organizationUuidFilter?: string
   ): Promise<{ eventUuids: string[] | null; empty: boolean }> {
     if (role === 'Administrador') {
-      return { eventUuids: eventUuidFilter ? [eventUuidFilter] : null, empty: false };
+      // Sin filtro de productora el admin no necesita resolver nada: null = todos.
+      if (!organizationUuidFilter) {
+        return { eventUuids: eventUuidFilter ? [eventUuidFilter] : null, empty: false };
+      }
+
+      const orgEvents = await this.dbRepository.findMany({
+        entity: 'event',
+        where: { organizationUuid: organizationUuidFilter } as any,
+        select: { uuid: true }
+      });
+      let orgEventUuids = orgEvents.map((e: any) => e.uuid);
+      if (eventUuidFilter) orgEventUuids = orgEventUuids.filter(u => u === eventUuidFilter);
+
+      return { eventUuids: orgEventUuids, empty: orgEventUuids.length === 0 };
     }
 
     const memberships = await this.dbRepository.findMany({
       entity: 'user_organization',
       where: { userUuid: loggedUser, isDeleted: IsNull() } as any
     });
-    const orgUuids = [...new Set(memberships.map((m: any) => m.organizationUuid))];
+    let orgUuids = [...new Set(memberships.map((m: any) => m.organizationUuid))];
+
+    // Una productora ajena no amplia el scope: si no es suya, queda vacio.
+    if (organizationUuidFilter) {
+      orgUuids = orgUuids.filter(u => u === organizationUuidFilter);
+    }
 
     if (orgUuids.length === 0) return { eventUuids: [], empty: true };
 

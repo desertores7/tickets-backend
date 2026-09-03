@@ -6,6 +6,8 @@ export interface ISalesFilters {
   /** Nombre o email del comprador, o número de orden */
   search?: string;
   eventUuid?: string;
+  /** Solo Administrador: acota a los eventos de una productora. */
+  organizationUuid?: string;
   ticketTypeUuid?: string;
   /** Fecha de compra, YYYY-MM-DD inclusive */
   dateFrom?: string;

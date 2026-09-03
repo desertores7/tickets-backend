@@ -81,8 +81,26 @@ export class EventEntity {
   @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
   googleMapsUrl: string | null;
 
+  /** Lineup estructurado (BR-EVENT-016). Cambio = material (BR-REFUND-010). */
+  @Column({ type: 'json', nullable: true, default: null })
+  lineup: string[] | null;
+
   @Column({ type: 'int' })
   maxCapacity: number;
+
+  /** Cancelación del evento (BR-EVENT-010). No despublica ni borra. */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  cancelledAt: Date | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
+  cancellationReason: string | null;
+
+  /**
+   * Cierre de venta (BR-EVENT-013). Automático al fin del evento, o inmediato
+   * al cancelar. Sin control manual del Productor.
+   */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  salesClosedAt: Date | null;
 
   @CreateDateColumn({ type: 'timestamp', nullable: true, default: () => 'CURRENT_TIMESTAMP(3)' })
   createdAt: Date;

@@ -93,6 +93,22 @@ export class NotificationEmailService {
     this.logger.log(`Order tickets email sent to ${params.to} (${params.attachments.length} attachments)`);
   }
 
+  /** Email con template Handlebars (sin adjuntos). */
+  async sendTemplateEmail(params: {
+    templateName: string;
+    to: string;
+    subject: string;
+    templateData: Record<string, unknown>;
+  }): Promise<void> {
+    await this.sendTemplate(params.templateName, {
+      to: params.to,
+      subject: params.subject,
+      templateData: params.templateData,
+      attachments: []
+    });
+    this.logger.log(`Template email "${params.templateName}" sent to ${params.to}`);
+  }
+
   /** Texto plano (soporte / alertas operativas) */
   async sendPlainEmail(params: {
     to: string;

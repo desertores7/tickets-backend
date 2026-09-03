@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { ILike, In, IsNull, MoreThan, MoreThanOrEqual, Or } from 'typeorm';
+import { Between, ILike, In, IsNull, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -10,6 +10,7 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
+import { EVENT_ORDER_COLUMNS } from '@modules/event/controllers/const/event.filters';
 import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
@@ -27,6 +28,7 @@ import {
 import {
   IEventService,
   TEventFilters,
+  TEventOrder,
   TEventExpense,
   IExpenseCreate,
   IExpenseUpdate,
@@ -43,6 +45,9 @@ import {
   TTicketTypeResponse
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
+import { normalizeLineup } from '../core/event-change.helpers';
+import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
+import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
 import {
   EventMapSectorEntity,
@@ -64,15 +69,19 @@ export class EventService implements IEventService {
     private readonly redisService: RedisService,
     private readonly userPermission: UserPermissionService,
     private readonly feeSummaryService: FeeSummaryService,
-    private readonly storageService: StorageService
+    private readonly storageService: StorageService,
+    private readonly eventChangeService: EventChangeService,
+    @Inject('IStockAlertService')
+    private readonly stockAlertService: IStockAlertService
   ) {}
 
+  // Orden aceptado por el listado de eventos.
   async getEvents(
     pagination: IPaginationParams,
     search: ISearchParams,
     filters: TEventFilters,
     role: string | null,
-    options?: { mine?: boolean; loggedUser?: string | null }
+    options?: { mine?: boolean; loggedUser?: string | null; order?: TEventOrder }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }> {
     const isAdmin = role === 'Administrador';
 
@@ -101,7 +110,7 @@ export class EventService implements IEventService {
         if (orgUuids.length > 0) scoped.push({ ...where, organizationUuid: In(orgUuids) });
         if (eventUuids.length > 0) scoped.push({ ...where, uuid: In(eventUuids) });
 
-        return this.runEventsQuery(scoped, filters, pagination);
+        return this.runEventsQuery(scoped, filters, pagination, options?.order);
       }
     } else {
       // Vista pública: solo publicados y que todavía no terminaron. Se filtra por
@@ -110,25 +119,15 @@ export class EventService implements IEventService {
       where['endDate'] = MoreThanOrEqual(new Date());
     }
 
-    if (filters.city?.length) {
-      where['venueCity'] = filters.city.length === 1
-        ? ILike(`%${filters.city[0]}%`)
-        : Or(...filters.city.map(c => ILike(`%${c}%`)));
-    }
-    if (filters.country?.length) {
-      where['venueCountry'] = filters.country.length === 1
-        ? ILike(`%${filters.country[0]}%`)
-        : Or(...filters.country.map(c => ILike(`%${c}%`)));
-    }
-    if (filters.organizationUuid?.length) where['organizationUuid'] = In(filters.organizationUuid);
+    const scopedWhere = this.applyEventFilters(where, filters);
 
     const result = await this.dbRepository.findManyAndCount({
       entity: 'event',
-      where: where as any,
+      where: scopedWhere as any,
       other: {
         take: pagination.limit,
         skip: (pagination.page - 1) * pagination.limit,
-        order: { startDate: 'ASC' }
+        order: this.resolveEventOrder(options?.order)
       }
     });
 
@@ -226,6 +225,7 @@ export class EventService implements IEventService {
 
   async updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void> {
     const event = await this.assertOwnership(uuid, loggedUser);
+    const snapshot = toEventSnapshot(event as EventEntity);
 
     // Se valida el resultado del merge: un update parcial puede dejar fechas
     // incoherentes contra valores que no vinieron en el request.
@@ -259,6 +259,10 @@ export class EventService implements IEventService {
     if (data.venuePostalCode !== undefined) patch.venuePostalCode = data.venuePostalCode;
     if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
+    if (data.lineup !== undefined) {
+      const normalized = normalizeLineup(data.lineup);
+      patch.lineup = normalized.length ? normalized : null;
+    }
 
     if (data.slug !== undefined && data.slug !== event.slug) {
       if (event.isPublished) {
@@ -273,6 +277,40 @@ export class EventService implements IEventService {
     }
 
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
+
+    // Historial + email/ventana 72 h si el cambio es material y hay ventas (FP10).
+    await this.eventChangeService.recordUpdateChanges(
+      snapshot,
+      {
+        startDate: data.startDate,
+        endDate: data.endDate,
+        venueName: data.venueName,
+        venueAddress: data.venueAddress,
+        venueCity: data.venueCity,
+        venueCountry: data.venueCountry,
+        venuePostalCode: data.venuePostalCode,
+        googleMapsUrl: data.googleMapsUrl,
+        description: data.description,
+        lineup: data.lineup !== undefined ? (patch.lineup as string[] | null) : undefined
+      },
+      loggedUser
+    );
+  }
+
+  async listEventChanges(eventUuid: string, loggedUser: string): Promise<TEventChangesResult> {
+    return this.eventChangeService.listChanges(eventUuid, loggedUser);
+  }
+
+  async cancelEvent(
+    eventUuid: string,
+    loggedUser: string,
+    reason?: string | null
+  ): Promise<TEventChangeItem> {
+    return this.eventChangeService.cancelEvent(eventUuid, loggedUser, reason);
+  }
+
+  async closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem> {
+    return this.eventChangeService.closeSalesAdmin(eventUuid, loggedUser);
   }
 
   async deleteEvent(uuid: string, loggedUser: string): Promise<boolean> {
@@ -400,6 +438,7 @@ export class EventService implements IEventService {
     const saved = await this.dbRepository.create({ entity: 'ticket_type', data: ticketType });
 
     await this.redisService.setStock(`stock:${saved.uuid}`, data.quantity);
+    await this.stockAlertService.ensureDefaultForTicketType(eventUuid, saved.uuid);
 
     return saved as TTicketTypeResponse;
   }
@@ -411,7 +450,7 @@ export class EventService implements IEventService {
     loggedUser: string
   ): Promise<TTicketTypeResponse> {
     await this.assertOwnership(eventUuid, loggedUser);
-    return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data);
+    return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data, loggedUser);
   }
 
   /**
@@ -435,7 +474,7 @@ export class EventService implements IEventService {
 
     const updated: TTicketTypeResponse[] = [];
     for (const { uuid, ...patch } of items) {
-      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch));
+      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch, loggedUser));
     }
     return updated;
   }
@@ -443,7 +482,8 @@ export class EventService implements IEventService {
   private async applyTicketTypeUpdate(
     eventUuid: string,
     ticketTypeUuid: string,
-    data: ITicketTypeUpdate
+    data: ITicketTypeUpdate,
+    loggedUser: string
   ): Promise<TTicketTypeResponse> {
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
@@ -452,6 +492,7 @@ export class EventService implements IEventService {
     if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
 
     const soldCount = ticketType.quantity - ticketType.availableQuantity;
+    const previousQuantity = ticketType.quantity;
 
     const patch: Partial<TicketTypeEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -486,6 +527,14 @@ export class EventService implements IEventService {
 
     if (data.quantity !== undefined && patch.availableQuantity !== undefined) {
       await this.redisService.setStock(`stock:${ticketTypeUuid}`, patch.availableQuantity);
+      await this.eventChangeService.recordStockChange({
+        eventUuid,
+        ticketTypeUuid,
+        ticketTypeName: ticketType.name,
+        beforeQuantity: previousQuantity,
+        afterQuantity: data.quantity,
+        loggedUser
+      });
     }
 
     return this.dbRepository.findOne({
@@ -1450,26 +1499,71 @@ export class EventService implements IEventService {
     }));
   }
 
+  /**
+   * Filtros comunes del listado. Se aplican sobre una condicion ya armada para
+   * que la vista publica y la de backoffice (que es un OR de condiciones)
+   * compartan exactamente el mismo criterio.
+   */
+  private applyEventFilters(
+    condition: Record<string, unknown>,
+    filters: TEventFilters
+  ): Record<string, unknown> {
+    const c = { ...condition };
+
+    if (filters.city?.length) {
+      c['venueCity'] =
+        filters.city.length === 1 ? ILike(`%${filters.city[0]}%`) : Or(...filters.city.map(x => ILike(`%${x}%`)));
+    }
+    if (filters.country?.length) {
+      c['venueCountry'] =
+        filters.country.length === 1
+          ? ILike(`%${filters.country[0]}%`)
+          : Or(...filters.country.map(x => ILike(`%${x}%`)));
+    }
+    if (filters.organizationUuid?.length) c['organizationUuid'] = In(filters.organizationUuid);
+
+    const status = filters.status?.[0];
+    if (status === 'draft') {
+      c['isPublished'] = false;
+      c['cancelledAt'] = IsNull();
+    } else if (status === 'published') {
+      c['isPublished'] = true;
+      c['cancelledAt'] = IsNull();
+    } else if (status === 'cancelled') {
+      c['cancelledAt'] = Not(IsNull());
+    } else if (status === 'sales_closed') {
+      c['salesClosedAt'] = Not(IsNull());
+    }
+
+    // El rango es sobre startDate e inclusive: 'hasta' toma el dia completo.
+    const from = filters.dateFrom?.[0];
+    const to = filters.dateTo?.[0];
+    if (from && to) {
+      c['startDate'] = Between(new Date(`${from}T00:00:00`), new Date(`${to}T23:59:59.999`));
+    } else if (from) {
+      c['startDate'] = MoreThanOrEqual(new Date(`${from}T00:00:00`));
+    } else if (to) {
+      c['startDate'] = LessThanOrEqual(new Date(`${to}T23:59:59.999`));
+    }
+
+    return c;
+  }
+
+  /** Orden pedido por el cliente, acotado a columnas conocidas. */
+  private resolveEventOrder(order?: TEventOrder): Record<string, 'ASC' | 'DESC'> {
+    if (!order || !EVENT_ORDER_COLUMNS.includes(order.order_by as (typeof EVENT_ORDER_COLUMNS)[number])) {
+      return { startDate: 'ASC' };
+    }
+    return { [order.order_by]: order.order_direction === 'desc' ? 'DESC' : 'ASC' };
+  }
+
   private async runEventsQuery(
     conditions: Record<string, unknown>[],
     filters: TEventFilters,
-    pagination: IPaginationParams
+    pagination: IPaginationParams,
+    order?: TEventOrder
   ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }> {
-    const withFilters = conditions.map(cond => {
-      const c = { ...cond };
-      if (filters.city?.length) {
-        c['venueCity'] =
-          filters.city.length === 1 ? ILike(`%${filters.city[0]}%`) : Or(...filters.city.map(x => ILike(`%${x}%`)));
-      }
-      if (filters.country?.length) {
-        c['venueCountry'] =
-          filters.country.length === 1
-            ? ILike(`%${filters.country[0]}%`)
-            : Or(...filters.country.map(x => ILike(`%${x}%`)));
-      }
-      if (filters.organizationUuid?.length) c['organizationUuid'] = In(filters.organizationUuid);
-      return c;
-    });
+    const withFilters = conditions.map(cond => this.applyEventFilters(cond, filters));
 
     const result = await this.dbRepository.findManyAndCount({
       entity: 'event',
@@ -1477,7 +1571,7 @@ export class EventService implements IEventService {
       other: {
         take: pagination.limit,
         skip: (pagination.page - 1) * pagination.limit,
-        order: { startDate: 'ASC' }
+        order: this.resolveEventOrder(order)
       }
     });
 

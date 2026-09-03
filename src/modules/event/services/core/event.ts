@@ -33,6 +33,8 @@ export interface IEventUpdate {
   venuePostalCode?: string;
   googleMapsUrl?: string | null;
   maxCapacity?: number;
+  /** Lineup estructurado (BR-EVENT-016) */
+  lineup?: string[] | null;
 }
 
 export interface ITicketTypeUpdate {

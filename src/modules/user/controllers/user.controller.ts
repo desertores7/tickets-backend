@@ -18,7 +18,8 @@ import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.r
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { FilterParams, ApiFilter, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
-import { userFilters } from './const/user.filters';
+import { USER_ORDER_COLUMNS, userFilters } from './const/user.filters';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import { IUserService } from '../services/contracts/iuser.service';
 import { CreateUserRequest } from './dtos/create-user/create-user.request';
 import { UpdateUserRequest } from './dtos/update-user/update-user.request';
@@ -42,16 +43,18 @@ export class UserController {
   @ApiPagination()
   @ApiSearch()
   @ApiFilter(userFilters)
+  @ApiOrder(USER_ORDER_COLUMNS)
   @Get()
   async getUsers(
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
-    @FilterParams(userFilters) filters: IFiltersParams<typeof userFilters>
+    @FilterParams(userFilters) filters: IFiltersParams<typeof userFilters>,
+    @OrderParams() order: IOrderParams<typeof USER_ORDER_COLUMNS>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: GetAllUserResponse[];
   }> {
-    const result = await this.userService.getUsers(pagination, search, filters);
+    const result = await this.userService.getUsers(pagination, search, filters, order);
     return {
       meta: result.meta,
       items: result.items.map((item: any) => new GetAllUserResponse(item))

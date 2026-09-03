@@ -45,7 +45,8 @@ import { RequestBankChangeRequest } from './dtos/organization-me/request-bank-ch
 import { RequestFiscalChangeRequest } from './dtos/organization-me/request-fiscal-change.request';
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
 import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
-import { organizationFilters } from './const/organization.filters';
+import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from './const/organization.filters';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import { OrganizationStaffService } from '../services/implementation/organization-staff.service';
 import { CreateStaffRequest } from './dtos/organization-staff/create-staff.request';
 import { InviteProducerStaffRequest } from './dtos/organization-staff/invite-producer-staff.request';
@@ -402,11 +403,13 @@ export class OrganizationController {
   @ApiPagination()
   @ApiSearch()
   @ApiFilter(organizationFilters)
+  @ApiOrder(ORGANIZATION_ORDER_COLUMNS)
   @Get()
   async getOrganizations(
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
     @FilterParams(organizationFilters) filters: IFiltersParams<typeof organizationFilters>,
+    @OrderParams() order: IOrderParams<typeof ORGANIZATION_ORDER_COLUMNS>,
     @User() loggedUser: string
   ): Promise<{
     meta: PaginationMetaResponse;
@@ -416,7 +419,8 @@ export class OrganizationController {
       pagination,
       search,
       loggedUser,
-      filters
+      filters,
+      order
     );
     const requestViews = await this._organizationService.getOrgRequestViews(
       organization.items.map(item => item.uuid)

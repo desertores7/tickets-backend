@@ -4,13 +4,15 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IUserCreate, IUserList, IUserUpdate } from '../core/user';
-import { userFilters } from '../../controllers/const/user.filters';
+import { USER_ORDER_COLUMNS, userFilters } from '../../controllers/const/user.filters';
+import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 
 export interface IUserService {
   getUsers(
     pagination: IPaginationParams,
     search: ISearchParams,
-    filters?: IFiltersParams<typeof userFilters>
+    filters?: IFiltersParams<typeof userFilters>,
+    order?: IOrderParams<typeof USER_ORDER_COLUMNS>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: (TEntityResponse<'user', { files: true }, undefined> & {

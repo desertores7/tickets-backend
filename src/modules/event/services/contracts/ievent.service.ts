@@ -8,8 +8,10 @@ import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
 import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
-import { eventFilters } from '../../controllers/const/event.filters';
+import { EVENT_ORDER_COLUMNS, eventFilters } from '../../controllers/const/event.filters';
+import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
+import type { TEventChangeItem, TEventChangesResult } from '../implementation/event-change.service';
 
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
@@ -65,6 +67,9 @@ export type TEventListItem = TEventResponse & {
 };
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
+
+/** Orden pedido al listado de eventos (`order_by=columna:asc|desc`). */
+export type TEventOrder = IOrderParams<typeof EVENT_ORDER_COLUMNS>;
 
 /** Productor asignado puntualmente a un evento */
 export type TEventProducer = {
@@ -140,7 +145,7 @@ export interface IEventService {
     search: ISearchParams,
     filters: TEventFilters,
     role: string | null,
-    options?: { mine?: boolean; loggedUser?: string | null }
+    options?: { mine?: boolean; loggedUser?: string | null; order?: TEventOrder }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }>;
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
@@ -150,6 +155,19 @@ export interface IEventService {
   createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }>;
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
+
+  /** Historial de cambios (FP10 / `29` §17). */
+  listEventChanges(eventUuid: string, loggedUser: string): Promise<TEventChangesResult>;
+
+  /** Cancela el evento sin borrar ni despublicar (BR-EVENT-010). */
+  cancelEvent(
+    eventUuid: string,
+    loggedUser: string,
+    reason?: string | null
+  ): Promise<TEventChangeItem>;
+
+  /** Cierre manual de venta — solo Admin (BR-EVENT-013). */
+  closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem>;
 
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
 

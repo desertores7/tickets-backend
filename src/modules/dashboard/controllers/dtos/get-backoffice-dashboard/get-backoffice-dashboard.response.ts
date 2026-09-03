@@ -75,6 +75,72 @@ export class BackofficeTodayEventResponse {
   }
 }
 
+/** Fila del top de eventos de la plataforma: suma la productora dueña. */
+export class BackofficeAdminTopEventResponse extends BackofficeTopEventResponse {
+  @ApiProperty()
+  organizationUuid: string;
+
+  @ApiProperty()
+  organizationName: string;
+
+  constructor(data: {
+    uuid: string;
+    name: string;
+    totalTicketsSold: number;
+    ticketRevenue: number;
+    lastOrderPaidAt: Date | null;
+    organizationUuid: string;
+    organizationName: string;
+  }) {
+    super(data);
+    this.organizationUuid = data.organizationUuid;
+    this.organizationName = data.organizationName;
+  }
+}
+
+/** Productora esperando una decisión del admin. */
+export class BackofficePendingOrganizationResponse {
+  @ApiProperty()
+  uuid: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty({ enum: ['validation', 'bank_change', 'fiscal_change'] })
+  kind: 'validation' | 'bank_change' | 'fiscal_change';
+
+  @ApiProperty({ nullable: true, description: 'Cuándo entró el pedido.' })
+  requestedAt: Date | null;
+
+  constructor(data: {
+    uuid: string;
+    name: string;
+    kind: 'validation' | 'bank_change' | 'fiscal_change';
+    requestedAt: Date | null;
+  }) {
+    this.uuid = data.uuid;
+    this.name = data.name;
+    this.kind = data.kind;
+    this.requestedAt = data.requestedAt;
+  }
+}
+
+export class BackofficeAdminSectionsResponse {
+  @ApiProperty({ type: [BackofficeAdminTopEventResponse] })
+  topEvents: BackofficeAdminTopEventResponse[];
+
+  @ApiProperty({ type: [BackofficePendingOrganizationResponse] })
+  pendingOrganizations: BackofficePendingOrganizationResponse[];
+
+  constructor(
+    topEvents: BackofficeAdminTopEventResponse[],
+    pendingOrganizations: BackofficePendingOrganizationResponse[]
+  ) {
+    this.topEvents = topEvents;
+    this.pendingOrganizations = pendingOrganizations;
+  }
+}
+
 export class BackofficeProducerKpisResponse {
   @ApiProperty()
   eventsTotal: number;
@@ -113,6 +179,9 @@ export class BackofficeAdminKpisResponse {
   @ApiProperty()
   organizationsBankChangePending: number;
 
+  @ApiProperty({ description: 'Cambios de identidad fiscal esperando decisión.' })
+  organizationsFiscalChangePending: number;
+
   @ApiProperty()
   organizationsApproved: number;
 
@@ -134,6 +203,7 @@ export class BackofficeAdminKpisResponse {
   constructor(data: {
     organizationsPendingReview: number;
     organizationsBankChangePending: number;
+    organizationsFiscalChangePending: number;
     organizationsApproved: number;
     eventsPublished: number;
     ticketsSold: number;
@@ -143,6 +213,7 @@ export class BackofficeAdminKpisResponse {
   }) {
     this.organizationsPendingReview = data.organizationsPendingReview;
     this.organizationsBankChangePending = data.organizationsBankChangePending;
+    this.organizationsFiscalChangePending = data.organizationsFiscalChangePending;
     this.organizationsApproved = data.organizationsApproved;
     this.eventsPublished = data.eventsPublished;
     this.ticketsSold = data.ticketsSold;
@@ -191,7 +262,10 @@ export class GetBackofficeDashboardResponse {
   kpis?: BackofficeProducerKpisResponse | BackofficeAdminKpisResponse;
 
   @ApiPropertyOptional()
-  sections?: BackofficeProducerSectionsResponse | BackofficeCashierSectionsResponse;
+  sections?:
+    | BackofficeProducerSectionsResponse
+    | BackofficeAdminSectionsResponse
+    | BackofficeCashierSectionsResponse;
 
   @ApiProperty({
     type: [String],

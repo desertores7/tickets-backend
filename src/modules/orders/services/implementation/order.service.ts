@@ -35,6 +35,7 @@ import {
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { ICouponService } from '@modules/coupons/services/contracts/icoupon.service';
+import { getEventSalesBlockReason } from '@modules/event/services/core/event-sales-gate';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
 /** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
@@ -96,22 +97,12 @@ export class OrderService implements IOrderService {
       throw new UnprocessableEntityException('El evento no está disponible para la venta');
     }
 
+    const salesBlock = getEventSalesBlockReason(event);
+    if (salesBlock) {
+      throw new UnprocessableEntityException(salesBlock);
+    }
+
     const now = new Date();
-
-    if (event.saleStartDate && now < event.saleStartDate) {
-      throw new UnprocessableEntityException('El período de venta aún no ha comenzado');
-    }
-
-    // Sin saleEndDate definido, la venta sigue abierta hasta que termina el evento.
-    // Si el organizador fijó un cierre anticipado, ese manda.
-    const eventEnd = new Date(event.endDate);
-    const saleEnd = event.saleEndDate ? new Date(event.saleEndDate) : eventEnd;
-
-    if (now > saleEnd) {
-      throw new UnprocessableEntityException(
-        now > eventEnd ? 'El evento ya finalizó' : 'El período de venta ha finalizado'
-      );
-    }
 
     // 2. Validate each ticket type
     const ticketTypes = await Promise.all(
@@ -631,4 +622,4 @@ export class OrderService implements IOrderService {
     }
   }
 }
-
+

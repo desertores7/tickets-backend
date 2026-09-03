@@ -151,6 +151,53 @@ export class FeeSummaryService {
     };
   }
 
+  /**
+   * Top de la plataforma, para el dashboard de admin. Mismo criterio que el de
+   * una productora pero sin acotar, y trayendo el nombre de la productora para
+   * que el listado se entienda sin una segunda consulta por fila.
+   */
+  async topEventsPlatform(limit = 5): Promise<
+    Array<{
+      eventUuid: string;
+      name: string;
+      organizationUuid: string;
+      organizationName: string;
+      totalTicketsSold: number;
+      ticketAmount: number;
+      lastOrderPaidAt: Date | null;
+    }>
+  > {
+    const rows = await this.dbRepository.query(
+      `
+        SELECT
+          e.uuid AS eventUuid,
+          e.name AS name,
+          o.uuid AS organizationUuid,
+          o.name AS organizationName,
+          COALESCE(efs.totalTicketsSold, 0) AS totalTicketsSold,
+          COALESCE(efs.ticketAmount, 0) AS ticketAmount,
+          efs.lastOrderPaidAt AS lastOrderPaidAt
+        FROM event e
+        INNER JOIN organization o ON o.uuid = e.organizationUuid
+        LEFT JOIN event_fee_summary efs ON efs.eventUuid = e.uuid
+        WHERE e.isActive = 1
+        ORDER BY COALESCE(efs.ticketAmount, 0) DESC, e.startDate DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    return (rows ?? []).map((row: Record<string, unknown>) => ({
+      eventUuid: String(row.eventUuid),
+      name: String(row.name),
+      organizationUuid: String(row.organizationUuid),
+      organizationName: String(row.organizationName),
+      totalTicketsSold: Number(row.totalTicketsSold ?? 0),
+      ticketAmount: Number(row.ticketAmount ?? 0),
+      lastOrderPaidAt: row.lastOrderPaidAt ? new Date(row.lastOrderPaidAt as string) : null
+    }));
+  }
+
   async topEventsByOrganization(
     organizationUuid: string,
     limit = 5

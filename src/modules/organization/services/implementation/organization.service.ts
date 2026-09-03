@@ -3,6 +3,8 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { IAuthService } from '@modules/auth/services/contracts/iauth.service';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
+import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
+import { ORGANIZATION_ORDER_COLUMNS } from '../../controllers/const/organization.filters';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { ILike, DataSource, IsNull, In, Not } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -81,7 +83,8 @@ export class OrganizationService implements IOrganizationService {
     pagination: IPaginationParams,
     search: ISearchParams,
     loggedUser: string,
-    filters?: TOrganizationFilters
+    filters?: TOrganizationFilters,
+    order?: IOrderParams<typeof ORGANIZATION_ORDER_COLUMNS>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: TOrganizationResponseWithUserOrganizations[];
@@ -224,7 +227,7 @@ export class OrganizationService implements IOrganizationService {
       other: {
         take: pagination.limit,
         skip: (pagination.page - 1) * pagination.limit,
-        order: { createdAt: 'DESC' }
+        order: resolveListOrder(order, ORGANIZATION_ORDER_COLUMNS, { createdAt: 'DESC' })
       }
     });
 

@@ -38,6 +38,11 @@ export class ProducerSalesController {
   @ApiPagination()
   @ApiQuery({ name: 'search', required: false, description: 'Buyer name/email or order number.' })
   @ApiQuery({ name: 'eventUuid', required: false })
+  @ApiQuery({
+    name: 'organizationUuid',
+    required: false,
+    description: 'Solo Administrador: acota las ventas a los eventos de una productora.'
+  })
   @ApiQuery({ name: 'ticketTypeUuid', required: false })
   @ApiQuery({ name: 'dateFrom', required: false, description: 'YYYY-MM-DD, inclusive.' })
   @ApiQuery({ name: 'dateTo', required: false, description: 'YYYY-MM-DD, inclusive (end of day).' })

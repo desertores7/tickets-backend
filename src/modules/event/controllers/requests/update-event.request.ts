@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsDate, IsInt, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
+import { IsArray, IsDate, IsInt, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
 
 function parseArgentinaDate({ value }: { value: unknown }): Date | unknown {
   if (value === null || value === undefined || value === '') return value;
@@ -104,4 +104,16 @@ export class UpdateEventRequest {
   @Min(1)
   @ApiProperty({ description: 'Maximum venue capacity', required: false })
   maxCapacity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  @ApiProperty({
+    description: 'Lineup estructurado (BR-EVENT-016). Cambiarlo es un cambio material.',
+    required: false,
+    nullable: true,
+    type: [String]
+  })
+  lineup?: string[] | null;
 }
