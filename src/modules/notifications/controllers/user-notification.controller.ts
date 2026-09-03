@@ -1,5 +1,15 @@
-import { Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query
+} from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import {
@@ -7,7 +17,11 @@ import {
   IPaginationParams,
   PaginationParams
 } from '@root/shared/decorators/pagination-query.decorator';
-import { IUserNotificationService } from '../services/contracts/iuser-notification.service';
+import {
+  IUserNotificationService,
+  NOTIFICATION_STATUS,
+  TNotificationStatus
+} from '../services/contracts/iuser-notification.service';
 import {
   ListMyNotificationsResponse,
   UserNotificationResponse
@@ -28,14 +42,39 @@ export class UserNotificationController {
   })
   @ApiResponse({ status: 200, type: ListMyNotificationsResponse })
   @ApiPagination()
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: NOTIFICATION_STATUS,
+    description: 'Filtro de lectura. Por defecto "all".'
+  })
   @HttpCode(200)
   @Get('me')
   async listMine(
     @User() userId: string,
-    @PaginationParams() pagination: IPaginationParams
+    @PaginationParams() pagination: IPaginationParams,
+    @Query('status') status?: string
   ): Promise<ListMyNotificationsResponse> {
-    const page = await this.userNotificationService.listMine(userId, pagination);
+    const parsed = (status ?? 'all') as TNotificationStatus;
+    if (!NOTIFICATION_STATUS.includes(parsed)) {
+      throw new BadRequestException(`status debe ser uno de: ${NOTIFICATION_STATUS.join(', ')}`);
+    }
+
+    const page = await this.userNotificationService.listMine(userId, pagination, parsed);
     return new ListMyNotificationsResponse(page);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Mark all my notifications as read',
+    description: 'Sets readAt on every unread notification of the authenticated user.'
+  })
+  @ApiResponse({ status: 200, description: 'Cantidad de notificaciones marcadas' })
+  @HttpCode(200)
+  @Patch('me/read-all')
+  async markAllRead(@User() userId: string): Promise<{ updated: number }> {
+    const updated = await this.userNotificationService.markAllRead(userId);
+    return { updated };
   }
 
   @UserAuth(null, UserNotificationResponse)

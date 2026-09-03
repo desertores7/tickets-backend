@@ -34,7 +34,11 @@ export class ListMyNotificationsResponse {
   @ApiProperty({ type: PaginationMetaResponse })
   meta: PaginationMetaResponse;
 
+  @ApiProperty({ description: 'No leidas del usuario, sin importar el filtro aplicado' })
+  unreadTotal: number;
+
   constructor(page: TUserNotificationsPage) {
+    this.unreadTotal = page.unreadTotal;
     this.items = page.items.map(i => new UserNotificationResponse(i));
     this.meta = new PaginationMetaResponse({
       total: page.total,

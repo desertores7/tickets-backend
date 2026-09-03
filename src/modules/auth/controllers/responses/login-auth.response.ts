@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
+import { buildProfileImageUrl } from '@root/shared/utils/profile-image.util';
 import { TUserLoginAuthResponse } from '@modules/auth/services/contracts/iauth.service';
 import { MeOrganizationResponse } from './me.response';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
@@ -43,9 +44,10 @@ export class UserResponse {
     this.lastName = user.lastName;
     this.email = user.email;
     this.emailVerified = Boolean(user.emailVerified);
+    const profileFile = user.files?.find(file => isProfileFile(file) && !file.isDeleted);
     this.imgProfile = {
-      url: user.files?.find(file => isProfileFile(file))?.path || '',
-      type: user.files?.find(file => isProfileFile(file))?.type || ''
+      url: buildProfileImageUrl(profileFile),
+      type: profileFile?.type || ''
     };
     const activeRole = resolveActiveRole(user.userRoles as any);
 

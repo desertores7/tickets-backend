@@ -200,6 +200,21 @@ export class OrganizationController {
 
   @UserAuth(null, null)
   @ApiOperation({
+    summary: 'Cancel pending producer invite',
+    description:
+      'Invalidates the invitation so the email link no longer works. The invite disappears from the staff list.',
+  })
+  @HttpCode(204)
+  @Delete('me/staff/invites/:inviteUuid')
+  async cancelProducerInvite(
+    @User() userId: string,
+    @Param('inviteUuid') inviteUuid: string,
+  ): Promise<void> {
+    await this.organizationStaffService.cancelInvite(userId, inviteUuid);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
     summary: 'Remove staff member from organization',
     description: 'Soft-deletes org membership. Does not delete the user account globally.'
   })

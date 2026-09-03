@@ -966,6 +966,7 @@ export class AuthService implements IAuthService {
 
   async validateProducerInvite(token: string): Promise<{
     valid: boolean;
+    email?: string;
     emailMasked?: string;
     organizationName?: string;
     expiresAt?: string;
@@ -990,6 +991,7 @@ export class AuthService implements IAuthService {
 
     return {
       valid: true,
+      email: row.email,
       emailMasked: this.maskEmail(row.email),
       organizationName: org?.name ?? 'Productora',
       expiresAt: new Date(row.expiresAt).toISOString()

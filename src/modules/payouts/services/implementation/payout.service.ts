@@ -1,19 +1,24 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
-import { PayoutEntity } from '@config/db/entities/tickets/payout.entity';
+import { PayoutEntity, PayoutStatus } from '@config/db/entities/tickets/payout.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { PAYOUT_FILE_TYPE_UUID_BY_KIND } from '@config/db/const/file-type.const';
 import { StorageService } from '@root/shared/services/storage.service';
+import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
+import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import {
   ICreatePayoutPayload,
   IPayout,
   IPayoutEventBlock,
+  IPayoutEventOption,
   IPayoutFileDownload,
+  IPayoutListResult,
   IPayoutService,
-  PayoutFileKind
+  PayoutFileKind,
+  TPayoutFilters
 } from '../contracts/ipayout.service';
 
 const ALLOWED_MIME_TYPES: Record<string, string> = {
@@ -25,11 +30,29 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
+/** UI `complete` / `pending` → status reales en DB. */
+function resolveDbStatuses(uiStatuses: string[] | undefined): PayoutStatus[] | null {
+  if (!uiStatuses?.length) return null;
+  const set = new Set<PayoutStatus>();
+  for (const raw of uiStatuses) {
+    if (raw === 'complete') {
+      set.add('registered');
+      set.add('invoice_available');
+    } else if (raw === 'pending') {
+      set.add('invoice_pending');
+    } else if (raw === 'registered' || raw === 'invoice_pending' || raw === 'invoice_available') {
+      set.add(raw);
+    }
+  }
+  return set.size ? [...set] : null;
+}
+
 @Injectable()
 export class PayoutService implements IPayoutService {
   constructor(
     private readonly dbRepository: DBRepository,
-    private readonly storageService: StorageService
+    private readonly storageService: StorageService,
+    private readonly dataSource: DataSource
   ) {}
 
   // ── Alcance ─────────────────────────────────────────────────────────────────
@@ -98,22 +121,94 @@ export class PayoutService implements IPayoutService {
     });
   }
 
-  private async listByOrganization(organizationUuid: string): Promise<IPayoutEventBlock[]> {
-    const rows = (await this.dbRepository.findMany({
-      entity: 'payout',
-      where: { organizationUuid, isDeleted: IsNull() },
-      relations: { event: true },
-      other: { order: { transferredAt: 'DESC' } }
-    })) as (PayoutEntity & { event?: { name?: string; startDate?: Date } })[];
+  private async listEventOptions(organizationUuid: string): Promise<IPayoutEventOption[]> {
+    const rows = await this.dataSource
+      .getRepository(PayoutEntity)
+      .createQueryBuilder('payout')
+      .innerJoin('payout.event', 'event')
+      .select('event.uuid', 'eventUuid')
+      .addSelect('event.name', 'eventName')
+      .where('payout.organizationUuid = :organizationUuid', { organizationUuid })
+      .andWhere('payout.isDeleted IS NULL')
+      .groupBy('event.uuid')
+      .addGroupBy('event.name')
+      .orderBy('event.name', 'ASC')
+      .getRawMany<{ eventUuid: string; eventName: string }>();
 
-    return this.groupByEvent(rows);
+    return rows.map(row => ({
+      eventUuid: row.eventUuid,
+      eventName: row.eventName
+    }));
+  }
+
+  private async listByOrganization(
+    organizationUuid: string,
+    search?: ISearchParams,
+    filters?: TPayoutFilters,
+    pagination?: IPaginationParams
+  ): Promise<IPayoutListResult> {
+    const qb = this.dataSource
+      .getRepository(PayoutEntity)
+      .createQueryBuilder('payout')
+      .leftJoinAndSelect('payout.event', 'event')
+      .where('payout.organizationUuid = :organizationUuid', { organizationUuid })
+      .andWhere('payout.isDeleted IS NULL')
+      .orderBy('payout.transferredAt', 'DESC');
+
+    const term = (search?.search ?? '').trim();
+    if (term) {
+      qb.andWhere('LOWER(event.name) LIKE :term', { term: `%${term}%` });
+    }
+
+    if (filters?.eventUuid?.length) {
+      qb.andWhere('payout.eventUuid IN (:...eventUuids)', { eventUuids: filters.eventUuid });
+    }
+
+    const dbStatuses = resolveDbStatuses(filters?.status);
+    if (dbStatuses?.length) {
+      qb.andWhere('payout.status IN (:...statuses)', { statuses: dbStatuses });
+    }
+
+    const eventOptionsPromise = this.listEventOptions(organizationUuid);
+
+    if (!pagination) {
+      const rows = (await qb.getMany()) as (PayoutEntity & {
+        event?: { name?: string; startDate?: Date };
+      })[];
+      return {
+        items: this.groupByEvent(rows),
+        eventOptions: await eventOptionsPromise
+      };
+    }
+
+    // Pagina liquidaciones individuales (filas), no bloques: la UI las aplana.
+    const total = await qb.clone().getCount();
+    const rows = (await qb
+      .skip((pagination.page - 1) * pagination.limit)
+      .take(pagination.limit)
+      .getMany()) as (PayoutEntity & {
+      event?: { name?: string; startDate?: Date };
+    })[];
+
+    return {
+      items: this.groupByEvent(rows),
+      eventOptions: await eventOptionsPromise,
+      total,
+      page: pagination.page,
+      limit: pagination.limit
+    };
   }
 
   // ── Productor (solo lectura, BR-REPORT-003) ─────────────────────────────────
 
-  async listMyPayouts(loggedUser: string): Promise<IPayoutEventBlock[]> {
+  async listMyPayouts(
+    loggedUser: string,
+    search?: ISearchParams,
+    filters?: TPayoutFilters,
+    pagination?: IPaginationParams
+  ): Promise<IPayoutListResult> {
     const org = await this.resolveOrganization(loggedUser);
-    return this.listByOrganization(org.uuid);
+    return this.listByOrganization(org.uuid, search, filters, pagination);
   }
 
   async getMyPayout(loggedUser: string, payoutUuid: string): Promise<IPayout> {
@@ -171,8 +266,12 @@ export class PayoutService implements IPayoutService {
 
   // ── Administrador ───────────────────────────────────────────────────────────
 
-  async listOrganizationPayouts(organizationUuid: string): Promise<IPayoutEventBlock[]> {
-    return this.listByOrganization(organizationUuid);
+  async listOrganizationPayouts(
+    organizationUuid: string,
+    search?: ISearchParams,
+    filters?: TPayoutFilters
+  ): Promise<IPayoutListResult> {
+    return this.listByOrganization(organizationUuid, search, filters);
   }
 
   async createPayout(

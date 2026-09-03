@@ -77,6 +77,7 @@ export interface IAuthService {
   deactivateAccount(userUuid: string): Promise<void>;
   validateProducerInvite(token: string): Promise<{
     valid: boolean;
+    email?: string;
     emailMasked?: string;
     organizationName?: string;
     expiresAt?: string;

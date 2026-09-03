@@ -254,7 +254,7 @@ export class OrganizationStaffService {
 
     await this.dbRepository.create({ entity: 'organization_producer_invite', data: invite });
 
-    const inviteUrl = `${this.getFrontendUrl()}/accept-producer-invite?token=${encodeURIComponent(invite.token)}`;
+    const inviteUrl = `${this.getFrontendUrl()}/invite?token=${encodeURIComponent(invite.token)}`;
 
     try {
       await this.emailService.initializeSmtp();
@@ -355,6 +355,30 @@ export class OrganizationStaffService {
       active: Boolean(refreshed.active),
       createdAt: refreshed.createdAt,
       assignedEvents
+    });
+  }
+
+  async cancelInvite(callerUuid: string, inviteUuid: string): Promise<void> {
+    const org = await this.assertProducerContext(callerUuid);
+
+    const invite = await this.dbRepository.findOne({
+      entity: 'organization_producer_invite',
+      where: {
+        uuid: inviteUuid,
+        organizationUuid: org.uuid,
+        isUsed: false
+      } as any
+    });
+
+    if (!invite) {
+      throw new NotFoundException('Invitación no encontrada o ya utilizada.');
+    }
+
+    // Marcar usada invalida el token en /invite sin crear usuario.
+    await this.dbRepository.update({
+      entity: 'organization_producer_invite',
+      where: { uuid: inviteUuid },
+      data: { isUsed: true }
     });
   }
 
@@ -645,6 +669,10 @@ export class OrganizationStaffService {
   }
 
   private getFrontendUrl(): string {
-    return this.envService.get('APP_URL') || 'http://localhost:3000';
+    return (
+      this.envService.get('FRONTEND_URL') ||
+      this.envService.get('APP_URL') ||
+      'http://localhost:3000'
+    ).replace(/\/$/, '');
   }
 }

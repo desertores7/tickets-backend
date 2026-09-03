@@ -1,5 +1,17 @@
 import { Swagger } from '@root/shared/decorators/swagger.decorator';
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseFilePipeBuilder,
+  Patch,
+  Post,
+  UploadedFile,
+  UseInterceptors
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
@@ -28,6 +40,9 @@ import { ResendEmailVerificationRequest } from './requests/resend-email-verifica
 import { VerifyTwoFactorRequest } from './requests/verify-two-factor.request';
 import { ResendTwoFactorRequest } from './requests/resend-two-factor.request';
 import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
+
+/** Tope de la foto de perfil: se reescala a webp, no hace falta mas. */
+const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -61,7 +76,13 @@ export class AuthController {
   async updateMe(
     @User() userId: string,
     @Body() request: UpdateMeRequest,
-    @UploadedFile() file?: Express.Multer.File
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /^image\// })
+        .addMaxSizeValidator({ maxSize: PROFILE_IMAGE_MAX_BYTES })
+        .build({ fileIsRequired: false })
+    )
+    file?: Express.Multer.File
   ): Promise<MeResponse> {
     const result = await this.authService.updateMe(userId, { ...request, imgProfile: file });
     return new MeResponse(result);

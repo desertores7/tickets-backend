@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { isProfileFile } from '@config/db/const/file-type.const';
+import { buildProfileImageUrl } from '@root/shared/utils/profile-image.util';
 import { TMeResponse } from '@modules/auth/services/contracts/iauth.service';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
@@ -164,7 +165,7 @@ export class MeUserResponse {
     this.termsAcceptedAt = data.termsAcceptedAt ?? null;
     this.twoAuthentication = Boolean(data.twoAuthentication);
     this.active = data.active;
-    this.imgProfile = new MeImgProfileResponse(profileFile?.path || '', profileFile?.type || '');
+    this.imgProfile = new MeImgProfileResponse(buildProfileImageUrl(profileFile), profileFile?.type || '');
   }
 }
 
