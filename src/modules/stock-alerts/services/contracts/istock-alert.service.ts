@@ -34,6 +34,12 @@ export interface IStockAlertService {
   remove(eventUuid: string, alertUuid: string, loggedUser: string): Promise<void>;
 
   /**
+   * Crea la alerta por defecto de una tanda si todavía no tiene (sin UI Productor).
+   * No pisa una configuración ya existente.
+   */
+  ensureDefaultForTicketType(eventUuid: string, ticketTypeUuid: string): Promise<void>;
+
+  /**
    * Evalúa las alertas de las tandas afectadas por una compra y notifica si se
    * cruzó un umbral. Se invoca después de confirmar el stock.
    */

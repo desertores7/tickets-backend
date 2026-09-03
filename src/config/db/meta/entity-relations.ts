@@ -398,10 +398,6 @@ export const entityRelations = {
     mpAccount: 'org_mp_account'
   },
 
-  event_change: {
-    event: 'event'
-  },
-
   coupon: {
     event: 'event'
   },
@@ -418,6 +414,12 @@ export const entityRelations = {
   stock_alert: {
     event: 'event',
     ticketType: 'ticket_type'
+  },
+
+  event_change: {
+    event: 'event',
+    ticketType: 'ticket_type',
+    createdBy: 'user'
   },
 
   payout: {

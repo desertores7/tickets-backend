@@ -49,35 +49,27 @@ export class EventEntity {
   @Column({ type: 'timestamp', nullable: true, default: null })
   saleEndDate: Date | null;
 
-  /**
-   * Lineup estructurado (`BR-EVENT-016`): lista de artistas o actos, distinta
-   * de la descripción libre. Cambiarla es un cambio material; reescribir la
-   * descripción no.
-   */
-  @Column({ type: 'json', nullable: true, default: null })
-  lineup: string[] | null;
-
-  /** Cancelación del evento (`BR-EVENT-010`). No borra: deja el registro. */
-  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
-  cancelledAt: Date | null;
-
-  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
-  cancellationReason: string | null;
-
-  /**
-   * Corte manual de venta (`BR-EVENT-013`). Va aparte de `saleEndDate` para
-   * no pisar la ventana que configuró el productor: cortar a mano es una
-   * decisión operativa y se puede deshacer sin perder la fecha original.
-   */
-  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
-  salesClosedAt: Date | null;
-
   @Column({ type: 'boolean', default: false })
   isPublished: boolean;
 
   /** Momento en que el evento salió a la venta. Null mientras es borrador. */
   @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
   publishedAt: Date | null;
+
+  /** Cancelación del evento (`BR-EVENT-010`). No despublica ni borra. */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  cancelledAt: Date | null;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
+  cancellationReason: string | null;
+
+  /**
+   * Cierre de venta (`BR-EVENT-013`). Automático al fin del evento, inmediato
+   * al cancelar, o manual (productor/admin). Va aparte de `saleEndDate` para
+   * no pisar la ventana configurada.
+   */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  salesClosedAt: Date | null;
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
@@ -103,6 +95,14 @@ export class EventEntity {
   /** Link de Google Maps para “Cómo llegar” en la ficha pública. */
   @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
   googleMapsUrl: string | null;
+
+  /**
+   * Lineup estructurado (`BR-EVENT-016`): lista de artistas o actos, distinta
+   * de la descripción libre. Cambiarla es un cambio material; reescribir la
+   * descripción no.
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  lineup: string[] | null;
 
   @Column({ type: 'int' })
   maxCapacity: number;

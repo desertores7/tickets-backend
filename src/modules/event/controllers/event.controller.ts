@@ -29,7 +29,8 @@ import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
-import { eventFilters } from './const/event.filters';
+import { EVENT_ORDER_COLUMNS, eventFilters } from './const/event.filters';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import {
   BANNER_VARIANT_NAMES,
   BannerImages,
@@ -38,6 +39,8 @@ import {
 } from './const/banner-variant.const';
 import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
+import { CancelEventRequest } from './requests/cancel-event.request';
+import { SetSalesClosedRequest } from './requests/event-operation.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import {
@@ -56,6 +59,11 @@ import {
 } from './responses/event-expense.response';
 import { GetAllEventResponse } from './responses/get-all-event.response';
 import { GetIdEventResponse } from './responses/get-id-event.response';
+import {
+  EventChangeResponse,
+  EventChangesResponse,
+  EventSalesStateResponse
+} from './responses/event-change.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
 import { EventMediaResponse } from './responses/event-media.response';
@@ -68,15 +76,6 @@ import {
   UpsertEventMapRequest
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
-import {
-  CancelEventRequest,
-  SetSalesClosedRequest
-} from './requests/event-operation.request';
-import {
-  EventChangeResponse,
-  EventChangesResponse,
-  EventSalesStateResponse
-} from './responses/event-change.response';
 
 @ApiTags('Events')
 @Controller('events')
@@ -202,11 +201,13 @@ export class EventController {
   @ApiSearch()
   @ApiFilter(eventFilters)
   @HttpCode(200)
+  @ApiOrder(EVENT_ORDER_COLUMNS)
   @Get()
   async getEvents(
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
     @FilterParams(eventFilters) filters: IFiltersParams<typeof eventFilters>,
+    @OrderParams() order: IOrderParams<typeof EVENT_ORDER_COLUMNS>,
     @UserRole() role: string | null,
     @OptionalUser() loggedUser: string | null,
     @Query('mine') mine?: string
@@ -215,7 +216,8 @@ export class EventController {
     const isMine = mine === 'true' && !!loggedUser;
     const result = await this._eventService.getEvents(pagination, search, filters, role, {
       mine: isMine,
-      loggedUser
+      loggedUser,
+      order
     });
     return {
       meta: result.meta,
@@ -325,6 +327,66 @@ export class EventController {
   @Post(':eventUuid/unpublish')
   async unpublishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.unpublishEvent(eventUuid, loggedUser);
+  }
+
+  @UserAuth(null, EventChangesResponse)
+  @ApiOperation({
+    summary: 'List event changes',
+    description:
+      'Historial de cambios del evento (FP10 / `29` §17): cancelaciones, materiales, stock, cierre de venta. ' +
+      'Orden: más nuevo → más viejo. Solo productor dueño (404 si no es suyo).'
+  })
+  @ApiResponse({ status: 200, type: EventChangesResponse })
+  @ApiResponse({ status: 404, description: 'Evento no encontrado o sin acceso' })
+  @HttpCode(200)
+  @Get(':eventUuid/changes')
+  async listEventChanges(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventChangesResponse> {
+    const result = await this._eventService.listEventChanges(eventUuid, loggedUser);
+    return new EventChangesResponse(result);
+  }
+
+  @UserAuth(CancelEventRequest, EventChangeResponse)
+  @ApiOperation({
+    summary: 'Cancel event',
+    description:
+      'Cancela el evento (BR-EVENT-010): marca cancelledAt, corta la venta, persiste event_change. ' +
+      'Con ventas → email + ventana 72 h. No borra ni despublica. Idempotente → 409 si ya cancelado.'
+  })
+  @ApiResponse({ status: 200, type: EventChangeResponse })
+  @ApiResponse({ status: 409, description: 'El evento ya está cancelado' })
+  @HttpCode(200)
+  @Post(':eventUuid/cancel')
+  async cancelEvent(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: CancelEventRequest,
+    @User() loggedUser: string
+  ): Promise<EventChangeResponse> {
+    const change = await this._eventService.cancelEvent(eventUuid, loggedUser, body?.reason);
+    return new EventChangeResponse(change);
+  }
+
+  @UserAuth(SetSalesClosedRequest, EventSalesStateResponse)
+  @ApiOperation({
+    summary: 'Close or reopen sales',
+    description:
+      'Manual sales cut-off (`BR-EVENT-013`). Not a material change. Productor dueño o Admin. ' +
+      'A cancelled event cannot be reopened. Kept apart from `saleEndDate`.'
+  })
+  @ApiResponse({ status: 200, type: EventSalesStateResponse })
+  @ApiResponse({ status: 400, description: 'No se puede reabrir un evento cancelado' })
+  @HttpCode(200)
+  @Post(':eventUuid/sales-closed')
+  async setSalesClosed(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: SetSalesClosedRequest,
+    @User() loggedUser: string
+  ): Promise<EventSalesStateResponse> {
+    return new EventSalesStateResponse(
+      await this._eventService.setSalesClosed(eventUuid, data.closed, loggedUser)
+    );
   }
 
   @OptionalUserAuth(null, EventMapResponse)
@@ -946,70 +1008,5 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<void> {
     await this._eventService.deleteExpense(eventUuid, expenseUuid, loggedUser);
-  }
-
-  // ── Operación post-publicación (FP10 / `29` §19) ────────────────────────────
-
-  @UserAuth(null, EventChangesResponse)
-  @ApiOperation({
-    summary: 'Event change history',
-    description:
-      'What changed on this event, newest first (`29` §19): material changes with their refund ' +
-      'window, sales cut-offs and stock adjustments (BR-EVENT-005 auditing).\n\n' +
-      '`openRefundWindowEndsAt` is the furthest window still open, or null.'
-  })
-  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @HttpCode(200)
-  @Get(':eventUuid/changes')
-  async listEventChanges(
-    @Param('eventUuid') eventUuid: string,
-    @User() loggedUser: string
-  ): Promise<EventChangesResponse> {
-    const changes = await this._eventService.listEventChanges(eventUuid, loggedUser);
-    return new EventChangesResponse(changes.map(c => new EventChangeResponse(c)));
-  }
-
-  @UserAuth(CancelEventRequest, EventChangeResponse)
-  @ApiOperation({
-    summary: 'Cancel the event',
-    description:
-      'No Admin gate (`BR-EVENT-010`). Always a material change: with sales it opens the refund ' +
-      'window (BR-REFUND-010) and emails the buyers.\n\n' +
-      'The event is **not** deleted or unpublished — whoever already bought has to be able to ' +
-      'see what happened. Sales are cut as part of the cancellation.'
-  })
-  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @HttpCode(200)
-  @Post(':eventUuid/cancel')
-  async cancelEvent(
-    @Param('eventUuid') eventUuid: string,
-    @Body() data: CancelEventRequest,
-    @User() loggedUser: string
-  ): Promise<EventChangeResponse> {
-    return new EventChangeResponse(
-      await this._eventService.cancelEvent(eventUuid, data.reason ?? null, loggedUser)
-    );
-  }
-
-  @UserAuth(SetSalesClosedRequest, EventSalesStateResponse)
-  @ApiOperation({
-    summary: 'Close or reopen sales',
-    description:
-      'Manual sales cut-off (`BR-EVENT-013`). Not a material change: nobody who already bought ' +
-      'loses anything because tickets stop being sold. A cancelled event cannot be reopened.\n\n' +
-      'Kept apart from `saleEndDate` so the cut-off does not overwrite the window the producer ' +
-      'configured.'
-  })
-  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @HttpCode(200)
-  @Post(':eventUuid/sales-closed')
-  async setSalesClosed(
-    @Param('eventUuid') eventUuid: string,
-    @Body() data: SetSalesClosedRequest,
-    @User() loggedUser: string
-  ): Promise<EventSalesStateResponse> {
-    return new EventSalesStateResponse(
-      await this._eventService.setSalesClosed(eventUuid, data.closed, loggedUser)
-    );
   }
 }

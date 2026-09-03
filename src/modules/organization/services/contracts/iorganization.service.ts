@@ -14,7 +14,8 @@ import { RequestBankChangeRequest } from '../../controllers/dtos/organization-me
 import { RequestFiscalChangeRequest } from '../../controllers/dtos/organization-me/request-fiscal-change.request';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
-import { organizationFilters } from '../../controllers/const/organization.filters';
+import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from '../../controllers/const/organization.filters';
+import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 import type { OrgRequestView } from '../../controllers/dtos/organization-me/organization-me.response';
 
 export type TOrganizationResponse = TEntityResponse<'organization', undefined, undefined>;
@@ -34,7 +35,8 @@ export interface IOrganizationService {
     pagination: IPaginationParams,
     search: ISearchParams,
     loggedUser: string,
-    filters?: IFiltersParams<typeof organizationFilters>
+    filters?: IFiltersParams<typeof organizationFilters>,
+    order?: IOrderParams<typeof ORGANIZATION_ORDER_COLUMNS>
   ): Promise<{
     meta: PaginationMetaResponse;
     items: TOrganizationResponseWithUserOrganizations[];

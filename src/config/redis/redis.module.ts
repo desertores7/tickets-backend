@@ -69,6 +69,14 @@ const DEFAULT_JOB_OPTIONS = {
           attempts: 1,
           removeOnComplete: { count: 30 }
         }
+      },
+      {
+        name: QUEUE_NAMES.EVENT_LIFECYCLE,
+        defaultJobOptions: {
+          ...DEFAULT_JOB_OPTIONS,
+          attempts: 1,
+          removeOnComplete: { count: 30 }
+        }
       }
     )
   ],

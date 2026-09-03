@@ -117,7 +117,7 @@ export class UpdateEventRequest {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @MaxLength(120, { each: true })
+  @MaxLength(255, { each: true })
   @ApiProperty({
     type: [String],
     required: false,

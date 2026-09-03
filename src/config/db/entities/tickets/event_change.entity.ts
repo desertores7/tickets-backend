@@ -5,12 +5,11 @@ import {
   Entity,
   JoinColumn,
   ManyToOne,
-  PrimaryGeneratedColumn,
-  UpdateDateColumn
+  PrimaryColumn
 } from 'typeorm';
+import { UserEntity } from '../user/user.entity';
 import { EventEntity } from './event.entity';
-
-const tableName = 'event_change' as const;
+import { TicketTypeEntity } from './ticket_type.entity';
 
 export const EVENT_CHANGE_TYPES = [
   'reschedule',
@@ -21,60 +20,54 @@ export const EVENT_CHANGE_TYPES = [
   'stock',
   'info'
 ] as const;
+
 export type EventChangeType = (typeof EVENT_CHANGE_TYPES)[number];
 
-/** Un campo que cambió, con su valor anterior y el nuevo, ya en texto. */
-export type EventChangeField = {
+export type EventChangeFieldSnapshot = {
   field: string;
   label: string;
   before: string | null;
   after: string | null;
 };
 
+/** Alias usado en main / docs (`EventChangeField`). */
+export type EventChangeField = EventChangeFieldSnapshot;
+
+const tableName = 'event_change' as const;
+
 /**
- * Registro de un cambio sobre un evento publicado (FP10 / `29` §19).
- *
- * Guarda el **antes y el después ya resuelto a texto** en vez de solo los
- * campos: el email al comprador y el historial tienen que seguir diciendo lo
- * mismo aunque el evento se vuelva a editar diez veces después.
- *
- * `isMaterial` sale de `BR-REFUND-010`: día, horario, venue, lineup y
- * cancelación lo son; editar la descripción no. Solo los materiales **con
- * ventas** abren `refundWindowEndsAt` y notifican.
+ * Historial de cambios del evento (FP10 / BR-EVENT-010 / BR-REFUND-010).
+ * `changes` guarda texto congelado (antes/después) para el Dashboard del Productor.
  */
 @Entity(tableName, { database: DB_NAME.tickets, synchronize: false })
 export class EventChangeEntity {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   uuid: string;
 
   @Column({ type: 'varchar', length: 36 })
   eventUuid: string;
 
-  @Column({ type: 'enum', enum: EVENT_CHANGE_TYPES })
+  @Column({
+    type: 'enum',
+    enum: EVENT_CHANGE_TYPES
+  })
   type: EventChangeType;
 
   @Column({ type: 'boolean', default: false })
   isMaterial: boolean;
 
-  @Column({ type: 'json', nullable: true, default: null })
-  changes: EventChangeField[] | null;
-
-  /** Motivo que escribió el productor. Recomendado al cancelar. */
-  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
+  @Column({ type: 'varchar', length: 1000, nullable: true, default: null })
   reason: string | null;
 
-  /** Solo para `stock`: qué tanda se tocó (`BR-EVENT-005`). */
+  @Column({ type: 'json' })
+  changes: EventChangeFieldSnapshot[];
+
   @Column({ type: 'varchar', length: 36, nullable: true, default: null })
   ticketTypeUuid: string | null;
 
-  /**
-   * Fin de la ventana de reembolso (`BR-REFUND-010`): 72 h desde el aviso, o el
-   * nuevo inicio del evento si cae antes. Null cuando el cambio no abre ventana.
-   */
   @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
   refundWindowEndsAt: Date | null;
 
-  /** Momento del aviso a compradores. Es el que arranca las 72 h. */
   @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
   notifiedAt: Date | null;
 
@@ -82,17 +75,22 @@ export class EventChangeEntity {
   buyersNotified: number;
 
   @Column({ type: 'varchar', length: 36, nullable: true, default: null })
-  createdBy: string | null;
+  createdByUuid: string | null;
 
   @CreateDateColumn({ type: 'timestamp', precision: 3 })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamp', precision: 3 })
-  updatedAt: Date;
-
   @ManyToOne(() => EventEntity)
   @JoinColumn({ name: 'eventUuid', referencedColumnName: 'uuid' })
   event: EventEntity;
+
+  @ManyToOne(() => TicketTypeEntity, { nullable: true })
+  @JoinColumn({ name: 'ticketTypeUuid', referencedColumnName: 'uuid' })
+  ticketType: TicketTypeEntity | null;
+
+  @ManyToOne(() => UserEntity, { nullable: true })
+  @JoinColumn({ name: 'createdByUuid', referencedColumnName: 'uuid' })
+  createdBy: UserEntity | null;
 }
 
 export const EventChangeEntityData = {

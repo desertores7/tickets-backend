@@ -28,6 +28,9 @@ export const EMAIL_TEMPLATES = {
   organizationRejected: 'organization-rejected',
   organizationSubmitted: 'organization-submitted',
   producerInvite: 'producer-invite',
+  /** Template de mario: aviso de cambio material a compradores */
+  eventMaterialChange: 'event-material-change',
+  /** Alias legacy de main (mismo flujo; preferir `eventMaterialChange`) */
   eventChanged: 'event-changed'
 } as const;
 

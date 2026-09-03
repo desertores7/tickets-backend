@@ -16,6 +16,9 @@ import {
 export class StockAlertService implements IStockAlertService {
   private readonly logger = new Logger(StockAlertService.name);
 
+  /** Umbral "queda poco": 20% del stock total, más aviso al agotarse. */
+  static readonly DEFAULT_LOW_THRESHOLD_PERCENT = 20;
+
   constructor(
     private readonly dbRepository: DBRepository,
     private readonly emailService: EmailService,
@@ -152,6 +155,28 @@ export class StockAlertService implements IStockAlertService {
       where: { uuid: alertUuid },
       data: { isDeleted: true } as never
     });
+  }
+
+  async ensureDefaultForTicketType(eventUuid: string, ticketTypeUuid: string): Promise<void> {
+    const existing = await this.dbRepository.findOne({
+      entity: 'stock_alert',
+      where: { ticketTypeUuid }
+    });
+    if (existing) return;
+
+    const alert = new StockAlertEntity();
+    alert.uuid = uuidv4();
+    alert.eventUuid = eventUuid;
+    alert.ticketTypeUuid = ticketTypeUuid;
+    alert.lowThreshold = StockAlertService.DEFAULT_LOW_THRESHOLD_PERCENT;
+    alert.thresholdIsPercent = true;
+    alert.notifySoldOut = true;
+    alert.active = true;
+    alert.lowNotifiedAt = null;
+    alert.soldOutNotifiedAt = null;
+    alert.isDeleted = null;
+
+    await this.dbRepository.create({ entity: 'stock_alert', data: alert });
   }
 
   // ── Evaluación tras la venta (BR-EVENT-017) ─────────────────────────────────

@@ -8,31 +8,10 @@ import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
 import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
-import { eventFilters } from '../../controllers/const/event.filters';
+import { EVENT_ORDER_COLUMNS, eventFilters } from '../../controllers/const/event.filters';
+import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
-import {
-  EventChangeField,
-  EventChangeType
-} from '@config/db/entities/tickets/event_change.entity';
-
-/** Una entrada del historial de cambios del evento (FP10 / `29` §19). */
-export type TEventChange = {
-  uuid: string;
-  type: EventChangeType;
-  /** Si abre ventana de reembolso cuando hay ventas (`BR-REFUND-010`) */
-  isMaterial: boolean;
-  changes: EventChangeField[];
-  reason: string | null;
-  ticketTypeUuid: string | null;
-  /** Fin de la ventana de reembolso. Null si el cambio no abrió ninguna. */
-  refundWindowEndsAt: Date | null;
-  notifiedAt: Date | null;
-  /** A cuántos compradores les llegó el aviso */
-  buyersNotified: number;
-  createdBy: string | null;
-  createdByName: string | null;
-  createdAt: Date;
-};
+import type { TEventChangeItem, TEventChangesResult } from '../implementation/event-change.service';
 
 export type TEventResponse = TEntityResponse<'event', undefined, undefined>;
 export type TEventWithTicketTypesResponse = TEntityResponse<'event', { ticketTypes: true }, undefined>;
@@ -88,6 +67,9 @@ export type TEventListItem = TEventResponse & {
 };
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
+
+/** Orden pedido al listado de eventos (`order_by=columna:asc|desc`). */
+export type TEventOrder = IOrderParams<typeof EVENT_ORDER_COLUMNS>;
 
 /** Productor asignado puntualmente a un evento */
 export type TEventProducer = {
@@ -163,7 +145,7 @@ export interface IEventService {
     search: ISearchParams,
     filters: TEventFilters,
     role: string | null,
-    options?: { mine?: boolean; loggedUser?: string | null }
+    options?: { mine?: boolean; loggedUser?: string | null; order?: TEventOrder }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }>;
 
   getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
@@ -174,24 +156,26 @@ export interface IEventService {
 
   updateEvent(uuid: string, data: IEventUpdate, loggedUser: string): Promise<void>;
 
+  /** Historial de cambios (FP10 / `29` §17 / §19). */
+  listEventChanges(eventUuid: string, loggedUser: string): Promise<TEventChangesResult>;
+
+  /** Cancela el evento sin borrar ni despublicar (BR-EVENT-010). */
+  cancelEvent(
+    eventUuid: string,
+    loggedUser: string,
+    reason?: string | null
+  ): Promise<TEventChangeItem>;
+
+  /** Cierre manual de venta — solo Admin (BR-EVENT-013). */
+  closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem>;
+
+  /**
+   * Corta o reabre la venta a mano (`BR-EVENT-013`). Productor dueño o Admin.
+   * No es material. Un evento cancelado no se puede reabrir.
+   */
+  setSalesClosed(eventUuid: string, closed: boolean, loggedUser: string): Promise<Date | null>;
+
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
-
-  // ── Operación post-publicación (FP10 / `29` §19) ──────────────────────────
-
-  /**
-   * Cancela el evento (`BR-EVENT-010`). Siempre es cambio material: con
-   * ventas abre la ventana de reembolso y avisa a los compradores.
-   */
-  cancelEvent(uuid: string, reason: string | null, loggedUser: string): Promise<TEventChange>;
-
-  /**
-   * Corta o reabre la venta a mano (`BR-EVENT-013`). No es material: nadie
-   * que ya compró pierde nada porque dejen de venderse entradas.
-   */
-  setSalesClosed(uuid: string, closed: boolean, loggedUser: string): Promise<Date | null>;
-
-  /** Historial de cambios del evento, del más nuevo al más viejo (`29` §19). */
-  listEventChanges(uuid: string, loggedUser: string): Promise<TEventChange[]>;
 
   publishEvent(uuid: string, loggedUser: string): Promise<boolean>;
 

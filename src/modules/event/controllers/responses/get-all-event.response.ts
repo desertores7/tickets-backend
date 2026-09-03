@@ -34,23 +34,13 @@ export class GetAllEventResponse {
   @ApiProperty() venuePostalCode: string;
   @ApiProperty({ nullable: true, description: 'Link de Google Maps para Cómo llegar' })
   googleMapsUrl: string | null;
-  @ApiProperty() maxCapacity: number;
-
   @ApiProperty({
-    type: [String],
     nullable: true,
-    description: 'Lineup estructurado (BR-EVENT-016)'
+    description: 'Lineup estructurado (BR-EVENT-016)',
+    type: [String]
   })
   lineup: string[] | null;
-
-  @ApiProperty({ nullable: true, description: 'Cancelado el (BR-EVENT-010)' })
-  cancelledAt: Date | null;
-
-  @ApiProperty({ nullable: true }) cancellationReason: string | null;
-
-  @ApiProperty({ nullable: true, description: 'Corte manual de venta (BR-EVENT-013)' })
-  salesClosedAt: Date | null;
-
+  @ApiProperty() maxCapacity: number;
   @ApiProperty({
     description:
       'True si el evento tiene tipos de entrada pero ninguno con disponibilidad. ' +
@@ -58,6 +48,11 @@ export class GetAllEventResponse {
       'las reservas sin pagar no cuentan como vendidas.'
   })
   soldOut: boolean;
+  @ApiProperty({ nullable: true, description: 'Cancelado el (BR-EVENT-010)' })
+  cancelledAt: Date | null;
+  @ApiProperty({ nullable: true }) cancellationReason: string | null;
+  @ApiProperty({ nullable: true, description: 'Cierre de venta (BR-EVENT-013)' })
+  salesClosedAt: Date | null;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 
@@ -83,12 +78,12 @@ export class GetAllEventResponse {
     this.venueCountry = data.venueCountry;
     this.venuePostalCode = data.venuePostalCode ?? '';
     this.googleMapsUrl = data.googleMapsUrl ?? null;
-    this.maxCapacity = data.maxCapacity;
     this.lineup = data.lineup ?? null;
+    this.maxCapacity = data.maxCapacity;
+    this.soldOut = data.soldOut;
     this.cancelledAt = data.cancelledAt ?? null;
     this.cancellationReason = data.cancellationReason ?? null;
     this.salesClosedAt = data.salesClosedAt ?? null;
-    this.soldOut = data.soldOut;
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;
   }

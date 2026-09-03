@@ -13,6 +13,7 @@ import { SystemParameterEntityData } from '../entities/system/system_parameter.e
 import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
 import { EventEntityData } from '../entities/tickets/event.entity';
+import { EventChangeEntityData } from '../entities/tickets/event_change.entity';
 import { EventMediaEntityData } from '../entities/tickets/event_media.entity';
 import { EventMapEntityData } from '../entities/tickets/event_map.entity';
 import { EventMapSectorEntityData } from '../entities/tickets/event_map_sector.entity';
@@ -39,7 +40,6 @@ import { EventMpAccountEntityData } from '../entities/tickets/event_mp_account.e
 import { EventIncomeEntityData } from '../entities/tickets/event_income.entity';
 import { EventIncomeProductEntityData } from '../entities/tickets/event_income_product.entity';
 import { MpMovementEntityData } from '../entities/tickets/mp_movement.entity';
-import { EventChangeEntityData } from '../entities/tickets/event_change.entity';
 import { UserNotificationEntityData } from '../entities/user/user_notification.entity';
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { OrganizationRequestEntityData } from '../entities/user/organization_request.entity';
@@ -61,6 +61,7 @@ export const entitiesData = [
   UserSessionEntityData,
   EmailEntityData,
   EventEntityData,
+  EventChangeEntityData,
   EventMediaEntityData,
   EventMapEntityData,
   EventMapSectorEntityData,
@@ -87,7 +88,6 @@ export const entitiesData = [
   EventIncomeEntityData,
   EventIncomeProductEntityData,
   MpMovementEntityData,
-  EventChangeEntityData,
   UserEventCashierEntityData,
   OrganizationProducerInviteEntityData,
   OrganizationRequestEntityData

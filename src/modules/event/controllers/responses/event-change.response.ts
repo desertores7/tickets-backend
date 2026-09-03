@@ -1,23 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  EVENT_CHANGE_TYPES,
-  EventChangeField,
-  EventChangeType
-} from '@config/db/entities/tickets/event_change.entity';
-import { TEventChange } from '../../services/contracts/ievent.service';
+import { EVENT_CHANGE_TYPES, EventChangeType } from '@config/db/entities/tickets/event_change.entity';
+import type { TEventChangeItem, TEventChangesResult } from '../../services/implementation/event-change.service';
 
 export class EventChangeFieldResponse {
   @ApiProperty({ example: 'startDate' }) field: string;
   @ApiProperty({ example: 'Inicio' }) label: string;
   @ApiProperty({ nullable: true }) before: string | null;
   @ApiProperty({ nullable: true }) after: string | null;
-
-  constructor(data: EventChangeField) {
-    this.field = data.field;
-    this.label = data.label;
-    this.before = data.before;
-    this.after = data.after;
-  }
 }
 
 /** Una entrada del historial de cambios del evento (FP10 / `29` §19). */
@@ -56,20 +45,18 @@ export class EventChangeResponse {
   @ApiProperty({ nullable: true }) createdByName: string | null;
   @ApiProperty({ description: 'ISO-8601' }) createdAt: string;
 
-  constructor(data: TEventChange) {
+  constructor(data: TEventChangeItem) {
     this.uuid = data.uuid;
     this.type = data.type;
     this.isMaterial = data.isMaterial;
-    this.changes = data.changes.map(c => new EventChangeFieldResponse(c));
+    this.changes = data.changes;
     this.reason = data.reason;
     this.ticketTypeUuid = data.ticketTypeUuid;
-    this.refundWindowEndsAt = data.refundWindowEndsAt
-      ? new Date(data.refundWindowEndsAt).toISOString()
-      : null;
-    this.notifiedAt = data.notifiedAt ? new Date(data.notifiedAt).toISOString() : null;
+    this.refundWindowEndsAt = data.refundWindowEndsAt;
+    this.notifiedAt = data.notifiedAt;
     this.buyersNotified = data.buyersNotified;
     this.createdByName = data.createdByName;
-    this.createdAt = new Date(data.createdAt).toISOString();
+    this.createdAt = data.createdAt;
   }
 }
 
@@ -84,18 +71,9 @@ export class EventChangesResponse {
   })
   openRefundWindowEndsAt: string | null;
 
-  constructor(items: EventChangeResponse[]) {
-    this.items = items;
-
-    // La ventana vigente es la que más tarde vence: dos cambios materiales
-    // seguidos no acortan el plazo que ya se le comunicó al comprador.
-    const now = Date.now();
-    const open = items
-      .map(i => i.refundWindowEndsAt)
-      .filter((d): d is string => Boolean(d) && new Date(d as string).getTime() > now)
-      .sort();
-
-    this.openRefundWindowEndsAt = open.length ? open[open.length - 1] : null;
+  constructor(data: TEventChangesResult) {
+    this.items = data.items.map(item => new EventChangeResponse(item));
+    this.openRefundWindowEndsAt = data.openRefundWindowEndsAt;
   }
 }
 

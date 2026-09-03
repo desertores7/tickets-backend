@@ -13,8 +13,8 @@ import { OrganizationStaffService } from './organization/services/implementation
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
-import { EventAiService } from './event/services/implementation/event-ai.service';
 import { EventChangeService } from './event/services/implementation/event-change.service';
+import { EventAiService } from './event/services/implementation/event-ai.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -62,6 +62,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    EventChangeService,
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
@@ -79,7 +80,6 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
-    EventChangeService,
     StockService,
     FeeSummaryService,
     EmailService,
@@ -99,6 +99,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     OrganizationStaffService,
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
+    EventChangeService,
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
@@ -116,7 +117,6 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
     MercadoPagoService,
-    EventChangeService,
     StockService,
     FeeSummaryService,
     EmailService,

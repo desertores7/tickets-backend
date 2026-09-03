@@ -21,3 +21,6 @@ export const organizationFilters = [
     enumValues: ['true', 'false']
   }
 ] as const satisfies IFilterData[];
+
+/** Columnas ordenables del listado (order_by=columna:asc|desc). */
+export const ORGANIZATION_ORDER_COLUMNS = ['createdAt', 'name', 'legalName'] as const;

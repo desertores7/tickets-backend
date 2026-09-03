@@ -6,7 +6,9 @@ export const QUEUE_NAMES = {
   WAITING_ROOM: 'waiting-room',
   MAINTENANCE: 'maintenance',
   /** Sincronización de movimientos MP durante la ventana del evento (BR-CASH-003) */
-  MP_SYNC: 'mp-event-sync'
+  MP_SYNC: 'mp-event-sync',
+  /** Cierre automático de venta al fin del evento (BR-EVENT-013) */
+  EVENT_LIFECYCLE: 'event-lifecycle'
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -48,4 +50,9 @@ export interface ProcessWaitingRoomJobData {
 export interface CleanupExpiredAssetsJobData {
   /** Días de gracia después de event.endDate antes de borrar los archivos QR/PDF */
   graceDays: number;
+}
+
+export interface CloseEndedEventSalesJobData {
+  /** Reservado por si el job necesita parámetros en el futuro */
+  batchSize?: number;
 }
