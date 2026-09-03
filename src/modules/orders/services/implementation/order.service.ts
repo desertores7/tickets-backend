@@ -280,12 +280,18 @@ export class OrderService implements IOrderService {
 
   async getUserOrders(
     userId: string,
-    pagination: IPaginationParams
+    pagination: IPaginationParams,
+    status?: string
   ): Promise<PaginatedResult<Order>> {
+    // El listado no necesita las entradas de cada orden (QR y PDF incluidos):
+    // alcanza con los items para sumar cantidades, y el evento para el titulo.
     const { items, count } = await this.dbRepository.findManyAndCount({
       entity: 'orders',
-      where: { userUuid: userId },
-      relations: { items: { tickets: true } },
+      where: {
+        userUuid: userId,
+        ...(status ? { status: status as OrderStatus } : {})
+      },
+      relations: { items: true, event: true },
       other: {
         skip: (pagination.page - 1) * pagination.limit,
         take: pagination.limit,
@@ -294,7 +300,16 @@ export class OrderService implements IOrderService {
     });
 
     return {
-      items: items.map(o => this.mapToOrder(o)),
+      items: items.map(o => {
+        const order = this.mapToOrder(o);
+        order.eventName = (o as any).event?.name ?? null;
+        order.eventStartDate = (o as any).event?.startDate ?? null;
+        order.itemCount = ((o as any).items ?? []).reduce(
+          (sum: number, item: any) => sum + Number(item.quantity ?? 0),
+          0
+        );
+        return order;
+      }),
       meta: new PaginationMetaResponse({
         total: count,
         page: pagination.page,

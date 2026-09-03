@@ -6,6 +6,9 @@ export class OrderSummaryResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() orderNumber: string;
   @ApiProperty() eventUuid: string;
+  @ApiProperty({ nullable: true, description: 'Nombre del evento, para no pedirlo por fila.' })
+  eventName: string | null;
+  @ApiProperty({ nullable: true }) eventStartDate: Date | null;
   @ApiProperty({ enum: OrderStatus }) status: OrderStatus;
   @ApiProperty() total: number;
   @ApiProperty() currency: string;
@@ -18,10 +21,13 @@ export class OrderSummaryResponse {
     this.uuid = data.uuid;
     this.orderNumber = data.orderNumber;
     this.eventUuid = data.eventUuid;
+    this.eventName = data.eventName ?? null;
+    this.eventStartDate = data.eventStartDate ?? null;
     this.status = data.status;
     this.total = Number(data.total);
     this.currency = data.currency;
-    this.itemCount = (data.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
+    this.itemCount =
+      data.itemCount ?? (data.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
     this.expiresAt = data.expiresAt;
     this.paidAt = data.paidAt;
     this.createdAt = data.createdAt;

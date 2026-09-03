@@ -72,6 +72,11 @@ export class Order implements IOrder {
   createdAt: Date;
   updatedAt: Date;
   items: IOrderItem[];
+  /** Solo en el listado: evita un fetch del evento por fila. */
+  eventName?: string | null;
+  eventStartDate?: Date | null;
+  /** Solo en el listado: suma de cantidades, calculada en SQL. */
+  itemCount?: number;
 }
 
 export interface ICreateOrderItem {
