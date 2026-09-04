@@ -296,6 +296,20 @@ export class CouponService implements ICouponService {
     };
   }
 
+  async getByUuid(
+    eventUuid: string,
+    couponUuid: string,
+    loggedUser: string
+  ): Promise<ICoupon> {
+    const coupon = await this.requireOwnCoupon(eventUuid, couponUuid, loggedUser);
+    const discountByCoupon = await this.sumDiscountsByCoupon([coupon.uuid]);
+    return this.toCoupon(
+      coupon,
+      await this.getScopedTicketTypes(coupon.uuid),
+      discountByCoupon.get(coupon.uuid) ?? 0
+    );
+  }
+
   async create(
     eventUuid: string,
     payload: ICouponPayload,
