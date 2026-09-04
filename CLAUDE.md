@@ -56,6 +56,76 @@ modules/<nombre>/
 - Documentar todos los endpoints con Swagger siguiendo el patrón de `shared/const/swagger.ts` y `shared/decorators/swagger.decorator.ts`
 - Skill de referencia: `.agents/skills/nestjs-best-practices/` — respetar sus reglas (evitar dependencias circulares, repository pattern, transacciones, etc.)
 
+## Convenciones de Swagger
+
+La documentación se ordena por **audiencia**, no por controller. Ver la lista
+completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
+`docs/auditoria-performance-y-swagger.md`.
+
+- **Un tag = un CRUD o un sub-recurso.** Si un tag pasa de ~12 endpoints, se parte.
+- **Prefijos de audiencia**: `Público — `, `Compra — `, `Productora — `,
+  `Acceso — `, `Admin — `. Sin prefijo solo lo transversal (`Auth`, `Perfil`,
+  `Notificaciones`, `Soporte`).
+- **Todo en español**, tags y `summary`.
+- El orden de las secciones lo da el orden de los `.addTag()` en `swagger.ts`.
+  **No agregar `tagsSorter` ni `operationsSorter`**: con `'alpha'` Swagger UI
+  reordena alfabéticamente y descarta ese orden.
+- Un tag nuevo se declara en `swagger.ts` con descripción; si no, aparece al
+  final sin descripción.
+- Cuando un controller cubre más de una sección (`event.controller.ts`,
+  `auth.controller.ts`, `organization.controller.ts`) **no lleva `@ApiTags` a
+  nivel de clase**: cada método declara el suyo. Las rutas no cambian. Nunca
+  mezclar tag de clase y de método: NestJS los acumula y el endpoint aparece
+  duplicado en dos secciones.
+
+### Convención de títulos (`summary`)
+
+```
+<Verbo> <recurso> [— <matiz>]
+```
+
+- Verbos: `Listar`, `Obtener`, `Crear`, `Actualizar`, `Eliminar`, `Publicar`,
+  `Cancelar`, `Asignar`, `Quitar`, `Subir`, `Descargar`, `Exportar`, `Validar`,
+  `Aprobar`, `Rechazar`, `Sincronizar`, `Registrar`.
+- Plural para listados, singular para el resto: `Listar tandas` / `Crear tanda`.
+- El matiz va después del guión largo: `Eliminar evento — baja lógica`,
+  `Exportar ventas — CSV`.
+- El summary **no repite el tag**: dentro de `Productora — Tandas` el título es
+  `Crear tandas (bulk)`, no `Crear tipos de entrada del evento`.
+- **El orden de los endpoints dentro de cada sección NO se controla reordenando
+  métodos.** En Nest el orden de declaración resuelve rutas: mover un
+  `@Get(':uuid')` por encima de un `@Get('users')` hace que `/users` se
+  interprete como un uuid. El orden visual lo resuelve `sortOperations()` en
+  `swagger.ts`, que ordena el documento OpenAPI por el verbo del `summary`:
+  listar → obtener/descargar → buscar/exportar → crear/registrar/subir →
+  actualizar → eliminar → acciones. Un verbo nuevo se agrega a `VERB_RANK`.
+
+## Performance de base de datos
+
+- Índices y FKs revisados en `docs/auditoria-performance-y-swagger.md`.
+  Migraciones aplicadas: `1785900000000-PerformanceIndexes`,
+  `1785910000000-UserUsernameIndex`.
+- Verificación: `scripts/verify-performance-indexes.sql`.
+- **InnoDB crea índice automático para toda columna con FOREIGN KEY**: no hace
+  falta declarar un índice de una sola columna sobre una FK. Lo que sí hace
+  falta son los composites que cubren `WHERE + ORDER BY` juntos.
+- Antes de agregar un índice, verificar que respalde una consulta que existe hoy
+  en el código. Cada índice cuesta en escritura y en buffer pool.
+- **No usar `ILike` de TypeORM.** En MySQL lo traduce a `UPPER(col) LIKE UPPER(?)`,
+  y envolver la columna en `UPPER()` la vuelve no-sargable: descarta cualquier
+  índice sobre ella. Con collation `*_ci` el `Like` plano ya es
+  case-insensitive.
+- **No escribir SQL de Postgres en `Raw()`**: `"columna"` entre comillas dobles
+  es un identificador en Postgres pero un literal string en MySQL. Usar
+  backticks.
+- Un composite hace redundante al índice de su columna izquierda: al agregar
+  `(a, b)` hay que borrar el `(a)` suelto.
+- **Al reemplazar un índice, crear el nuevo ANTES de borrar el viejo.** Si el
+  viejo es el único que cubre una columna referenciada por una FK, MySQL
+  responde `ER_DROP_INDEX_FK` ("Cannot drop index: needed in a foreign key
+  constraint"). Con el nuevo ya creado, la FK se apoya en él y el viejo sale sin
+  problema.
+
 ## Infraestructura Redis + BullMQ (ya implementada)
 
 - `src/config/redis/redis.module.ts` — módulo global BullMQ

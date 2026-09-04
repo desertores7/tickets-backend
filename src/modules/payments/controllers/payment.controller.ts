@@ -11,7 +11,7 @@ import { InitializePaymentResponse } from './dtos/initialize-payment/initialize-
 import { GetPaymentResponse } from './dtos/get-payment/get-payment.response';
 import { MercadoPagoWebhookRequest } from './dtos/webhook/mercadopago-webhook.request';
 
-@ApiTags('Payments')
+@ApiTags('Compra — Pagos')
 @Controller('payments')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);
@@ -27,7 +27,7 @@ export class PaymentController {
 
   @UserAuth(null, InitializePaymentResponse)
   @ApiOperation({
-    summary: 'Initialize payment',
+    summary: 'Inicializar pago',
     description:
       'Creates a MercadoPago preference for the given order and returns the `checkoutUrl` ' +
       'to redirect the user to the payment gateway.\n\n' +
@@ -62,7 +62,7 @@ export class PaymentController {
 
   @Swagger(MercadoPagoWebhookRequest, null)
   @ApiOperation({
-    summary: 'MercadoPago webhook (public)',
+    summary: 'Recibir webhook de Mercado Pago',
     description:
       'Receives payment-status notifications from MercadoPago. **No authentication required** — ' +
       'this endpoint is called directly by MercadoPago servers.\n\n' +
@@ -158,7 +158,7 @@ export class PaymentController {
 
   @UserAuth(null, GetPaymentResponse)
   @ApiOperation({
-    summary: 'Get payment by order',
+    summary: 'Obtener pago de una orden',
     description:
       'Returns the payment record associated with the given order, including provider status, ' +
       'amount, currency and payment method details.'

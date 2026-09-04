@@ -11,14 +11,14 @@ import { CreateRoleRequest } from './dtos/create-role/create-role.request';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 
-@ApiTags('Roles')
+@ApiTags('Admin — Roles')
 @Controller('roles')
 export class RoleController {
   constructor(@Inject('IRoleService') public _roleService: IRoleService) {}
 
   @AdminAuth(null, GetAllRoleResponse)
   @ApiOperation({
-    summary: 'Get all roles',
+    summary: 'Listar roles',
     description: 'This endpoint is for get all roles'
   })
   @ApiPagination()
@@ -40,7 +40,7 @@ export class RoleController {
 
   @AdminAuth(CreateRoleRequest, null)
   @ApiOperation({
-    summary: 'Create role',
+    summary: 'Crear rol',
     description: 'This endpoint is for create role'
   })
   @HttpCode(201)
@@ -51,7 +51,7 @@ export class RoleController {
 
   @AdminAuth(null, GetIdRoleResponse)
   @ApiOperation({
-    summary: 'Get role by id',
+    summary: 'Obtener rol',
     description: 'This endpoint is for get role by id'
   })
   @HttpCode(200)
@@ -63,7 +63,7 @@ export class RoleController {
 
   @AdminAuth(UpdateRoleRequest, null)
   @ApiOperation({
-    summary: 'Update role',
+    summary: 'Actualizar rol',
     description: 'This endpoint is for update user'
   })
   @HttpCode(200)
@@ -78,7 +78,7 @@ export class RoleController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Delete role',
+    summary: 'Eliminar rol',
     description: 'This endpoint is for delete role'
   })
   @HttpCode(200)

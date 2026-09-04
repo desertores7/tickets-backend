@@ -18,14 +18,14 @@ import {
  * Son las cuentas del posnet, independientes de la cuenta de la ticketera que
  * cobra el checkout web — esa vive en `payments/` y no se toca desde acá.
  */
-@ApiTags('Producer — Mercado Pago')
+@ApiTags('Productora — Mercado Pago')
 @Controller('organizations/me/mp-accounts')
 export class OrgMpController {
   constructor(@Inject('IOrgMpService') private readonly orgMpService: IOrgMpService) {}
 
   @UserAuth(null, MpAccountsResponse)
   @ApiOperation({
-    summary: 'List the organization MP accounts',
+    summary: 'Listar cuentas de Mercado Pago',
     description:
       'Includes disconnected accounts: their history stays in the database, so the view has to be ' +
       'able to show where an old movement came from. Tokens are never returned.'
@@ -39,7 +39,7 @@ export class OrgMpController {
 
   @UserAuth(null, StartMpConnectResponse)
   @ApiOperation({
-    summary: 'Start the OAuth connection',
+    summary: 'Iniciar conexión OAuth',
     description:
       'Returns the Mercado Pago authorization URL. The frontend must redirect the browser there; ' +
       'MP sends the seller back to the callback below.\n\n' +
@@ -70,7 +70,7 @@ export class OrgMpController {
 
   @UserAuth(null, SyncCatalogResponse)
   @ApiOperation({
-    summary: 'Refresh the catalog from Mercado Pago',
+    summary: 'Sincronizar catálogo de Mercado Pago',
     description:
       'Mercado Pago has NO product catalog API: it exposes payments, orders, stores and terminals, ' +
       'but no items resource. The only place product names appear is `additional_info.items` of ' +
@@ -91,7 +91,7 @@ export class OrgMpController {
   }
 
   @UserAuth(UpdateMpAccountRequest, MpAccountResponse)
-  @ApiOperation({ summary: 'Rename an account', description: 'Only the internal alias is editable.' })
+  @ApiOperation({ summary: 'Actualizar cuenta — solo el alias', description: 'Only the internal alias is editable.' })
   @ApiParam({ name: 'accountUuid' })
   @HttpCode(200)
   @Patch(':accountUuid')
@@ -107,7 +107,7 @@ export class OrgMpController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Disconnect an account',
+    summary: 'Desconectar cuenta',
     description:
       'Clears the stored tokens and marks the account `disconnected`. **It does not delete the ' +
       'history** already copied to the database (`BR-CASH-001`).'

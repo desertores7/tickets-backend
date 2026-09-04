@@ -224,14 +224,14 @@ export class CouponsResponse {
  * Un cupón pertenece siempre a un solo evento (`BR-COUPON-005`) y solo lo
  * gestiona la productora dueña (`BR-COUPON-004`).
  */
-@ApiTags('Producer — Cupones')
+@ApiTags('Productora — Cupones')
 @Controller({ path: 'events/:eventUuid/coupons', version: '1' })
 export class CouponController {
   constructor(@Inject('ICouponService') private readonly couponService: ICouponService) {}
 
   @UserAuth(null, CouponsResponse)
   @ApiOperation({
-    summary: 'List coupons of the event',
+    summary: 'Listar cupones',
     description:
       'Filtros y paginación estrechan `items`, pero `byStatus`, `totalDiscountAmount`, ' +
       '`totalUses` y `totalCoupons` siempre reflejan el evento completo.\n\n' +
@@ -275,7 +275,7 @@ export class CouponController {
 
   @UserAuth(CreateCouponRequest, CouponResponse)
   @ApiOperation({
-    summary: 'Create a coupon',
+    summary: 'Crear cupón',
     description: 'The code is unique within the event and stored uppercase.'
   })
   @ApiParam({ name: 'eventUuid' })
@@ -290,7 +290,7 @@ export class CouponController {
   }
 
   @UserAuth(UpdateCouponRequest, CouponResponse)
-  @ApiOperation({ summary: 'Update a coupon' })
+  @ApiOperation({ summary: 'Actualizar cupón' })
   @ApiParam({ name: 'eventUuid' })
   @ApiParam({ name: 'couponUuid' })
   @HttpCode(200)
@@ -308,7 +308,7 @@ export class CouponController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete a coupon',
+    summary: 'Eliminar cupón',
     description: 'Logical delete: paid orders still reference it.'
   })
   @ApiParam({ name: 'eventUuid' })

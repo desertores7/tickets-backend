@@ -6,7 +6,7 @@ import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
 import { ORGANIZATION_ORDER_COLUMNS } from '../../controllers/const/organization.filters';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { ILike, DataSource, IsNull, In, Not } from 'typeorm';
+import { Like, DataSource, IsNull, In, Not } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import {
   IOrganizationService,
@@ -194,9 +194,9 @@ export class OrganizationService implements IOrganizationService {
 
     const searchWhere = searchTerm
       ? [
-          { ...baseWhere, name: ILike(`%${searchTerm}%`) },
-          { ...baseWhere, legalName: ILike(`%${searchTerm}%`) },
-          { ...baseWhere, taxId: ILike(`%${searchTerm}%`) }
+          { ...baseWhere, name: Like(`%${searchTerm}%`) },
+          { ...baseWhere, legalName: Like(`%${searchTerm}%`) },
+          { ...baseWhere, taxId: Like(`%${searchTerm}%`) }
         ]
       : baseWhere;
 
@@ -204,13 +204,13 @@ export class OrganizationService implements IOrganizationService {
     if (filteredOrganizationUuids) {
       if (searchTerm) {
         finalWhere = [
-          { ...baseWhere, uuid: In(filteredOrganizationUuids), name: ILike(`%${searchTerm}%`) },
+          { ...baseWhere, uuid: In(filteredOrganizationUuids), name: Like(`%${searchTerm}%`) },
           {
             ...baseWhere,
             uuid: In(filteredOrganizationUuids),
-            legalName: ILike(`%${searchTerm}%`)
+            legalName: Like(`%${searchTerm}%`)
           },
-          { ...baseWhere, uuid: In(filteredOrganizationUuids), taxId: ILike(`%${searchTerm}%`) }
+          { ...baseWhere, uuid: In(filteredOrganizationUuids), taxId: Like(`%${searchTerm}%`) }
         ];
       } else {
         finalWhere = { ...baseWhere, uuid: In(filteredOrganizationUuids) };

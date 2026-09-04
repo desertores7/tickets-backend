@@ -16,7 +16,7 @@ export class UserTokenSessionEntity {
   @PrimaryGeneratedColumn('uuid')
   uuid: string;
 
-  @Column({ type: 'char' })
+  @Column({ type: 'varchar', length: 36 })
   userUuid: string;
 
   @Column({ type: 'text' })

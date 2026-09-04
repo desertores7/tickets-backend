@@ -8,7 +8,7 @@ import { FilterParams, IFiltersParams } from '@root/shared/decorators/filter-que
 import { userFileFilters } from './const/user-file.filters';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 
-@ApiTags('User File')
+@ApiTags('Admin — Archivos de usuario')
 @ApiExcludeController()
 @Controller('user-file')
 export class UserFileController {
@@ -16,7 +16,7 @@ export class UserFileController {
 
   @UserAuth(CreateUserFileRequest, null)
   @ApiOperation({
-    summary: 'Create user file',
+    summary: 'Crear archivo de usuario',
     description: 'This endpoint is for create user file'
   })
   @HttpCode(201)
@@ -27,7 +27,7 @@ export class UserFileController {
 
   @UserAuth(null, GetIdUserFileResponse)
   @ApiOperation({
-    summary: 'Get user file by id',
+    summary: 'Obtener archivo de usuario',
     description: 'This endpoint is for get user file by id'
   })
   @HttpCode(200)
@@ -42,7 +42,7 @@ export class UserFileController {
 
   @UserAuth(UpdateUserFileRequest, null)
   @ApiOperation({
-    summary: 'Update user file',
+    summary: 'Actualizar archivo de usuario',
     description: 'This endpoint is for update user file'
   })
   @HttpCode(200)
@@ -53,7 +53,7 @@ export class UserFileController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete user file',
+    summary: 'Eliminar archivo de usuario',
     description: 'This endpoint is for delete user file'
   })
   @HttpCode(200)

@@ -19,7 +19,7 @@ import { GetSalesResponse, SaleDetailResponse, SalesRowResponse } from './respon
  * Coincidir importa más que la convención por recurso — cuando no coincidieron,
  * el dashboard quedó llamando a un 404.
  */
-@ApiTags('Producer — Reporting')
+@ApiTags('Productora — Reportes')
 @Controller('producer')
 export class ProducerSalesController {
   constructor(
@@ -29,7 +29,7 @@ export class ProducerSalesController {
 
   @UserAuth(null, GetSalesResponse)
   @ApiOperation({
-    summary: 'List sales (producer)',
+    summary: 'Listar ventas',
     description:
       'Paginated sales table. One row per purchased ticket type (order_item).\n\n' +
       '**BR-REPORT-001**: `amount` is the ticket value only — the service fee is never selected ' +
@@ -61,7 +61,7 @@ export class ProducerSalesController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Export sales',
+    summary: 'Exportar ventas — CSV',
     description:
       'Downloads the filtered sales as `xlsx` or `pdf`. Same filters as the listing, no pagination.\n\n' +
       'Generated in the backend so both frontends export identical files and the service-fee rule ' +
@@ -96,7 +96,7 @@ export class ProducerSalesController {
 
   @UserAuth(null, SaleDetailResponse)
   @ApiOperation({
-    summary: 'Sale detail (producer)',
+    summary: 'Obtener detalle de venta',
     description:
       'Full detail of one order: buyer, event, purchased ticket types and payment data.\n\n' +
       '**BR-REPORT-001**: `serviceFee` and `total` are only returned to an `Administrador`. ' +

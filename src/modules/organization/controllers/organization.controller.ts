@@ -58,7 +58,9 @@ import {
   ORGANIZATION_FISCAL_DOC_MAX_FILES
 } from '@modules/organization/const/organization-fiscal.const';
 
-@ApiTags('Organizations')
+// Sin @ApiTags a nivel de clase: este controller cubre lo que la productora
+// hace sobre si misma, su staff, y lo que el Administrador hace sobre
+// cualquier productora. Las rutas no cambian.
 @Controller('organizations')
 export class OrganizationController {
   constructor(
@@ -73,9 +75,10 @@ export class OrganizationController {
 
   @UserAuth(null, OrganizationMeResponse)
   @ApiOperation({
-    summary: 'Get my organization (producer)',
+    summary: 'Obtener mi productora',
     description: 'Returns the organization linked to the authenticated producer, including fiscal validation fields.'
   })
+  @ApiTags('Productora — Organización')
   @Get('me')
   async getMyOrganization(@User() userId: string): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.getMyOrganization(userId);
@@ -84,9 +87,10 @@ export class OrganizationController {
 
   @UserAuth(UpdateOrganizationMeRequest, OrganizationMeResponse)
   @ApiOperation({
-    summary: 'Update my organization fiscal data',
+    summary: 'Actualizar datos fiscales',
     description: 'Partial update of fiscal wizard fields. Blocked while pending_review.'
   })
+  @ApiTags('Productora — Organización')
   @Patch('me')
   async updateMyOrganization(
     @User() userId: string,
@@ -98,10 +102,11 @@ export class OrganizationController {
 
   @UserAuth(null, OrganizationMeResponse)
   @ApiOperation({
-    summary: 'Submit organization for fiscal validation',
+    summary: 'Enviar a validación fiscal',
     description: 'Requires all fiscal + bank fields and minimum document pack. Sets pending_review.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Organización')
   @Post('me/submit-validation')
   async submitMyOrganizationValidation(@User() userId: string): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.submitMyOrganizationValidation(userId);
@@ -110,11 +115,12 @@ export class OrganizationController {
 
   @UserAuth(RequestBankChangeRequest, OrganizationMeResponse)
   @ApiOperation({
-    summary: 'Request bank account change (approved producer)',
+    summary: 'Solicitar cambio de cuenta bancaria',
     description:
       'Queues banco/CBU/alias for admin review. Does not change validationStatus; producer stays operational.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Organización')
   @Post('me/bank-change-request')
   async requestBankAccountChange(
     @User() userId: string,
@@ -127,12 +133,13 @@ export class OrganizationController {
   @UserAuth(RequestFiscalChangeRequest, OrganizationMeResponse, 'multipart/form-data')
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({
-    summary: 'Request fiscal identity change (approved producer)',
+    summary: 'Solicitar cambio de identidad fiscal',
     description:
       'Queues identity fields for admin review and optionally applies document add/delete. Does not change validationStatus; producer stays operational.'
   })
   @UseInterceptors(FilesInterceptor('files', ORGANIZATION_FISCAL_DOC_MAX_FILES))
   @HttpCode(200)
+  @ApiTags('Productora — Organización')
   @Post('me/fiscal-change-request')
   async requestFiscalIdentityChange(
     @User() userId: string,
@@ -149,7 +156,7 @@ export class OrganizationController {
 
   @UserAuth(null, StaffListResponse)
   @ApiOperation({
-    summary: 'List organization staff (producer)',
+    summary: 'Listar staff',
     description:
       'Productores, Validadores, Caja e invitaciones pendientes de la productora aprobada.\n\n' +
       '- `search`: nombre o email.\n' +
@@ -161,6 +168,7 @@ export class OrganizationController {
   @ApiPagination()
   @ApiSearch()
   @ApiFilter(staffFilters)
+  @ApiTags('Productora — Staff')
   @Get('me/staff')
   async listMyStaff(
     @User() userId: string,
@@ -184,10 +192,11 @@ export class OrganizationController {
 
   @UserAuth(CreateStaffRequest, StaffMemberResponse)
   @ApiOperation({
-    summary: 'Create Validador or Caja staff',
+    summary: 'Crear staff — validador o caja',
     description: 'Producer defines email and password. Caja requires at least one assigned event.'
   })
   @HttpCode(201)
+  @ApiTags('Productora — Staff')
   @Post('me/staff')
   async createStaff(
     @User() userId: string,
@@ -198,10 +207,11 @@ export class OrganizationController {
 
   @UserAuth(InviteProducerStaffRequest, StaffMemberResponse)
   @ApiOperation({
-    summary: 'Invite another Productor',
+    summary: 'Invitar productor',
     description: 'Sends email with link to set password and join the organization.'
   })
   @HttpCode(201)
+  @ApiTags('Productora — Staff')
   @Post('me/staff/invite')
   async inviteProducerStaff(
     @User() userId: string,
@@ -212,9 +222,10 @@ export class OrganizationController {
 
   @UserAuth(UpdateStaffRequest, StaffMemberResponse)
   @ApiOperation({
-    summary: 'Update staff member',
+    summary: 'Actualizar staff',
     description: 'Toggle active status and/or update Caja event assignments.'
   })
+  @ApiTags('Productora — Staff')
   @Patch('me/staff/:userUuid')
   async updateStaff(
     @User() userId: string,
@@ -226,11 +237,12 @@ export class OrganizationController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Cancel pending producer invite',
+    summary: 'Cancelar invitación pendiente',
     description:
       'Invalidates the invitation so the email link no longer works. The invite disappears from the staff list.',
   })
   @HttpCode(204)
+  @ApiTags('Productora — Staff')
   @Delete('me/staff/invites/:inviteUuid')
   async cancelProducerInvite(
     @User() userId: string,
@@ -241,10 +253,11 @@ export class OrganizationController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Remove staff member from organization',
+    summary: 'Quitar staff de la productora',
     description: 'Soft-deletes org membership. Does not delete the user account globally.'
   })
   @HttpCode(204)
+  @ApiTags('Productora — Staff')
   @Delete('me/staff/:userUuid')
   async removeStaff(@User() userId: string, @Param('userUuid') targetUserUuid: string): Promise<void> {
     await this.organizationStaffService.removeStaff(userId, targetUserUuid);
@@ -253,12 +266,13 @@ export class OrganizationController {
   @UserAuth(null, FiscalDocumentResponse, 'multipart/form-data')
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload fiscal document (producer)',
+    summary: 'Subir documento fiscal',
     description:
       'Multipart field `file`. documentKind is optional (auto-assigned to fill pack mínimo). Max 10 files, 5MB, PDF/JPG/PNG/WebP. Blocked while pending_review.'
   })
   @UseInterceptors(FileInterceptor('file'))
   @HttpCode(201)
+  @ApiTags('Productora — Organización')
   @Post('me/fiscal-documents')
   async uploadMyFiscalDocument(
     @User() userId: string,
@@ -275,7 +289,8 @@ export class OrganizationController {
   }
 
   @UserAuth(null, FiscalDocumentResponse)
-  @ApiOperation({ summary: 'List my fiscal documents' })
+  @ApiOperation({ summary: 'Listar mis documentos fiscales' })
+  @ApiTags('Productora — Organización')
   @Get('me/fiscal-documents')
   async listMyFiscalDocuments(@User() userId: string): Promise<FiscalDocumentResponse[]> {
     const docs = await this._organizationService.listMyFiscalDocuments(userId);
@@ -283,7 +298,8 @@ export class OrganizationController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Download my fiscal document (authenticated stream)' })
+  @ApiOperation({ summary: 'Descargar mi documento fiscal' })
+  @ApiTags('Productora — Organización')
   @Get('me/fiscal-documents/:documentId/download')
   async downloadMyFiscalDocument(
     @User() userId: string,
@@ -296,8 +312,9 @@ export class OrganizationController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Delete my fiscal document' })
+  @ApiOperation({ summary: 'Eliminar mi documento fiscal' })
   @HttpCode(200)
+  @ApiTags('Productora — Organización')
   @Delete('me/fiscal-documents/:documentId')
   async deleteMyFiscalDocument(
     @User() userId: string,
@@ -308,7 +325,8 @@ export class OrganizationController {
   }
 
   @AdminAuth(null, FiscalDocumentResponse)
-  @ApiOperation({ summary: 'List fiscal documents for an organization (admin)' })
+  @ApiOperation({ summary: 'Listar documentos fiscales de una productora' })
+  @ApiTags('Admin — Organizaciones')
   @Get(':organizationUuid/fiscal-documents')
   async listOrganizationFiscalDocuments(
     @Param('organizationUuid') organizationUuid: string
@@ -318,7 +336,8 @@ export class OrganizationController {
   }
 
   @AdminAuth(null, null)
-  @ApiOperation({ summary: 'Download organization fiscal document (admin)' })
+  @ApiOperation({ summary: 'Descargar documento fiscal de una productora' })
+  @ApiTags('Admin — Organizaciones')
   @Get(':organizationUuid/fiscal-documents/:documentId/download')
   async downloadOrganizationFiscalDocument(
     @Param('organizationUuid') organizationUuid: string,
@@ -334,8 +353,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(null, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Approve organization fiscal validation' })
+  @ApiOperation({ summary: 'Aprobar validación fiscal' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/approve')
   async approveOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -346,8 +366,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Reject organization fiscal validation' })
+  @ApiOperation({ summary: 'Rechazar validación fiscal' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/reject')
   async rejectOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -359,8 +380,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(null, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Approve pending bank account change' })
+  @ApiOperation({ summary: 'Aprobar cambio de cuenta bancaria' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/approve-bank-change')
   async approveBankAccountChange(
     @Param('organizationUuid') organizationUuid: string,
@@ -371,8 +393,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Reject pending bank account change' })
+  @ApiOperation({ summary: 'Rechazar cambio de cuenta bancaria' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/reject-bank-change')
   async rejectBankAccountChange(
     @Param('organizationUuid') organizationUuid: string,
@@ -388,8 +411,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(null, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Approve pending fiscal identity change' })
+  @ApiOperation({ summary: 'Aprobar cambio de identidad fiscal' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/approve-fiscal-change')
   async approveFiscalIdentityChange(
     @Param('organizationUuid') organizationUuid: string,
@@ -403,8 +427,9 @@ export class OrganizationController {
   }
 
   @AdminAuth(RejectOrganizationRequest, OrganizationMeResponse)
-  @ApiOperation({ summary: 'Reject pending fiscal identity change' })
+  @ApiOperation({ summary: 'Rechazar cambio de identidad fiscal' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/reject-fiscal-change')
   async rejectFiscalIdentityChange(
     @Param('organizationUuid') organizationUuid: string,
@@ -421,7 +446,7 @@ export class OrganizationController {
 
   @UserAuth(null, GetAllOrganizationResponse)
   @ApiOperation({
-    summary: 'Get all organizations',
+    summary: 'Listar productoras',
     description:
       'Lists organizations. Admins see all; other users only their memberships. Supports search, pagination and validationStatus filter.'
   })
@@ -429,6 +454,7 @@ export class OrganizationController {
   @ApiSearch()
   @ApiFilter(organizationFilters)
   @ApiOrder(ORGANIZATION_ORDER_COLUMNS)
+  @ApiTags('Admin — Organizaciones')
   @Get()
   async getOrganizations(
     @PaginationParams() pagination: IPaginationParams,
@@ -460,11 +486,12 @@ export class OrganizationController {
 
   @UserAuth(null, OrganizationUsersListResponse)
   @ApiOperation({
-    summary: 'Get organization users',
+    summary: 'Listar usuarios de productoras',
     description: 'Returns all users that belong to the organizations of the authenticated user'
   })
   @ApiPagination()
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Get('users')
   async getOrganizationUsers(
     @User() loggedUser: string,
@@ -482,10 +509,11 @@ export class OrganizationController {
 
   @UserAuth(CreateOrganizationRequest, null)
   @ApiOperation({
-    summary: 'Create organization',
+    summary: 'Crear productora',
     description: 'This endpoint is for create organization'
   })
   @HttpCode(201)
+  @ApiTags('Admin — Organizaciones')
   @Post()
   async createOrganization(@Body() data: CreateOrganizationRequest): Promise<boolean> {
     return await this._organizationService.createOrganization(data);
@@ -493,11 +521,12 @@ export class OrganizationController {
 
   @UserAuth(null, GetIdOrganizationResponse)
   @ApiOperation({
-    summary: 'Get organization by id',
+    summary: 'Obtener productora',
     description: 'This endpoint is for get organization by id'
   })
   @HttpCode(200)
   @ApiSearch()
+  @ApiTags('Admin — Organizaciones')
   @Get(':organizationUuid')
   async getOrganizationById(
     @Param('organizationUuid') organizationUuid: string,
@@ -509,10 +538,11 @@ export class OrganizationController {
 
   @UserAuth(UpdateOrganizationRequest, null)
   @ApiOperation({
-    summary: 'Update organization',
+    summary: 'Actualizar productora',
     description: 'This endpoint is for update user'
   })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Put(':organizationUuid')
   async updateOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -523,10 +553,11 @@ export class OrganizationController {
 
   @UserAuth(AssignUserOrganizationRequest, null)
   @ApiOperation({
-    summary: 'Assign user to organization',
+    summary: 'Asignar usuario a la productora',
     description: 'Creates a new user (same fields as POST /auth/register/client) and assigns them to the organization'
   })
   @HttpCode(201)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/assign-user')
   async assignUserOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -537,7 +568,7 @@ export class OrganizationController {
 
   @AdminAuth(LinkUsersOrganizationRequest, null)
   @ApiOperation({
-    summary: 'Link existing users to organization',
+    summary: 'Vincular usuarios existentes',
     description:
       'Assigns users that ALREADY exist to the organization (unlike POST /assign-user, which creates a new user). ' +
       'Used by the admin backoffice to grant a `Productor` access to an organization. ' +
@@ -548,6 +579,7 @@ export class OrganizationController {
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Post(':organizationUuid/members')
   async linkUsersToOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -558,10 +590,11 @@ export class OrganizationController {
 
   @UserAuth(UnassignUserOrganizationRequest, null)
   @ApiOperation({
-    summary: 'Unassign user to organization',
+    summary: 'Desasignar usuario de la productora',
     description: 'This endpoint is for unassign user to organization'
   })
   @HttpCode(201)
+  @ApiTags('Admin — Organizaciones')
   @Delete(':organizationUuid/unassign-user')
   async unassignUserOrganization(
     @Param('organizationUuid') organizationUuid: string,
@@ -572,10 +605,11 @@ export class OrganizationController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete organization',
+    summary: 'Eliminar productora',
     description: 'This endpoint is for delete organization'
   })
   @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
   @Delete(':organizationUuid')
   async deleteOrganization(@Param('organizationUuid') organizationUuid: string): Promise<boolean> {
     return await this._organizationService.deleteOrganization(organizationUuid);

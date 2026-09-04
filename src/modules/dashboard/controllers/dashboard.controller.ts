@@ -12,14 +12,14 @@ import { DashboardService } from '../services/implementation/dashboard.service';
  * rol activo en DB, arma quick actions tipados y, para Caja, lista eventos de
  * hoy asignados. El de reporting agrega filtros de fecha, gastos y ventas.
  */
-@ApiTags('Backoffice')
+@ApiTags('Admin — Backoffice')
 @Controller('backoffice')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @BackofficeAuth(null, GetBackofficeDashboardResponse)
   @ApiOperation({
-    summary: 'Home unificado de backoffice (por rol activo)',
+    summary: 'Obtener home de backoffice',
     description:
       'KPIs y secciones según el rol activo del usuario (Productor, Administrador o Caja). ' +
       'Complementa `GET /backoffice/dashboard` (reporting con filtros de fecha y gastos). ' +

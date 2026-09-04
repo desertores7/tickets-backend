@@ -13,7 +13,7 @@ import {
   ValidatorEventResponse
 } from './dtos/validator-app.dto';
 
-@ApiTags('Check-In')
+@ApiTags('Acceso — Check-in')
 @Controller('check-in')
 export class CheckInController {
   constructor(@Inject('ICheckInService') private readonly checkInService: ICheckInService) {}
@@ -24,7 +24,7 @@ export class CheckInController {
 
   @ValidatorAuth(ValidateQrRequest, ValidateQrResponse)
   @ApiOperation({
-    summary: 'Validate ticket QR code',
+    summary: 'Validar QR del ticket',
     description:
       'Validates a ticket QR code for event entry. Requires the `Validador` or `Administrador` role.\n\n' +
       'Optimised for low latency (<200 ms). A Redis lock prevents two validators from ' +
@@ -68,7 +68,7 @@ export class CheckInController {
 
   @ValidatorAuth(null, ValidatorEventResponse)
   @ApiOperation({
-    summary: 'My events for the working day',
+    summary: 'Listar mis eventos de la jornada',
     description:
       'Events assigned to the logged-in validator whose check-in window is open or opens today. ' +
       'Overnight is covered: an event that started yesterday 22:00 and ends today 06:00 still ' +
@@ -84,7 +84,7 @@ export class CheckInController {
 
   @ValidatorAuth(FindByDocumentRequest, TicketByDocumentResponse)
   @ApiOperation({
-    summary: 'Find tickets by document',
+    summary: 'Buscar tickets por documento',
     description:
       'Manual check-in path (`BR-QR-002`): for when the QR fails or the buyer phone is dead. ' +
       'The document is normalised to digits, so it can be typed with dots. Capped at 20 rows.'
@@ -106,7 +106,7 @@ export class CheckInController {
 
   @ValidatorAuth(ManualCheckInRequest, ValidateQrResponse)
   @ApiOperation({
-    summary: 'Manual check-in by ticket',
+    summary: 'Registrar ingreso manual',
     description:
       'Confirms entry for a ticket already identified by document (`BR-QR-002`). Shares the exact ' +
       'same path as the QR scan — same window, same Redis lock, same transaction and log — so the ' +
@@ -130,7 +130,7 @@ export class CheckInController {
 
   @ValidatorAuth(null, EventCounterResponse)
   @ApiOperation({
-    summary: 'Live entry counter for the event',
+    summary: 'Obtener contador de ingresos en vivo',
     description:
       'Aggregated across ALL access points, not per scanner (`BR-QR-003`). Served from a Redis ' +
       'counter incremented on every successful check-in: with several validators refreshing at ' +

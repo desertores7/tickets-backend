@@ -27,7 +27,7 @@ import {
   UserNotificationResponse
 } from './responses/user-notification.response';
 
-@ApiTags('Notifications')
+@ApiTags('Notificaciones')
 @Controller('notifications')
 export class UserNotificationController {
   constructor(
@@ -37,7 +37,7 @@ export class UserNotificationController {
 
   @UserAuth(null, ListMyNotificationsResponse)
   @ApiOperation({
-    summary: 'List my notifications',
+    summary: 'Listar mis notificaciones',
     description: 'Paginated in-app notifications for the authenticated user (newest first).'
   })
   @ApiResponse({ status: 200, type: ListMyNotificationsResponse })
@@ -66,7 +66,7 @@ export class UserNotificationController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Mark all my notifications as read',
+    summary: 'Marcar todas como leídas',
     description: 'Sets readAt on every unread notification of the authenticated user.'
   })
   @ApiResponse({ status: 200, description: 'Cantidad de notificaciones marcadas' })
@@ -79,7 +79,7 @@ export class UserNotificationController {
 
   @UserAuth(null, UserNotificationResponse)
   @ApiOperation({
-    summary: 'Mark notification as read',
+    summary: 'Marcar notificación como leída',
     description: 'Sets readAt on a notification owned by the authenticated user.'
   })
   @ApiParam({ name: 'id', description: 'Notification UUID' })

@@ -9,7 +9,7 @@ import { USER_ORDER_COLUMNS, userFilters } from '../../controllers/const/user.fi
 import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { v4 as uuidv4 } from 'uuid';
-import { ILike, DataSource, In, IsNull, QueryRunner, Raw } from 'typeorm';
+import { Like, DataSource, In, IsNull, QueryRunner, Raw } from 'typeorm';
 import { IUserCreate, IUserList, IUserUpdate } from '../core/user';
 import { UserEntity } from '@config/db/entities/user/user.entity';
 import * as bcryptjs from 'bcryptjs';
@@ -61,14 +61,22 @@ export class UserService implements IUserService {
     // Construir condiciones base
     const baseConditions: any[] = search.search
       ? [
-          { firstName: ILike(`%${search.search}%`), isDeleted: IsNull() },
-          { lastName: ILike(`%${search.search}%`), isDeleted: IsNull() },
-          { email: ILike(`%${search.search}%`), isDeleted: IsNull() },
+          { firstName: Like(`%${search.search}%`), isDeleted: IsNull() },
+          { lastName: Like(`%${search.search}%`), isDeleted: IsNull() },
+          { email: Like(`%${search.search}%`), isDeleted: IsNull() },
           {
             isDeleted: IsNull(),
-            firstName: Raw(alias => `LOWER(CONCAT(${alias}, ' ', "lastName")) LIKE LOWER(:search)`, {
-              search: `%${search.search}%`
-            })
+            // Busqueda por nombre completo ("Juan Perez"). `alias` llega como la
+            // referencia escapada de la columna del Raw (p. ej. `User`.`firstName`);
+            // el apellido se referencia sobre la misma tabla derivandolo de ahi.
+            // Antes decia "lastName" entre comillas dobles: eso es un identificador
+            // en Postgres pero un literal string en MySQL, asi que la condicion
+            // comparaba contra 'Juan lastName' y no matcheaba nunca.
+            firstName: Raw(
+              alias =>
+                `LOWER(CONCAT(${alias}, ' ', ${alias.replace('firstName', 'lastName')})) LIKE LOWER(:search)`,
+              { search: `%${search.search}%` }
+            )
           }
         ]
       : [{ isDeleted: IsNull() }];
@@ -157,8 +165,8 @@ export class UserService implements IUserService {
   async getListUsers(search: ISearchParams): Promise<IUserList[]> {
     const where = search.search
       ? [
-          { isDeleted: IsNull(), firstName: ILike(`%${search.search}%`) },
-          { isDeleted: IsNull(), lastName: ILike(`%${search.search}%`) }
+          { isDeleted: IsNull(), firstName: Like(`%${search.search}%`) },
+          { isDeleted: IsNull(), lastName: Like(`%${search.search}%`) }
         ]
       : { isDeleted: IsNull() };
 

@@ -38,7 +38,7 @@ import {
  * Permisos (`BR-CASH-014`): el Productor hace CRUD completo; el rol Caja
  * asignado al evento **solo puede crear y ver**.
  */
-@ApiTags('Producer — Caja')
+@ApiTags('Productora — Caja')
 @Controller({ path: 'events/:eventUuid/incomes', version: '1' })
 export class EventCashController {
   constructor(
@@ -47,7 +47,7 @@ export class EventCashController {
 
   @UserAuth(null, IncomesResponse)
   @ApiOperation({
-    summary: 'List event incomes',
+    summary: 'Listar ingresos',
     description:
       'Producer and the cashiers assigned to this event.\n' +
       '- `search`: coincidencia parcial sobre notas, productos o quién cobró.\n' +
@@ -92,7 +92,7 @@ export class EventCashController {
 
   @UserAuth(null, CashSummaryResponse)
   @ApiOperation({
-    summary: 'Cash summary of the event',
+    summary: 'Obtener resumen de caja',
     description:
       'KPIs of the event cash (`29` §5a / BR-CASH-007). Producer only: the cashier loads and sees ' +
       'incomes, but not the result of the event. MP KPIs come from the movements copied by the ' +
@@ -112,7 +112,7 @@ export class EventCashController {
 
   @UserAuth(CreateIncomeRequest, IncomeResponse)
   @ApiOperation({
-    summary: 'Register an income',
+    summary: 'Registrar ingreso',
     description:
       'Producer and cashier (`BR-CASH-014`). Needs at least one product. Product names and prices ' +
       'are stored as a snapshot: later catalog changes must not alter recorded sales (BR-CASH-002).'
@@ -132,7 +132,7 @@ export class EventCashController {
 
   @UserAuth(UpdateIncomeRequest, IncomeResponse)
   @ApiOperation({
-    summary: 'Update an income',
+    summary: 'Actualizar ingreso',
     description: 'Producer only (`BR-CASH-014`). Sending `products` replaces all lines.'
   })
   @ApiParam({ name: 'eventUuid' })
@@ -152,7 +152,7 @@ export class EventCashController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete an income',
+    summary: 'Eliminar ingreso',
     description:
       'Producer only, and it is a **physical** delete (`BR-CASH-014`): a mis-entered charge at the ' +
       'door is removed, not archived.'

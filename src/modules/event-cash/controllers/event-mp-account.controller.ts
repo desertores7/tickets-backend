@@ -16,7 +16,7 @@ import {
  * manuales. Con una o más, los movimientos de esas cuentas durante la ventana
  * del evento quedan ligados a él.
  */
-@ApiTags('Producer — Caja')
+@ApiTags('Productora — Caja')
 @Controller({ path: 'events/:eventUuid/mp-accounts', version: '1' })
 export class EventMpAccountController {
   constructor(
@@ -25,7 +25,7 @@ export class EventMpAccountController {
 
   @UserAuth(null, EventMpAccountsResponse)
   @ApiOperation({
-    summary: 'MP accounts of the organization, flagged for this event',
+    summary: 'Listar cuentas MP disponibles para el evento',
     description:
       'Returns every connected account of the organization with `assigned` telling whether it is ' +
       'linked to this event. The screen is a selector, so it also needs the available ones.'
@@ -43,7 +43,7 @@ export class EventMpAccountController {
 
   @UserAuth(SetEventMpAccountsRequest, EventMpAccountsResponse)
   @ApiOperation({
-    summary: 'Replace the assigned MP accounts',
+    summary: 'Reemplazar cuentas MP asignadas',
     description:
       'PUT because the selector sends the final set, not a diff. An empty array unassigns them all, ' +
       'which is a valid configuration (BR-CASH-010).'

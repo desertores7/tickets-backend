@@ -13,14 +13,14 @@ import { EventDashboardResponse } from './responses/reporting.response';
  * ingresos operativos es la misma que la del resumen de caja (`BR-CASH-007`):
  * sale de `event-cash`, no se recalcula acá.
  */
-@ApiTags('Producer — Eventos')
+@ApiTags('Productora — Reportes')
 @Controller({ path: 'events/:eventUuid/dashboard', version: '1' })
 export class EventDashboardController {
   constructor(@Inject('IReportingService') private readonly reportingService: IReportingService) {}
 
   @UserAuth(null, EventDashboardResponse)
   @ApiOperation({
-    summary: 'Event dashboard',
+    summary: 'Obtener dashboard del evento',
     description:
       'Aggregated KPIs of one event (`29` §17). Read-only: no expense lines, no per-income ' +
       'products.\n\n' +

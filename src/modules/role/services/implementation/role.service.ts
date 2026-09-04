@@ -5,7 +5,7 @@ import { IPaginationParams } from '@root/shared/decorators/pagination-query.deco
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IRoleService } from '../contracts/irole.service';
-import { ILike, DataSource, IsNull, QueryRunner } from 'typeorm';
+import { Like, DataSource, IsNull, QueryRunner } from 'typeorm';
 import { IRoleCreate, IRoleUpdate } from '../core/role';
 import { RoleEntity } from '@config/db/entities/user/role.entity';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
@@ -27,7 +27,7 @@ export class RoleService implements IRoleService {
     const role = await this.dbRepository.findManyAndCount({
       entity: 'role',
       where: {
-        name: ILike(`%${search.search}%`),
+        name: Like(`%${search.search}%`),
         isDeleted: IsNull()
       },
       other: {

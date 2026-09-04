@@ -5,14 +5,14 @@ import { OptionalUser } from '@root/shared/auth/decorator/optional-user.decorato
 import { ISupportService } from '../services/contracts/isupport.service';
 import { SupportContactRequest } from './requests/support-contact.request';
 
-@ApiTags('Support')
+@ApiTags('Soporte')
 @Controller('support')
 export class SupportController {
   constructor(@Inject('ISupportService') private readonly supportService: ISupportService) {}
 
   @OptionalUserAuth(SupportContactRequest, null)
   @ApiOperation({
-    summary: 'Contact support',
+    summary: 'Contactar a soporte',
     description:
       'Sends a support contact form by email (SMTP). Public; if the user is logged in, the message is linked to their account. If SMTP is not configured, logs the message and still returns 200.'
   })
