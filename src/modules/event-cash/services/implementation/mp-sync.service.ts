@@ -54,8 +54,8 @@ export type SyncRunResult = {
  * durante la ventana del evento (`BR-CASH-003`, `BR-CASH-004`, FP11 §5b).
  *
  * Reglas que condicionan el diseño:
- * - **Solo cuentas asignadas al evento** (`BR-CASH-010`). Sin asignación no se
- *   lee nada: los movimientos de la productora no son de ningún evento.
+ * - **Todas las cuentas de la productora** (`BR-CASH-010`): lo que liga un pago
+ *   a un evento es la ventana horaria, no una asignación previa.
  * - **Idempotencia por id de MP**: el job corre cada ~5 min sobre ventanas que
  *   se solapan, así que la garantía es el índice único
  *   `(orgMpAccountUuid, mpPaymentId)`, no el código.
@@ -76,6 +76,15 @@ export class MpSyncService {
   /**
    * Pares (evento, cuenta) que están dentro de la ventana en este momento.
    *
+   * Las cuentas son **todas las de la productora dueña del evento**, no un
+   * subconjunto asignado: una cuenta de Mercado Pago pertenece a la productora
+   * y lo que la liga a un evento es la ventana horaria, nada más.
+   *
+   * Eso implica que dos eventos de la misma productora que se solapen en
+   * horario van a ver los mismos pagos. Es una limitación aceptada para esta
+   * etapa; separarlos requeriría que MP dijera a qué evento pertenece el cobro,
+   * cosa que no informa.
+   *
    * El filtro se hace en SQL con `NOW()` de MySQL: las fechas del evento se
    * guardan en hora local del servidor, y compararlas en JS obligaría a
    * reconstruir la zona horaria a mano.
@@ -87,11 +96,9 @@ export class MpSyncService {
       .addSelect('e.startDate', 'startDate')
       .addSelect('e.endDate', 'endDate')
       .addSelect('a.uuid', 'accountUuid')
-      .from('event_mp_account', 'ema')
-      .innerJoin('event', 'e', 'e.uuid = ema.eventUuid')
-      .innerJoin('org_mp_account', 'a', 'a.uuid = ema.orgMpAccountUuid')
-      .where('ema.isDeleted IS NULL')
-      .andWhere('a.isDeleted IS NULL')
+      .from('event', 'e')
+      .innerJoin('org_mp_account', 'a', 'a.organizationUuid = e.organizationUuid')
+      .where('a.isDeleted IS NULL')
       .andWhere("a.status = 'connected'")
       .andWhere('e.isActive = 1')
       .andWhere('NOW() >= DATE_SUB(e.startDate, INTERVAL 1 HOUR)')
