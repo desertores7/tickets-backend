@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -7,9 +8,11 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import {
@@ -22,12 +25,12 @@ import {
   NOTIFICATION_STATUS,
   TNotificationStatus
 } from '../services/contracts/iuser-notification.service';
+import { CreateNotificationRequest } from './dtos/create-notification/create-notification.request';
 import {
   ListMyNotificationsResponse,
   UserNotificationResponse
 } from './responses/user-notification.response';
 
-@ApiTags('Notificaciones')
 @Controller('notifications')
 export class UserNotificationController {
   constructor(
@@ -35,6 +38,7 @@ export class UserNotificationController {
     private readonly userNotificationService: IUserNotificationService
   ) {}
 
+  @ApiTags('Notificaciones')
   @UserAuth(null, ListMyNotificationsResponse)
   @ApiOperation({
     summary: 'Listar mis notificaciones',
@@ -64,6 +68,7 @@ export class UserNotificationController {
     return new ListMyNotificationsResponse(page);
   }
 
+  @ApiTags('Notificaciones')
   @UserAuth(null, null)
   @ApiOperation({
     summary: 'Marcar todas como leídas',
@@ -77,6 +82,7 @@ export class UserNotificationController {
     return { updated };
   }
 
+  @ApiTags('Notificaciones')
   @UserAuth(null, UserNotificationResponse)
   @ApiOperation({
     summary: 'Marcar notificación como leída',
@@ -91,6 +97,21 @@ export class UserNotificationController {
     @Param('id', ParseUUIDPipe) id: string
   ): Promise<UserNotificationResponse> {
     const item = await this.userNotificationService.markRead(userId, id);
+    return new UserNotificationResponse(item);
+  }
+
+  @ApiTags('Admin — Notificaciones')
+  @AdminAuth(CreateNotificationRequest, UserNotificationResponse)
+  @ApiOperation({
+    summary: 'Crear notificación',
+    description:
+      'Crea una notificación in-app para el usuario indicado. Útil para probar sonido, badge y globo del SO en el front (poll ~30s). Solo Administrador.'
+  })
+  @ApiResponse({ status: 201, type: UserNotificationResponse })
+  @HttpCode(201)
+  @Post()
+  async create(@Body() body: CreateNotificationRequest): Promise<UserNotificationResponse> {
+    const item = await this.userNotificationService.create(body.userUuid, body.title, body.body);
     return new UserNotificationResponse(item);
   }
 }

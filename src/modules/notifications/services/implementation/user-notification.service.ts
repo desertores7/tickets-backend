@@ -104,6 +104,14 @@ export class UserNotificationService implements IUserNotificationService {
   }
 
   async create(userUuid: string, title: string, body: string): Promise<TUserNotificationItem> {
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() }
+    });
+    if (!user) {
+      throw new NotFoundException(`Usuario ${userUuid} no encontrado`);
+    }
+
     const entity = new UserNotificationEntity();
     entity.uuid = uuidv4();
     entity.userUuid = userUuid;

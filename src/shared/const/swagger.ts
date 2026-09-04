@@ -245,6 +245,7 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Admin — Archivos de usuario', 'Archivos e imágenes de perfil de usuario')
     .addTag('Admin — Liquidaciones', 'Registro de liquidaciones y carga de comprobantes')
     .addTag('Admin — Tickets', 'Regeneración de QR y administración de tickets')
+    .addTag('Admin — Notificaciones', 'Envío de notificaciones in-app (pruebas / admin)')
     .addTag('Admin — Backoffice', 'Home y dashboard consolidado por rol')
     .addTag('Admin — Parámetros', 'Parámetros de configuración y tokens internos')
     .addBearerAuth(
