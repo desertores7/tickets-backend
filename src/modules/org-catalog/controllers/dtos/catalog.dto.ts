@@ -13,7 +13,12 @@ import {
   MANUAL_ITEM_CATEGORIES,
   ManualItemCategory
 } from '@config/db/entities/tickets/org_manual_item.entity';
-import { IManualItem, IMpCatalogItem } from '../../services/contracts/iorg-catalog.service';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import {
+  IManualItem,
+  IManualItemCategoryTotal,
+  IMpCatalogItem
+} from '../../services/contracts/iorg-catalog.service';
 
 /**
  * Sin constructor a proposito: `ValidationPipe` instancia los DTO de request
@@ -30,7 +35,8 @@ export class CreateManualItemRequest {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @ApiPropertyOptional({
-    description: 'Precio sugerido. Se puede pisar al registrar el ingreso y cambiarlo no altera ventas ya hechas.',
+    description:
+      'Precio sugerido. Se puede pisar al registrar el ingreso y cambiarlo no altera ventas ya hechas.',
     example: 4500
   })
   referencePrice?: number;
@@ -110,16 +116,81 @@ export class MpCatalogItemResponse {
   }
 }
 
+export class ManualItemCategoryTotalResponse {
+  @ApiProperty({
+    enum: [...MANUAL_ITEM_CATEGORIES, 'sin_categoria']
+  })
+  category: ManualItemCategory | 'sin_categoria';
+
+  @ApiProperty() count: number;
+
+  constructor(data: IManualItemCategoryTotal) {
+    this.category = data.category;
+    this.count = data.count;
+  }
+}
+
 export class ManualItemsResponse {
   @ApiProperty({ type: [ManualItemResponse] }) items: ManualItemResponse[];
-  constructor(items: ManualItemResponse[]) {
+
+  @ApiProperty({ type: PaginationMetaResponse })
+  meta: PaginationMetaResponse;
+
+  @ApiProperty({
+    description: 'Cantidad total de ítems de la org (ignora filtros y paginación)'
+  })
+  totalItems: number;
+
+  @ApiProperty() activeCount: number;
+  @ApiProperty() inactiveCount: number;
+
+  @ApiProperty({ type: [ManualItemCategoryTotalResponse] })
+  byCategory: ManualItemCategoryTotalResponse[];
+
+  constructor(
+    items: ManualItemResponse[],
+    opts: {
+      meta: PaginationMetaResponse;
+      totalItems: number;
+      activeCount: number;
+      inactiveCount: number;
+      byCategory: ManualItemCategoryTotalResponse[];
+    }
+  ) {
     this.items = items;
+    this.meta = opts.meta;
+    this.totalItems = opts.totalItems;
+    this.activeCount = opts.activeCount;
+    this.inactiveCount = opts.inactiveCount;
+    this.byCategory = opts.byCategory;
   }
 }
 
 export class MpCatalogResponse {
   @ApiProperty({ type: [MpCatalogItemResponse] }) items: MpCatalogItemResponse[];
-  constructor(items: MpCatalogItemResponse[]) {
+
+  @ApiProperty({ type: PaginationMetaResponse })
+  meta: PaginationMetaResponse;
+
+  @ApiProperty({
+    description: 'Cantidad total de productos MP de la org (ignora filtros y paginación)'
+  })
+  totalItems: number;
+
+  @ApiProperty({ nullable: true, description: 'ISO-8601' })
+  lastSyncAt: string | null;
+
+  constructor(
+    items: MpCatalogItemResponse[],
+    opts: {
+      meta: PaginationMetaResponse;
+      totalItems: number;
+      lastSyncAt: Date | null;
+    }
+  ) {
     this.items = items;
+    this.meta = opts.meta;
+    this.totalItems = opts.totalItems;
+    this.lastSyncAt = opts.lastSyncAt ? opts.lastSyncAt.toISOString() : null;
   }
 }

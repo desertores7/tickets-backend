@@ -13,9 +13,35 @@ import {
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
+import {
+  ApiFilter,
+  FilterParams,
+  IFiltersParams
+} from '@root/shared/decorators/filter-query.decorator';
+import {
+  ApiOrder,
+  IOrderParams,
+  OrderParams
+} from '@root/shared/decorators/order-query.decorator';
+import {
+  ApiPagination,
+  IPaginationParams,
+  PaginationParams
+} from '@root/shared/decorators/pagination-query.decorator';
+import {
+  ApiSearch,
+  ISearchParams,
+  SearchParams
+} from '@root/shared/decorators/search-query.decorator';
 import { IOrgCatalogService } from '../services/contracts/iorg-catalog.service';
 import {
+  MANUAL_ITEM_ORDER_COLUMNS,
+  manualItemFilters
+} from './const/manual-item.filters';
+import { MP_CATALOG_ORDER_COLUMNS, mpCatalogFilters } from './const/mp-catalog.filters';
+import {
   CreateManualItemRequest,
+  ManualItemCategoryTotalResponse,
   ManualItemResponse,
   ManualItemsResponse,
   MpCatalogItemResponse,
@@ -39,33 +65,82 @@ export class OrgCatalogController {
     summary: 'Listar catálogo de Mercado Pago',
     description:
       'Products copied from the connected Mercado Pago accounts. Read-only: it is refreshed with ' +
-      'the "Actualizar catálogo" action, never automatically (`BR-CASH-002`).'
+      'the "Actualizar catálogo" action, never automatically (`BR-CASH-002`).\n\n' +
+      'Filtros: `accountUuid`, `search` (nombre), `order_by` (name|price|lastSyncAt).'
   })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(mpCatalogFilters)
+  @ApiOrder(MP_CATALOG_ORDER_COLUMNS)
   @HttpCode(200)
   @Get('mp-catalog')
-  async listMpCatalog(@User() loggedUser: string): Promise<MpCatalogResponse> {
-    const items = await this.catalogService.listMpCatalog(loggedUser);
-    return new MpCatalogResponse(items.map(i => new MpCatalogItemResponse(i)));
+  async listMpCatalog(
+    @User() loggedUser: string,
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(mpCatalogFilters) filters: IFiltersParams<typeof mpCatalogFilters>,
+    @OrderParams() order: IOrderParams<typeof MP_CATALOG_ORDER_COLUMNS>
+  ): Promise<MpCatalogResponse> {
+    const result = await this.catalogService.listMpCatalog(loggedUser, {
+      pagination,
+      search,
+      filters,
+      order
+    });
+    return new MpCatalogResponse(
+      result.items.map(i => new MpCatalogItemResponse(i)),
+      {
+        meta: result.meta,
+        totalItems: result.totalItems,
+        lastSyncAt: result.lastSyncAt
+      }
+    );
   }
 
   @UserAuth(null, ManualItemsResponse)
   @ApiOperation({
     summary: 'Listar ítems manuales',
-    description: 'Organization-wide: every event of the producer sees the same items.'
+    description:
+      'Organization-wide: every event of the producer sees the same items.\n\n' +
+      'Filtros: `category`, `active` (true|false), `search` (nombre), `order_by` ' +
+      '(name|createdAt|referencePrice). Compat: `onlyActive=true` ≡ `active=true`.'
   })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(manualItemFilters)
+  @ApiOrder(MANUAL_ITEM_ORDER_COLUMNS)
   @ApiQuery({
     name: 'onlyActive',
     required: false,
-    description: 'true to exclude items marked as inactive.'
+    description: 'Compat legacy: true to exclude inactive items (same as active=true).'
   })
   @HttpCode(200)
   @Get('manual-items')
   async listManualItems(
     @User() loggedUser: string,
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(manualItemFilters) filters: IFiltersParams<typeof manualItemFilters>,
+    @OrderParams() order: IOrderParams<typeof MANUAL_ITEM_ORDER_COLUMNS>,
     @Query('onlyActive') onlyActive?: string
   ): Promise<ManualItemsResponse> {
-    const items = await this.catalogService.listManualItems(loggedUser, onlyActive === 'true');
-    return new ManualItemsResponse(items.map(i => new ManualItemResponse(i)));
+    const result = await this.catalogService.listManualItems(loggedUser, {
+      pagination,
+      search,
+      filters,
+      order,
+      onlyActive: onlyActive === 'true'
+    });
+    return new ManualItemsResponse(
+      result.items.map(i => new ManualItemResponse(i)),
+      {
+        meta: result.meta,
+        totalItems: result.totalItems,
+        activeCount: result.activeCount,
+        inactiveCount: result.inactiveCount,
+        byCategory: result.byCategory.map(c => new ManualItemCategoryTotalResponse(c))
+      }
+    );
   }
 
   @UserAuth(CreateManualItemRequest, ManualItemResponse)
