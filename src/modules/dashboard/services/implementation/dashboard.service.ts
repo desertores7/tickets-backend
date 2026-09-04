@@ -130,7 +130,6 @@ export class DashboardService {
       quickActions: [
         new BackofficeQuickActionResponse({ label: 'Crear evento', href: '/producer/events/new' }),
         new BackofficeQuickActionResponse({ label: 'Ver eventos', href: '/producer/events' }),
-        new BackofficeQuickActionResponse({ label: 'Ventas', href: '/producer/sales' }),
         new BackofficeQuickActionResponse({ label: 'Productora', href: '/producer/organization' })
       ]
     });

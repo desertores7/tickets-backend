@@ -2,7 +2,25 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post } f
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
+import {
+  ApiFilter,
+  FilterParams,
+  IFiltersParams
+} from '@root/shared/decorators/filter-query.decorator';
+import {
+  ApiOrder,
+  IOrderParams,
+  OrderParams
+} from '@root/shared/decorators/order-query.decorator';
+import {
+  ApiPagination,
+  IPaginationParams,
+  PaginationParams
+} from '@root/shared/decorators/pagination-query.decorator';
+import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IEventCashService } from '../services/contracts/ievent-cash.service';
+import { incomeFilters, INCOME_ORDER_COLUMNS } from './const/income.filters';
 import {
   CashSummaryResponse,
   CreateIncomeRequest,
@@ -30,17 +48,46 @@ export class EventCashController {
   @UserAuth(null, IncomesResponse)
   @ApiOperation({
     summary: 'List event incomes',
-    description: 'Producer and the cashiers assigned to this event.'
+    description:
+      'Producer and the cashiers assigned to this event.\n' +
+      '- `search`: coincidencia parcial sobre notas, productos o quién cobró.\n' +
+      '- `method`: cash | mercadopago | other.\n' +
+      '- `order_by`: occurredAt:desc|asc, total:desc|asc.'
   })
   @ApiParam({ name: 'eventUuid' })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(incomeFilters)
+  @ApiOrder(INCOME_ORDER_COLUMNS)
   @HttpCode(200)
   @Get()
   async list(
     @Param('eventUuid') eventUuid: string,
-    @User() loggedUser: string
+    @User() loggedUser: string,
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(incomeFilters) filters: IFiltersParams<typeof incomeFilters>,
+    @OrderParams() order: IOrderParams<typeof INCOME_ORDER_COLUMNS>
   ): Promise<IncomesResponse> {
-    const incomes = await this.eventCashService.listIncomes(eventUuid, loggedUser);
-    return new IncomesResponse(incomes.map(i => new IncomeResponse(i)));
+    const result = await this.eventCashService.listIncomes(eventUuid, loggedUser, {
+      page: pagination.page,
+      limit: pagination.limit,
+      search: search?.search,
+      method: filters?.method?.[0] as 'cash' | 'mercadopago' | 'other' | undefined,
+      orderBy:
+        order?.order_by === 'total' || order?.order_by === 'occurredAt'
+          ? order.order_by
+          : 'occurredAt',
+      orderDir: order?.order_direction === 'asc' ? 'ASC' : 'DESC'
+    });
+
+    return new IncomesResponse(
+      result.items.map(i => new IncomeResponse(i)),
+      {
+        meta: new PaginationMetaResponse(result.meta),
+        total: result.total
+      }
+    );
   }
 
   @UserAuth(null, CashSummaryResponse)

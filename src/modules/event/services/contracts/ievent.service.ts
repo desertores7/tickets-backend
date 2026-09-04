@@ -9,6 +9,7 @@ import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_se
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { EVENT_ORDER_COLUMNS, eventFilters } from '../../controllers/const/event.filters';
+import { EXPENSE_ORDER_COLUMNS, expenseFilters } from '../../controllers/const/expense.filters';
 import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
 import type { TEventChangeItem, TEventChangesResult } from '../implementation/event-change.service';
@@ -109,7 +110,6 @@ export type TEventExpense = {
   eventUuid: string;
   category: ExpenseCategory;
   concept: string;
-  supplier: string;
   quantity: number | string;
   unitCost: number | string;
   totalAmount: number | string;
@@ -121,7 +121,6 @@ export type TEventExpense = {
 export interface IExpenseCreate {
   category: ExpenseCategory;
   concept: string;
-  supplier: string;
   quantity: number;
   unitCost: number;
   /** YYYY-MM-DD, sin hora */
@@ -132,7 +131,6 @@ export interface IExpenseCreate {
 export interface IExpenseUpdate {
   category?: ExpenseCategory;
   concept?: string;
-  supplier?: string;
   quantity?: number;
   unitCost?: number;
   expenseDate?: string;
@@ -267,8 +265,18 @@ export interface IEventService {
   getExpenses(
     eventUuid: string,
     loggedUser: string,
-    filters?: { category?: string; supplier?: string }
-  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }>;
+    opts?: {
+      pagination?: IPaginationParams;
+      search?: ISearchParams;
+      filters?: IFiltersParams<typeof expenseFilters>;
+      order?: IOrderParams<typeof EXPENSE_ORDER_COLUMNS>;
+    }
+  ): Promise<{
+    items: TEventExpense[];
+    byCategory: { category: string; total: number }[];
+    meta: PaginationMetaResponse;
+    total: number;
+  }>;
 
   createExpense(eventUuid: string, data: IExpenseCreate, loggedUser: string): Promise<TEventExpense>;
 

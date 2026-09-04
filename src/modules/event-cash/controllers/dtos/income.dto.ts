@@ -18,6 +18,7 @@ import {
   INCOME_PRODUCT_TYPES,
   IncomeProductType
 } from '@config/db/entities/tickets/event_income_product.entity';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import {
   ICashSummary,
   IEventMpAccount,
@@ -134,12 +135,16 @@ export class IncomeProductResponse {
 
 export class IncomeResponse {
   @ApiProperty() uuid: string;
-  @ApiProperty({ example: 'manual' }) source: string;
+  @ApiProperty({ example: 'manual', description: 'manual | mp_auto' })
+  source: string;
   @ApiProperty({ enum: INCOME_METHODS }) method: IncomeMethod;
   @ApiProperty({ description: 'ISO-8601' }) occurredAt: string;
   @ApiProperty({ nullable: true }) notes: string | null;
   @ApiProperty({ description: 'Suma de los productos' }) total: number;
-  @ApiProperty({ nullable: true, description: 'Quién lo cobró (BR-CASH-013)' })
+  @ApiProperty({
+    nullable: true,
+    description: 'Quién registró el cobro (Productor o Caja). Null si aún no hay usuario asociado.'
+  })
   createdByName: string | null;
   @ApiProperty({ type: [IncomeProductResponse] }) products: IncomeProductResponse[];
   @ApiProperty({ description: 'ISO-8601' }) createdAt: string;
@@ -159,11 +164,20 @@ export class IncomeResponse {
 
 export class IncomesResponse {
   @ApiProperty({ type: [IncomeResponse] }) items: IncomeResponse[];
-  @ApiProperty({ description: 'Suma de los ingresos listados' }) total: number;
+  @ApiProperty({ description: 'Suma de todos los ingresos del evento (sin filtros de listado)' })
+  total: number;
+  @ApiProperty({ type: PaginationMetaResponse, required: false })
+  meta?: PaginationMetaResponse;
 
-  constructor(items: IncomeResponse[]) {
+  constructor(
+    items: IncomeResponse[],
+    opts?: { meta?: PaginationMetaResponse; total?: number }
+  ) {
     this.items = items;
-    this.total = Math.round(items.reduce((s, i) => s + i.total, 0) * 100) / 100;
+    this.meta = opts?.meta;
+    this.total =
+      opts?.total ??
+      Math.round(items.reduce((s, i) => s + i.total, 0) * 100) / 100;
   }
 }
 

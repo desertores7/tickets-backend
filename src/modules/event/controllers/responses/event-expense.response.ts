@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EXPENSE_CATEGORIES, ExpenseCategory } from '../const/expense-category.const';
 
 export class EventExpenseResponse {
@@ -6,7 +7,6 @@ export class EventExpenseResponse {
   @ApiProperty() eventUuid: string;
   @ApiProperty({ enum: EXPENSE_CATEGORIES }) category: ExpenseCategory;
   @ApiProperty() concept: string;
-  @ApiProperty() supplier: string;
   @ApiProperty() quantity: number;
   @ApiProperty() unitCost: number;
   @ApiProperty({ description: 'cantidad × costo unitario' }) totalAmount: number;
@@ -19,7 +19,6 @@ export class EventExpenseResponse {
     eventUuid: string;
     category: ExpenseCategory;
     concept: string;
-    supplier: string;
     quantity: number | string;
     unitCost: number | string;
     totalAmount: number | string;
@@ -31,7 +30,6 @@ export class EventExpenseResponse {
     this.eventUuid = data.eventUuid;
     this.category = data.category;
     this.concept = data.concept;
-    this.supplier = data.supplier;
     // MySQL devuelve los decimal como string; se normalizan para que el
     // frontend no tenga que hacer Number() en cada campo.
     this.quantity = Number(data.quantity);
@@ -58,7 +56,9 @@ export class ExpenseCategoryTotalResponse {
 export class EventExpensesResponse {
   @ApiProperty({ type: [EventExpenseResponse] }) items: EventExpenseResponse[];
 
-  @ApiProperty({ description: 'Suma de todas las líneas vigentes' })
+  @ApiProperty({
+    description: 'Suma de todas las líneas vigentes del evento (ignora filtros y paginación)'
+  })
   total: number;
 
   @ApiProperty({
@@ -67,9 +67,18 @@ export class EventExpensesResponse {
   })
   byCategory: ExpenseCategoryTotalResponse[];
 
-  constructor(items: EventExpenseResponse[], byCategory: ExpenseCategoryTotalResponse[]) {
+  @ApiProperty({ type: PaginationMetaResponse, required: false })
+  meta?: PaginationMetaResponse;
+
+  constructor(
+    items: EventExpenseResponse[],
+    byCategory: ExpenseCategoryTotalResponse[],
+    opts?: { meta?: PaginationMetaResponse; total?: number }
+  ) {
     this.items = items;
-    this.total = Math.round(items.reduce((sum, i) => sum + i.totalAmount, 0) * 100) / 100;
+    this.total =
+      opts?.total ?? Math.round(items.reduce((sum, i) => sum + i.totalAmount, 0) * 100) / 100;
     this.byCategory = byCategory;
+    this.meta = opts?.meta;
   }
 }

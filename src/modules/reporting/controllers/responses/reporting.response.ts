@@ -185,13 +185,12 @@ export class DashboardQuickActionResponse {
 const QUICK_ACTIONS: Record<BackofficeDashboardRole, [string, string][]> = {
   producer: [
     ['Crear evento', '/producer/events/new'],
-    ['Ver ventas', '/producer/sales'],
     ['Mis eventos', '/producer/events']
   ],
   admin: [
     ['Revisar productoras', '/admin/review'],
-    ['Ver ventas', '/producer/sales'],
-    ['Eventos', '/producer/events']
+    ['Ver ventas', '/admin/sales'],
+    ['Eventos', '/admin/events']
   ],
   cashier: [['Escanear entradas', '/validador']]
 };
