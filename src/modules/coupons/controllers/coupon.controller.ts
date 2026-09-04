@@ -273,6 +273,20 @@ export class CouponController {
     );
   }
 
+  @UserAuth(null, CouponResponse)
+  @ApiOperation({ summary: 'Obtener cupón' })
+  @ApiParam({ name: 'eventUuid' })
+  @ApiParam({ name: 'couponUuid' })
+  @HttpCode(200)
+  @Get(':couponUuid')
+  async getOne(
+    @Param('eventUuid') eventUuid: string,
+    @Param('couponUuid') couponUuid: string,
+    @User() loggedUser: string
+  ): Promise<CouponResponse> {
+    return new CouponResponse(await this.couponService.getByUuid(eventUuid, couponUuid, loggedUser));
+  }
+
   @UserAuth(CreateCouponRequest, CouponResponse)
   @ApiOperation({
     summary: 'Crear cupón',
