@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { Between, ILike, In, IsNull, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
+import { Between, ILike, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -1544,6 +1544,9 @@ export class EventService implements IEventService {
       c['cancelledAt'] = Not(IsNull());
     } else if (status === 'sales_closed') {
       c['salesClosedAt'] = Not(IsNull());
+    } else if (status === 'finished') {
+      c['endDate'] = LessThan(new Date());
+      c['cancelledAt'] = IsNull();
     }
 
     // El rango es sobre startDate e inclusive: 'hasta' toma el dia completo.

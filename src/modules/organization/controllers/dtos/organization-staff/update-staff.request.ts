@@ -1,5 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsOptional, IsUUID, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+  ValidateNested
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateStaffEventAssignmentRequest {
@@ -13,6 +22,29 @@ export class UpdateStaffEventAssignmentRequest {
 }
 
 export class UpdateStaffRequest {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional({ description: 'Si se envía, reemplaza la contraseña actual.' })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  firstName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  lastName?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
