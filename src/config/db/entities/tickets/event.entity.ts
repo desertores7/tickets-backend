@@ -71,6 +71,24 @@ export class EventEntity {
   @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
   salesClosedAt: Date | null;
 
+  /**
+   * Extensión excepcional de la ventana de reembolso (`BR-REFUND-010`), que
+   * solo puede poner un Administrador.
+   *
+   * La ventana por defecto es el **inicio del evento**; este campo la corre
+   * más allá cuando la reprogramación o la cancelación llegan tan sobre la
+   * hora que el inicio no deja plazo útil. Null = rige el default.
+   *
+   * No se guarda la ventana vigente calculada: sale de `startDate` y de este
+   * campo, así que reprogramar a una fecha posterior la corre sola.
+   */
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  refundWindowExtendedTo: Date | null;
+
+  /** Por qué se extendió. Obligatorio al extender: es plata de terceros. */
+  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
+  refundWindowReason: string | null;
+
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 

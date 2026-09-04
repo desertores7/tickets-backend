@@ -173,6 +173,29 @@ export interface IEventService {
    */
   setSalesClosed(eventUuid: string, closed: boolean, loggedUser: string): Promise<Date | null>;
 
+  /**
+   * Plazo vigente para pedir reembolso (`BR-REFUND-010`). `endsAt` en null
+   * significa que el evento no tuvo ningún cambio material comunicado, que es
+   * lo único que habilita el reembolso.
+   */
+  getRefundWindow(eventUuid: string): Promise<{
+    endsAt: Date | null;
+    isOpen: boolean;
+    extendedTo: Date | null;
+    reason: string | null;
+  }>;
+
+  /**
+   * Extiende ese plazo. **Solo Administrador y solo hacia adelante**: acortarlo
+   * sería quitarle al comprador un derecho ya comunicado.
+   */
+  extendRefundWindow(
+    eventUuid: string,
+    extendedTo: Date,
+    reason: string,
+    loggedUser: string
+  ): Promise<TEventChangeItem>;
+
   deleteEvent(uuid: string, loggedUser: string): Promise<boolean>;
 
   publishEvent(uuid: string, loggedUser: string): Promise<boolean>;

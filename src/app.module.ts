@@ -13,6 +13,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { CheckInModule } from './modules/check-in/checkin.module';
 import { EventCashSyncModule } from './modules/event-cash/event-cash-sync.module';
+import { RefundsModule } from './modules/refunds/refunds.module';
 import { EventLifecycleModule } from './modules/event/event-lifecycle.module';
 import { QrGenerationModule } from './modules/qr-generation/qr-generation.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -68,6 +69,7 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     PaymentsModule,
     CheckInModule,
     EventCashSyncModule,
+    RefundsModule,
     EventLifecycleModule
   ],
   controllers: [AppController],

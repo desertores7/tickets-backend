@@ -1,8 +1,37 @@
 import type { EventChangeFieldSnapshot } from '@config/db/entities/tickets/event_change.entity';
 import type { EventChangeType } from '@config/db/entities/tickets/event_change.entity';
 
-/** 72 h corridas desde el aviso (BR-REFUND-010). */
-export const REFUND_WINDOW_MS = 72 * 60 * 60 * 1000;
+/**
+ * Ventana de reembolso vigente de un evento (`BR-REFUND-010`).
+ *
+ * El límite por defecto es el **inicio del evento**: una fecha que el comprador
+ * ya conoce y que no hay que explicarle. Si un Administrador extendió la
+ * ventana, gana la extensión — solo puede correrla hacia adelante.
+ *
+ * Se calcula al vuelo en vez de guardarse, para que una reprogramación a una
+ * fecha posterior corra la ventana sin tener que reescribir nada.
+ */
+export function resolveRefundWindowEndsAt(
+  startDate: Date | string,
+  extendedTo?: Date | string | null
+): Date {
+  const start = startDate instanceof Date ? startDate : new Date(startDate);
+  if (!extendedTo) return start;
+
+  const extended = extendedTo instanceof Date ? extendedTo : new Date(extendedTo);
+  if (Number.isNaN(extended.getTime())) return start;
+
+  return extended > start ? extended : start;
+}
+
+/** Si todavía se puede pedir el reembolso. */
+export function isRefundWindowOpen(
+  startDate: Date | string,
+  extendedTo?: Date | string | null,
+  now: Date = new Date()
+): boolean {
+  return resolveRefundWindowEndsAt(startDate, extendedTo) > now;
+}
 
 export type EventSnapshotForChange = {
   startDate: Date | string;
@@ -62,21 +91,6 @@ export function lineupEquals(a: string[] | null | undefined, b: string[] | null 
   const right = normalizeLineup(b);
   if (left.length !== right.length) return false;
   return left.every((item, i) => item === right[i]);
-}
-
-/**
- * Ventana de reembolso: 72 h desde el aviso, o el nuevo inicio si cae antes
- * (reprogramación). En cancelación sin nueva fecha rigen las 72 h.
- */
-export function computeRefundWindowEndsAt(
-  notifiedAt: Date,
-  newStartDate?: Date | null
-): Date {
-  const seventyTwoHours = new Date(notifiedAt.getTime() + REFUND_WINDOW_MS);
-  if (newStartDate && !Number.isNaN(newStartDate.getTime()) && newStartDate < seventyTwoHours) {
-    return newStartDate;
-  }
-  return seventyTwoHours;
 }
 
 /** Fin de la ventana abierta más lejana, o null. */

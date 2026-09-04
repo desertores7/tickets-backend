@@ -14,6 +14,7 @@ import { UserPermissionService } from '@root/shared/services/userPermissions.ser
 import { SystemParameterService } from './system-parameter/services/implementation/system-parameter.service';
 import { EventService } from './event/services/implementation/event.service';
 import { EventChangeService } from './event/services/implementation/event-change.service';
+import { RefundService } from './refunds/services/implementation/refund.service';
 import { EventAiService } from './event/services/implementation/event-ai.service';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
@@ -63,6 +64,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     EventChangeService,
+    { provide: 'IRefundService', useClass: RefundService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },
@@ -100,6 +102,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'ISystemParameterService', useClass: SystemParameterService },
     { provide: 'IEventService', useClass: EventService },
     EventChangeService,
+    { provide: 'IRefundService', useClass: RefundService },
     { provide: 'IReportingService', useClass: ReportingService },
     { provide: 'IOrgMpService', useClass: OrgMpService },
     { provide: 'IOrgCatalogService', useClass: OrgCatalogService },

@@ -42,6 +42,7 @@ import { CreateEventRequest } from './requests/create-event.request';
 import { UpdateEventRequest } from './requests/update-event.request';
 import { CancelEventRequest } from './requests/cancel-event.request';
 import { SetSalesClosedRequest } from './requests/event-operation.request';
+import { ExtendRefundWindowRequest } from './requests/extend-refund-window.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
 import {
@@ -62,7 +63,8 @@ import { GetIdEventResponse } from './responses/get-id-event.response';
 import {
   EventChangeResponse,
   EventChangesResponse,
-  EventSalesStateResponse
+  EventSalesStateResponse,
+  RefundWindowResponse
 } from './responses/event-change.response';
 import { TicketTypeResponse } from './responses/ticket-type.response';
 import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.response';
@@ -366,7 +368,8 @@ export class EventController {
     summary: 'Cancelar evento',
     description:
       'Cancela el evento (BR-EVENT-010): marca cancelledAt, corta la venta, persiste event_change. ' +
-      'Con ventas → email + ventana 72 h. No borra ni despublica. Idempotente → 409 si ya cancelado.'
+      'Con ventas → email + ventana de reembolso hasta el inicio del evento (BR-REFUND-010). ' +
+      'No borra ni despublica. Idempotente → 409 si ya cancelado.'
   })
   @ApiResponse({ status: 200, type: EventChangeResponse })
   @ApiResponse({ status: 409, description: 'El evento ya está cancelado' })
@@ -402,6 +405,58 @@ export class EventController {
     return new EventSalesStateResponse(
       await this._eventService.setSalesClosed(eventUuid, data.closed, loggedUser)
     );
+  }
+
+  @UserAuth(null, RefundWindowResponse)
+  @ApiOperation({
+    summary: 'Plazo de reembolso del evento',
+    description:
+      'Hasta cuándo se puede pedir el reembolso (`BR-REFUND-010`). Por defecto es el inicio del ' +
+      'evento; si un Administrador lo extendió, devuelve la fecha extendida y su motivo.\n\n' +
+      '`endsAt` es null cuando el evento no tuvo ningún cambio material comunicado: sin eso no ' +
+      'hay derecho a reembolso (`BR-REFUND-001`).\n\n' +
+      'Para el Productor es la explicación de por qué su liquidación sigue pendiente.'
+  })
+  @ApiResponse({ status: 200, type: RefundWindowResponse })
+  @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
+  @Get(':eventUuid/refund-window')
+  async getRefundWindow(
+    @Param('eventUuid') eventUuid: string
+  ): Promise<RefundWindowResponse> {
+    return new RefundWindowResponse(await this._eventService.getRefundWindow(eventUuid));
+  }
+
+  @AdminAuth(ExtendRefundWindowRequest, EventChangeResponse)
+  @ApiOperation({
+    summary: 'Extender el plazo de reembolso — solo Admin',
+    description:
+      'Extiende la ventana de reembolso de un evento (`BR-REFUND-010`). Para el caso excepcional: ' +
+      'una reprogramación o cancelación tan sobre la hora que el inicio del evento no deja plazo ' +
+      'útil.\n\n' +
+      '**Solo hacia adelante** — 400 si la fecha es anterior o igual al plazo vigente: acortarlo ' +
+      'sería quitarle al comprador un derecho ya comunicado. El motivo es obligatorio y la ' +
+      'decisión queda auditada en el historial del evento.\n\n' +
+      'Lo decide el Administrador porque es quien retiene el dinero: no liquida a la productora ' +
+      'hasta que la ventana cierre (`BR-PAY-005`).'
+  })
+  @ApiResponse({ status: 200, type: EventChangeResponse })
+  @ApiResponse({ status: 400, description: 'El plazo solo se puede extender, o falta el motivo' })
+  @HttpCode(200)
+  @ApiTags('Admin — Reembolsos')
+  @Post(':eventUuid/refund-window')
+  async extendRefundWindow(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: ExtendRefundWindowRequest,
+    @User() loggedUser: string
+  ): Promise<EventChangeResponse> {
+    const change = await this._eventService.extendRefundWindow(
+      eventUuid,
+      body.extendedTo,
+      body.reason,
+      loggedUser
+    );
+    return new EventChangeResponse(change);
   }
 
   @OptionalUserAuth(null, EventMapResponse)

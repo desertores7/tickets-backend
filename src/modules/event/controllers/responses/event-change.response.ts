@@ -88,3 +88,38 @@ export class EventSalesStateResponse {
     this.salesClosedAt = salesClosedAt ? new Date(salesClosedAt).toISOString() : null;
   }
 }
+
+/** Plazo vigente para pedir reembolso en un evento (`BR-REFUND-010`). */
+export class RefundWindowResponse {
+  @ApiProperty({
+    nullable: true,
+    description:
+      'ISO-8601. Hasta cuándo se puede pedir el reembolso. Null si el evento no tuvo ningún ' +
+      'cambio material comunicado, que es lo único que habilita el reembolso.'
+  })
+  endsAt: string | null;
+
+  @ApiProperty({ description: 'Si todavía se puede pedir' })
+  isOpen: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'ISO-8601. Extensión puesta por un Administrador; null si rige el inicio del evento.'
+  })
+  extendedTo: string | null;
+
+  @ApiProperty({ nullable: true, description: 'Motivo de la extensión' })
+  reason: string | null;
+
+  constructor(data: {
+    endsAt: Date | null;
+    isOpen: boolean;
+    extendedTo: Date | null;
+    reason: string | null;
+  }) {
+    this.endsAt = data.endsAt ? new Date(data.endsAt).toISOString() : null;
+    this.isOpen = data.isOpen;
+    this.extendedTo = data.extendedTo ? new Date(data.extendedTo).toISOString() : null;
+    this.reason = data.reason;
+  }
+}

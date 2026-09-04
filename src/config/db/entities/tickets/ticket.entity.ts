@@ -17,7 +17,9 @@ export enum TicketStatus {
   ACTIVE = 'active',
   USED = 'used',
   CANCELLED = 'cancelled',
-  TRANSFERRED = 'transferred'
+  TRANSFERRED = 'transferred',
+  /** Reembolsado (`BR-REFUND-001`). Distinto de cancelado por otro motivo. */
+  REFUNDED = 'refunded'
 }
 
 const tableName = 'ticket' as const;

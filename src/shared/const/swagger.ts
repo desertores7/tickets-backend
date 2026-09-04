@@ -204,6 +204,10 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Compra — Órdenes', 'Creación, consulta y cancelación de órdenes de compra')
     .addTag('Compra — Pagos', 'Inicialización de pago, webhook de Mercado Pago y consulta')
     .addTag('Compra — Tickets', 'Tickets del usuario autenticado: listado y detalle')
+    .addTag(
+      'Compra — Reembolsos',
+      'Pedido de reembolso por cambio material del evento (BR-REFUND-001)'
+    )
 
     // ── Productora (backoffice) ─────────────────────────────────────────────
     .addTag('Productora — Organización', 'Datos fiscales, validación y solicitudes de cambio')
@@ -217,6 +221,10 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Productora — Cupones', 'Cupones de descuento del evento')
     .addTag('Productora — Alertas de stock', 'Avisos por stock bajo y agotado, por tanda')
     .addTag('Productora — Gastos', 'Gastos del evento por categoría')
+    .addTag(
+      'Productora — Reembolsos',
+      'Solicitudes de reembolso de los eventos de la organización (`29` §7)'
+    )
     .addTag('Productora — Caja', 'Ingresos manuales, resumen de caja y movimientos de Mercado Pago')
     .addTag('Productora — Mercado Pago', 'Cuentas conectadas por OAuth y catálogo sincronizado')
     .addTag('Productora — Catálogo', 'Ítems manuales y copia del catálogo de Mercado Pago')
@@ -230,6 +238,10 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Admin — Organizaciones', 'Alta, listado, aprobación y rechazo de productoras')
     .addTag('Admin — Usuarios', 'Gestión de usuarios y asignación de roles')
     .addTag('Admin — Roles', 'Roles y permisos del sistema')
+    .addTag(
+      'Admin — Reembolsos',
+      'Reintento manual de reembolsos fallidos y extensión del plazo (BR-REFUND-011)'
+    )
     .addTag('Admin — Archivos de usuario', 'Archivos e imágenes de perfil de usuario')
     .addTag('Admin — Liquidaciones', 'Registro de liquidaciones y carga de comprobantes')
     .addTag('Admin — Tickets', 'Regeneración de QR y administración de tickets')

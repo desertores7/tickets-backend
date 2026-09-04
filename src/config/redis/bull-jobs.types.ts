@@ -8,7 +8,9 @@ export const QUEUE_NAMES = {
   /** Sincronización de movimientos MP durante la ventana del evento (BR-CASH-003) */
   MP_SYNC: 'mp-event-sync',
   /** Cierre automático de venta al fin del evento (BR-EVENT-013) */
-  EVENT_LIFECYCLE: 'event-lifecycle'
+  EVENT_LIFECYCLE: 'event-lifecycle',
+  /** Cron de evaluación de solicitudes de reembolso (BR-REFUND-011) */
+  REFUNDS: 'refunds'
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -54,5 +56,10 @@ export interface CleanupExpiredAssetsJobData {
 
 export interface CloseEndedEventSalesJobData {
   /** Reservado por si el job necesita parámetros en el futuro */
+  batchSize?: number;
+}
+
+export interface ProcessRefundQueueJobData {
+  /** Cuántas solicitudes toma por corrida. */
   batchSize?: number;
 }

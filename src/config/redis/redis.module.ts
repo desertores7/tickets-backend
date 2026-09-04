@@ -77,6 +77,17 @@ const DEFAULT_JOB_OPTIONS = {
           attempts: 1,
           removeOnComplete: { count: 30 }
         }
+      },
+      {
+        name: QUEUE_NAMES.REFUNDS,
+        defaultJobOptions: {
+          ...DEFAULT_JOB_OPTIONS,
+          // Un solo intento: el job mueve plata. Si algo falla, cada solicitud
+          // queda en su estado y la corrida siguiente la retoma desde ahí
+          // (BR-REFUND-011: nunca se reintenta un refund automáticamente).
+          attempts: 1,
+          removeOnComplete: { count: 50 }
+        }
       }
     )
   ],

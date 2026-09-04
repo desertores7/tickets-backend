@@ -281,7 +281,8 @@ export class EventService implements IEventService {
 
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
 
-    // Historial + email/ventana 72 h si el cambio es material y hay ventas (FP10).
+    // Historial + email/ventana de reembolso si el cambio es material y hay
+    // ventas (FP10).
     await this.eventChangeService.recordUpdateChanges(
       snapshot,
       {
@@ -310,6 +311,24 @@ export class EventService implements IEventService {
     reason?: string | null
   ): Promise<TEventChangeItem> {
     return this.eventChangeService.cancelEvent(eventUuid, loggedUser, reason);
+  }
+
+  async getRefundWindow(eventUuid: string): Promise<{
+    endsAt: Date | null;
+    isOpen: boolean;
+    extendedTo: Date | null;
+    reason: string | null;
+  }> {
+    return this.eventChangeService.getRefundWindow(eventUuid);
+  }
+
+  async extendRefundWindow(
+    eventUuid: string,
+    extendedTo: Date,
+    reason: string,
+    loggedUser: string
+  ): Promise<TEventChangeItem> {
+    return this.eventChangeService.extendRefundWindow(eventUuid, extendedTo, reason, loggedUser);
   }
 
   async closeSalesAdmin(eventUuid: string, loggedUser: string): Promise<TEventChangeItem> {
@@ -1605,13 +1624,26 @@ export class EventService implements IEventService {
    * escáner aunque la membresía de organización falte (por ejemplo, si lo
    * desvincularon de la organización pero sigue asignado al show).
    */
+  /**
+   * Eventos que le asignaron puntualmente, fuera de sus organizaciones.
+   *
+   * **Solo `event_producer`.** Ser validador de un evento no da acceso al
+   * backoffice: el validador entra por `/check-in/my-events`, que filtra por
+   * día de trabajo. Incluirlo acá le mostraba el evento en "Mis eventos" y al
+   * abrirlo se comía un "No tenés permiso para modificar este evento", porque
+   * `assertOwnership` nunca aceptó esa vía.
+   *
+   * El criterio de esta consulta tiene que seguir siendo el mismo que el de
+   * `assertOwnership`: si el listado muestra algo que no se puede abrir, es un
+   * bug.
+   */
   private async getAssignedEventUuids(loggedUser?: string | null): Promise<string[]> {
     if (!loggedUser) return [];
-    const [asProducer, asValidator] = await Promise.all([
-      this.dbRepository.findMany({ entity: 'event_producer', where: { userUuid: loggedUser } as any }),
-      this.dbRepository.findMany({ entity: 'event_validator', where: { userUuid: loggedUser } as any })
-    ]);
-    return [...new Set([...asProducer, ...asValidator].map(r => r.eventUuid))];
+    const asProducer = await this.dbRepository.findMany({
+      entity: 'event_producer',
+      where: { userUuid: loggedUser } as any
+    });
+    return [...new Set(asProducer.map(r => r.eventUuid))];
   }
 
   /** Organizaciones a las que pertenece el usuario (base del alcance de un productor) */
