@@ -54,7 +54,20 @@ export class OrganizationStaffService {
     private readonly envService: EnvService
   ) {}
 
-  async listStaff(callerUuid: string): Promise<StaffMemberResponse[]> {
+  async listStaff(
+    callerUuid: string,
+    options?: {
+      search?: string;
+      role?: string;
+      status?: string;
+      pagination?: { page: number; limit: number };
+    }
+  ): Promise<{
+    items: StaffMemberResponse[];
+    byRole: { role: 'producer' | 'validator' | 'cashier'; count: number }[];
+    total: number;
+    meta: { limit: number; page: number; total: number };
+  }> {
     const org = await this.assertProducerContext(callerUuid);
     const items: StaffMemberResponse[] = [];
 
@@ -114,7 +127,85 @@ export class OrganizationStaffService {
     }
 
     items.sort((a, b) => a.email.localeCompare(b.email, 'es'));
-    return items;
+
+    const byRole = this.buildByRole(items);
+    const teamTotal = items.length;
+    const filtered = this.filterStaffItems(items, options);
+
+    const page = Math.max(options?.pagination?.page ?? 1, 1);
+    const limit = options?.pagination?.limit ?? 15;
+    const filteredTotal = filtered.length;
+    const pageItems = filtered.slice((page - 1) * limit, page * limit);
+
+    return {
+      items: pageItems,
+      byRole,
+      total: teamTotal,
+      meta: { limit, page, total: filteredTotal }
+    };
+  }
+
+  private buildByRole(
+    items: StaffMemberResponse[]
+  ): { role: 'producer' | 'validator' | 'cashier'; count: number }[] {
+    const counts = { producer: 0, validator: 0, cashier: 0 };
+    for (const item of items) {
+      if (item.staffKind === 'producer' || item.staffKind === 'producer_invite_pending') {
+        counts.producer += 1;
+      } else if (item.staffKind === 'validator') {
+        counts.validator += 1;
+      } else if (item.staffKind === 'cashier') {
+        counts.cashier += 1;
+      }
+    }
+    return [
+      { role: 'producer', count: counts.producer },
+      { role: 'validator', count: counts.validator },
+      { role: 'cashier', count: counts.cashier }
+    ];
+  }
+
+  private filterStaffItems(
+    items: StaffMemberResponse[],
+    options?: { search?: string; role?: string; status?: string }
+  ): StaffMemberResponse[] {
+    if (!options) return items;
+
+    const search = options.search?.trim().toLowerCase();
+    const role = options.role?.trim();
+    const status = options.status?.trim();
+
+    return items.filter(item => {
+      if (role) {
+        if (role === 'producer') {
+          if (item.staffKind !== 'producer' && item.staffKind !== 'producer_invite_pending') {
+            return false;
+          }
+        } else if (item.staffKind !== role) {
+          return false;
+        }
+      }
+
+      if (status) {
+        const itemStatus =
+          item.staffKind === 'producer_invite_pending'
+            ? 'pending'
+            : item.active
+              ? 'active'
+              : 'inactive';
+        if (itemStatus !== status) return false;
+      }
+
+      if (search) {
+        const haystack = [item.email, item.firstName, item.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+
+      return true;
+    });
   }
 
   async createStaff(callerUuid: string, data: CreateStaffRequest): Promise<StaffMemberResponse> {
@@ -303,6 +394,52 @@ export class OrganizationStaffService {
         entity: 'user',
         where: { uuid: targetUserUuid },
         data: { active: data.active ? 1 : 0, updatedBy: callerUuid }
+      });
+    }
+
+    const profilePatch: Record<string, unknown> = { updatedBy: callerUuid };
+    let shouldPatchProfile = false;
+
+    if (data.email !== undefined) {
+      const email = data.email.trim().toLowerCase();
+      if (email !== user.email.toLowerCase()) {
+        const existing = await this.dbRepository.findOne({
+          entity: 'user',
+          where: { email, isDeleted: IsNull() }
+        });
+        if (existing && (existing as UserEntity).uuid !== targetUserUuid) {
+          throw new BadRequestException('Ya existe un usuario con ese email.');
+        }
+        profilePatch.email = email;
+        shouldPatchProfile = true;
+      }
+    }
+
+    if (data.firstName !== undefined) {
+      profilePatch.firstName = data.firstName.trim().slice(0, 255);
+      shouldPatchProfile = true;
+    }
+
+    if (data.lastName !== undefined) {
+      profilePatch.lastName = data.lastName.trim().slice(0, 255);
+      shouldPatchProfile = true;
+    }
+
+    if (data.password !== undefined && data.password.length > 0) {
+      if (!PASSWORD_POLICY.test(data.password)) {
+        throw new BadRequestException(
+          'La contraseña debe tener al menos 8 caracteres, con letras, números y un carácter especial.'
+        );
+      }
+      profilePatch.password = await bcryptjs.hash(data.password, 10);
+      shouldPatchProfile = true;
+    }
+
+    if (shouldPatchProfile) {
+      await this.dbRepository.update({
+        entity: 'user',
+        where: { uuid: targetUserUuid },
+        data: profilePatch
       });
     }
 

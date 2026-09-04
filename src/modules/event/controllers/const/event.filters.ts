@@ -15,8 +15,9 @@ export const eventFilters = [
  * Estados que el backoffice puede pedir. `draft`/`published` miran isPublished;
  * `cancelled` y `sales_closed` miran sus timestamps, que son independientes de
  * la publicacion (un evento publicado puede estar cancelado).
+ * `finished` = endDate en el pasado (útil para el listado del productor).
  */
-export const EVENT_LIST_STATUS = ['draft', 'published', 'cancelled', 'sales_closed'] as const;
+export const EVENT_LIST_STATUS = ['draft', 'published', 'cancelled', 'sales_closed', 'finished'] as const;
 export type TEventListStatus = (typeof EVENT_LIST_STATUS)[number];
 
 /** Columnas ordenables del listado (order_by=columna:asc|desc). */

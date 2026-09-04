@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { StaffKind } from '@modules/organization/const/organization-staff.const';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 
 export class StaffAssignedEventResponse {
   @ApiProperty()
@@ -74,11 +75,44 @@ export class StaffMemberResponse {
   }
 }
 
+export class StaffRoleCountResponse {
+  @ApiProperty({ enum: ['producer', 'validator', 'cashier'] })
+  role: 'producer' | 'validator' | 'cashier';
+
+  @ApiProperty()
+  count: number;
+
+  constructor(data: { role: 'producer' | 'validator' | 'cashier'; count: number }) {
+    this.role = data.role;
+    this.count = data.count;
+  }
+}
+
 export class StaffListResponse {
   @ApiProperty({ type: [StaffMemberResponse] })
   items: StaffMemberResponse[];
 
-  constructor(items: StaffMemberResponse[]) {
+  @ApiProperty({
+    type: [StaffRoleCountResponse],
+    description: 'Conteo por rol del equipo completo (sin filtros de listado)'
+  })
+  byRole: StaffRoleCountResponse[];
+
+  @ApiProperty({ description: 'Total de miembros del equipo (sin filtros de listado)' })
+  total: number;
+
+  @ApiProperty({ type: PaginationMetaResponse })
+  meta: PaginationMetaResponse;
+
+  constructor(
+    items: StaffMemberResponse[],
+    byRole: { role: 'producer' | 'validator' | 'cashier'; count: number }[],
+    total: number,
+    meta: PaginationMetaResponse
+  ) {
     this.items = items;
+    this.byRole = byRole.map(r => new StaffRoleCountResponse(r));
+    this.total = total;
+    this.meta = meta;
   }
 }

@@ -46,6 +46,7 @@ import { RequestFiscalChangeRequest } from './dtos/organization-me/request-fisca
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
 import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
 import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from './const/organization.filters';
+import { staffFilters } from './const/staff.filters';
 import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import { OrganizationStaffService } from '../services/implementation/organization-staff.service';
 import { CreateStaffRequest } from './dtos/organization-staff/create-staff.request';
@@ -149,12 +150,36 @@ export class OrganizationController {
   @UserAuth(null, StaffListResponse)
   @ApiOperation({
     summary: 'List organization staff (producer)',
-    description: 'Productores, Validadores, Caja e invitaciones pendientes de la productora aprobada.'
+    description:
+      'Productores, Validadores, Caja e invitaciones pendientes de la productora aprobada.\n\n' +
+      '- `search`: nombre o email.\n' +
+      '- `role`: producer | validator | cashier.\n' +
+      '- `status`: pending | active | inactive.\n' +
+      '- `page` / `limit`: paginación de `items`.\n' +
+      '`byRole` y `total` reflejan siempre el equipo completo.'
   })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(staffFilters)
   @Get('me/staff')
-  async listMyStaff(@User() userId: string): Promise<StaffListResponse> {
-    const items = await this.organizationStaffService.listStaff(userId);
-    return new StaffListResponse(items);
+  async listMyStaff(
+    @User() userId: string,
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(staffFilters) filters: IFiltersParams<typeof staffFilters>
+  ): Promise<StaffListResponse> {
+    const result = await this.organizationStaffService.listStaff(userId, {
+      search: search.search,
+      role: filters.role?.[0],
+      status: filters.status?.[0],
+      pagination
+    });
+    return new StaffListResponse(
+      result.items,
+      result.byRole,
+      result.total,
+      new PaginationMetaResponse(result.meta)
+    );
   }
 
   @UserAuth(CreateStaffRequest, StaffMemberResponse)
