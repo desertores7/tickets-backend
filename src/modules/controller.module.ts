@@ -29,6 +29,7 @@ import { CouponController } from './coupons/controllers/coupon.controller';
 import { EventCashController } from './event-cash/controllers/event-cash.controller';
 import { MpMovementController } from './event-cash/controllers/mp-movement.controller';
 import { EventDashboardController } from './reporting/controllers/event-dashboard.controller';
+import { RefundController } from './refunds/controllers/refund.controller';
 import { EventMpAccountController } from './event-cash/controllers/event-mp-account.controller';
 
 @Module({
@@ -53,6 +54,7 @@ import { EventMpAccountController } from './event-cash/controllers/event-mp-acco
     EventCashController,
     MpMovementController,
     EventDashboardController,
+    RefundController,
     EventMpAccountController,
     OrderController,
     PaymentController,

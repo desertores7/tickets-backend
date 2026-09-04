@@ -18,7 +18,9 @@ export const EVENT_CHANGE_TYPES = [
   'cancellation',
   'sales_close',
   'stock',
-  'info'
+  'info',
+  /** Extensión excepcional de la ventana de reembolso, hecha por un Admin. */
+  'refund_window'
 ] as const;
 
 export type EventChangeType = (typeof EVENT_CHANGE_TYPES)[number];

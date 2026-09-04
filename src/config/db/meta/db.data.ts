@@ -14,6 +14,8 @@ import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
 import { EventEntityData } from '../entities/tickets/event.entity';
 import { EventChangeEntityData } from '../entities/tickets/event_change.entity';
+import { RefundRequestEntityData } from '../entities/tickets/refund_request.entity';
+import { RefundRequestTicketEntityData } from '../entities/tickets/refund_request_ticket.entity';
 import { EventMediaEntityData } from '../entities/tickets/event_media.entity';
 import { EventMapEntityData } from '../entities/tickets/event_map.entity';
 import { EventMapSectorEntityData } from '../entities/tickets/event_map_sector.entity';
@@ -62,6 +64,8 @@ export const entitiesData = [
   EmailEntityData,
   EventEntityData,
   EventChangeEntityData,
+  RefundRequestEntityData,
+  RefundRequestTicketEntityData,
   EventMediaEntityData,
   EventMapEntityData,
   EventMapSectorEntityData,

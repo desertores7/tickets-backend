@@ -1,9 +1,10 @@
 import {
-  computeRefundWindowEndsAt,
   detectEventUpdateChanges,
   formatLineup,
+  isRefundWindowOpen,
   lineupEquals,
-  resolveOpenRefundWindowEndsAt
+  resolveOpenRefundWindowEndsAt,
+  resolveRefundWindowEndsAt
 } from './event-change.helpers';
 import { getEventSalesBlockReason } from './event-sales-gate';
 
@@ -41,15 +42,40 @@ describe('event-change.helpers', () => {
     expect(groups.find(g => g.type === 'lineup')?.isMaterial).toBe(true);
   });
 
-  it('computeRefundWindowEndsAt usa 72h o el nuevo inicio si cae antes', () => {
-    const notifiedAt = new Date('2026-09-01T12:00:00.000Z');
-    const seventyTwo = computeRefundWindowEndsAt(notifiedAt, null);
-    expect(seventyTwo.toISOString()).toBe('2026-09-04T12:00:00.000Z');
+  it('la ventana por defecto es el inicio del evento', () => {
+    const start = '2026-10-01T23:00:00.000Z';
+    expect(resolveRefundWindowEndsAt(start).toISOString()).toBe(start);
+    expect(resolveRefundWindowEndsAt(start, null).toISOString()).toBe(start);
+  });
 
-    const earlyStart = new Date('2026-09-02T12:00:00.000Z');
-    expect(computeRefundWindowEndsAt(notifiedAt, earlyStart).toISOString()).toBe(
-      earlyStart.toISOString()
+  it('la extensión del Admin solo corre la ventana hacia adelante', () => {
+    const start = '2026-10-01T23:00:00.000Z';
+
+    // Posterior al inicio: gana la extensión.
+    expect(resolveRefundWindowEndsAt(start, '2026-10-15T00:00:00.000Z').toISOString()).toBe(
+      '2026-10-15T00:00:00.000Z'
     );
+
+    // Anterior al inicio: se ignora. Acortar sería quitar un derecho ya dado.
+    expect(resolveRefundWindowEndsAt(start, '2026-09-20T00:00:00.000Z').toISOString()).toBe(start);
+
+    // Basura: cae al default en vez de romper.
+    expect(resolveRefundWindowEndsAt(start, 'no-es-una-fecha').toISOString()).toBe(start);
+  });
+
+  it('isRefundWindowOpen se cierra cuando arranca el evento', () => {
+    const start = '2026-10-01T23:00:00.000Z';
+    const antes = new Date('2026-10-01T22:59:00.000Z');
+    const justo = new Date(start);
+    const despues = new Date('2026-10-02T00:00:00.000Z');
+
+    expect(isRefundWindowOpen(start, null, antes)).toBe(true);
+    expect(isRefundWindowOpen(start, null, justo)).toBe(false);
+    expect(isRefundWindowOpen(start, null, despues)).toBe(false);
+
+    // Con extensión del Admin sigue abierta después del evento: es el caso de
+    // la cancelación de último momento.
+    expect(isRefundWindowOpen(start, '2026-10-20T00:00:00.000Z', despues)).toBe(true);
   });
 
   it('resolveOpenRefundWindowEndsAt toma la ventana abierta más lejana', () => {

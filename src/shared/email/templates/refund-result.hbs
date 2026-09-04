@@ -1,0 +1,105 @@
+{{!-- refund-result: resultado de una solicitud de reembolso (BR-REFUND-004 / 011).
+      Un solo template para aprobado y rechazado: el cuerpo cambia, el marco no. --}}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{#if approved}}Reembolso aprobado{{else}}Tu pedido de reembolso{{/if}}</title>
+  {{> styles}}
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden;">
+    {{#if approved}}Aprobamos tu reembolso de {{eventName}}{{else}}Novedades sobre tu pedido de reembolso{{/if}}
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+          {{> header}}
+
+          <tr>
+            <td class="mobile-padding" style="padding:32px 40px;">
+              <h1 style="margin:0 0 12px; color:#0f172a; font-size:24px; font-weight:800;">
+                {{#if approved}}Reembolso aprobado{{else}}No pudimos aprobar tu reembolso{{/if}}
+              </h1>
+
+              {{#if firstName}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">Hola {{firstName}},</p>
+              {{/if}}
+
+              {{#if approved}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                  Aprobamos el reembolso de <strong>{{ticketLabel}}</strong> de
+                  <strong>{{eventName}}</strong>.
+                </p>
+
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px; border:1px solid #e2e8f0; border-radius:12px;">
+                  <tr>
+                    <td style="padding:16px; text-align:center;">
+                      <p style="margin:0 0 4px; color:#64748b; font-size:13px; font-weight:700;">Monto a reintegrar</p>
+                      <p style="margin:0; color:#0f172a; font-size:26px; font-weight:800;">
+                        {{currency}} {{amount}}
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                  Vuelve al mismo medio de pago con el que compraste, dentro de las próximas
+                  <strong>48 horas</strong>. Según tu banco puede tardar algunos días más en verse
+                  en el resumen.
+                </p>
+
+                <p style="margin:0 0 24px; color:#64748b; font-size:14px; line-height:1.6;">
+                  El costo de servicio no se reintegra: cubre la gestión de la venta.
+                </p>
+              {{else}}
+                <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
+                  Revisamos tu pedido de reembolso de <strong>{{eventName}}</strong> y no pudimos
+                  aprobarlo.
+                </p>
+
+                {{#if reason}}
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px; border-left:3px solid #cbd5e1; background-color:#f8fafc;">
+                    <tr>
+                      <td style="padding:14px 16px;">
+                        <p style="margin:0 0 4px; color:#64748b; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;">Motivo</p>
+                        <p style="margin:0; color:#0f172a; font-size:15px; line-height:1.6;">{{reason}}</p>
+                      </td>
+                    </tr>
+                  </table>
+                {{/if}}
+
+                <p style="margin:0 0 24px; color:#334155; font-size:15px; line-height:1.7;">
+                  Tus entradas siguen siendo válidas. Si creés que hubo un error, respondé este
+                  email y lo miramos.
+                </p>
+              {{/if}}
+
+              {{#if ticketsUrl}}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 20px;">
+                  <tr>
+                    <td align="center" style="border-radius:12px; background-color:#0284c7;">
+                      <a href="{{ticketsUrl}}" target="_blank" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px;">
+                        Ver mis entradas
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0; color:#64748b; font-size:13px; line-height:1.6;">
+                  Si el botón no funciona: <a href="{{ticketsUrl}}" style="color:#0284c7; word-break:break-all;">{{ticketsUrl}}</a>
+                </p>
+              {{/if}}
+            </td>
+          </tr>
+
+          {{> footer}}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

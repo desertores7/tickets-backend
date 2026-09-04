@@ -7,7 +7,7 @@ import {
   Logger,
   NotFoundException
 } from '@nestjs/common';
-import { In, IsNull, LessThanOrEqual } from 'typeorm';
+import { In, IsNull, LessThanOrEqual, Not } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import {
@@ -22,7 +22,7 @@ import { NotificationEmailService } from '@modules/notifications/services/implem
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 import {
-  computeRefundWindowEndsAt,
+  resolveRefundWindowEndsAt,
   detectEventUpdateChanges,
   EventSnapshotForChange,
   EventUpdateForChange,
@@ -81,7 +81,8 @@ export class EventChangeService {
 
   /**
    * Cancela el evento (BR-EVENT-010). No borra ni despublica.
-   * Con ventas: material + email + ventana 72 h. Siempre corta la venta.
+   * Con ventas: material + email + ventana hasta el inicio del evento. Siempre
+   * corta la venta.
    */
   async cancelEvent(
     eventUuid: string,
@@ -328,8 +329,113 @@ export class EventChangeService {
     });
   }
 
+  /**
+   * Extiende la ventana de reembolso de un evento (`BR-REFUND-010`).
+   *
+   * **Solo Administrador**, y solo hacia adelante. Existe para el caso
+   * excepcional: una reprogramación o cancelación tan sobre la hora que el
+   * inicio del evento no deja plazo útil para pedir el reembolso.
+   *
+   * Lo decide el Admin porque es quien retiene el dinero de las entradas: no
+   * puede liquidarle a la productora hasta que la ventana cierre
+   * (`BR-PAY-005`). Quien asume el riesgo define el plazo.
+   */
+  async extendRefundWindow(
+    eventUuid: string,
+    extendedTo: Date,
+    reason: string,
+    loggedUser: string
+  ): Promise<TEventChangeItem> {
+    const isAdmin = await this.userPermission.userPermission(loggedUser);
+    if (!isAdmin) {
+      throw new ForbiddenException(
+        'Solo un administrador puede extender el plazo de reembolso'
+      );
+    }
+
+    const event = await this.findActiveEvent(eventUuid);
+
+    const motivo = reason?.trim();
+    if (!motivo) {
+      throw new BadRequestException('Indicá el motivo de la extensión');
+    }
+
+    const actual = resolveRefundWindowEndsAt(event.startDate, event.refundWindowExtendedTo);
+
+    // Nunca hacia atrás: acortar el plazo sería quitarle al comprador un
+    // derecho que ya se le comunicó por email.
+    if (extendedTo <= actual) {
+      throw new BadRequestException(
+        `El plazo solo se puede extender. Hoy vence ${actual.toISOString()}`
+      );
+    }
+
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: { refundWindowExtendedTo: extendedTo, refundWindowReason: motivo }
+    });
+
+    // Queda en el historial del evento: es una decisión sobre plata de terceros
+    // y hay que poder explicarla después.
+    return this.persistChangeAndMaybeNotify({
+      event: { ...event, refundWindowExtendedTo: extendedTo },
+      type: 'refund_window',
+      isMaterial: false,
+      reason: motivo,
+      changes: [
+        {
+          field: 'refundWindowEndsAt',
+          label: 'Plazo para pedir reembolso',
+          before: actual.toISOString(),
+          after: extendedTo.toISOString()
+        }
+      ],
+      createdByUuid: loggedUser,
+      newStartDate: null,
+      // El aviso lo maneja el Admin fuera del sistema: esta extensión nace de
+      // una conversación con la productora, no de un cambio del evento.
+      forceNotifyWithSales: false
+    });
+  }
+
+  /**
+   * Ventana vigente de un evento, o null si no hay reembolsos habilitados.
+   *
+   * Solo hay ventana si hubo al menos un cambio material comunicado: sin eso no
+   * hay derecho a reembolso (`BR-REFUND-001`).
+   */
+  async getRefundWindow(eventUuid: string): Promise<{
+    endsAt: Date | null;
+    isOpen: boolean;
+    extendedTo: Date | null;
+    reason: string | null;
+  }> {
+    const event = await this.findActiveEvent(eventUuid);
+
+    const notified = await this.dbRepository.count({
+      entity: 'event_change',
+      where: { eventUuid, isMaterial: true, notifiedAt: Not(IsNull()) } as never
+    });
+
+    if (!notified) {
+      return { endsAt: null, isOpen: false, extendedTo: null, reason: null };
+    }
+
+    const endsAt = resolveRefundWindowEndsAt(event.startDate, event.refundWindowExtendedTo);
+    return {
+      endsAt,
+      isOpen: endsAt > new Date(),
+      extendedTo: event.refundWindowExtendedTo,
+      reason: event.refundWindowReason
+    };
+  }
+
   private async persistChangeAndMaybeNotify(params: {
-    event: Pick<EventEntity, 'uuid' | 'name' | 'startDate' | 'organizationUuid'>;
+    event: Pick<
+      EventEntity,
+      'uuid' | 'name' | 'startDate' | 'organizationUuid' | 'refundWindowExtendedTo'
+    >;
     type: EventChangeType;
     isMaterial: boolean;
     reason: string | null;
@@ -349,7 +455,15 @@ export class EventChangeService {
 
     if (shouldNotify) {
       notifiedAt = now;
-      const windowEnd = computeRefundWindowEndsAt(now, params.newStartDate);
+      // `BR-REFUND-010`: el límite es el inicio del evento — el nuevo, si esta
+      // misma edición lo reprogramó — o la extensión que haya puesto un Admin.
+      // Se guarda en la fila como registro de lo que se le comunicó al
+      // comprador; la elegibilidad se evalúa siempre contra el evento, para que
+      // una extensión posterior alcance también a los cambios ya avisados.
+      const windowEnd = resolveRefundWindowEndsAt(
+        params.newStartDate ?? params.event.startDate,
+        params.event.refundWindowExtendedTo
+      );
       refundWindowEndsAt = windowEnd;
       buyersNotified = await this.notifyBuyers({
         event: params.event,
@@ -406,7 +520,8 @@ export class EventChangeService {
       cancellation: 'Cancelación',
       sales_close: 'Cierre de venta',
       stock: 'Ajuste de stock',
-      info: 'Actualización'
+      info: 'Actualización',
+      refund_window: 'Plazo de reembolso'
     };
 
     let sent = 0;
