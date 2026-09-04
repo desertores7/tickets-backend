@@ -44,7 +44,8 @@ import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
 /** Tope de la foto de perfil: se reescala a webp, no hace falta mas. */
 const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-@ApiTags('Auth')
+// Sin @ApiTags a nivel de clase: los endpoints de sesion van a 'Auth' y los
+// del usuario logueado a 'Perfil'. Las rutas no cambian.
 @Controller('auth')
 export class AuthController {
   constructor(@Inject('IAuthService') public authService: IAuthService) {}
@@ -54,10 +55,11 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Get authenticated user profile',
+    summary: 'Obtener mi perfil',
     description: 'Returns the current user profile with role and organizations using the JWT token.'
   })
   @UserAuth(null, MeResponse)
+  @ApiTags('Perfil')
   @Get('me')
   async getMe(@User() userId: string): Promise<MeResponse> {
     const result = await this.authService.getMe(userId);
@@ -65,12 +67,13 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Update authenticated user profile',
+    summary: 'Actualizar mi perfil',
     description:
       'Partial update of the current user profile (name, phone, gender, address, billing, 2FA flag, image). ' +
       'Email and document fields cannot be changed here (BR-AUTH-008) — contact support.'
   })
   @UserAuth(UpdateMeRequest, MeResponse, 'multipart/form-data')
+  @ApiTags('Perfil')
   @Patch('me')
   @UseInterceptors(FileInterceptor('imgProfile'))
   async updateMe(
@@ -89,13 +92,14 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Deactivate own account',
+    summary: 'Dar de baja mi cuenta',
     description:
       'Sets the authenticated user as inactive and invalidates all token sessions. ' +
       'Subsequent logins are rejected with “Usuario inactivo”.'
   })
   @UserAuth(null, null)
   @HttpCode(200)
+  @ApiTags('Perfil')
   @Post('deactivate')
   async deactivateAccount(@User() userId: string): Promise<{ message: string }> {
     await this.authService.deactivateAccount(userId);
@@ -103,13 +107,14 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Login',
+    summary: 'Iniciar sesión',
     description:
       'Validate credentials. If 2FA is enabled, returns `{ requiresTwoFactor: true, email }` and sends a 6-digit code by email. ' +
       'Otherwise returns JWT access and refresh tokens plus user data.'
   })
   @Swagger(LoginAuthRequest, LoginAuthResponse, CONTENT_TYPE.FORM_URLENCODED)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('login')
   async loginAuth(@Body() request: LoginAuthRequest): Promise<LoginAuthResponse> {
     const result = await this.authService.userLoginAuth(request.email, request.password);
@@ -117,13 +122,14 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Refresh tokens',
+    summary: 'Refrescar tokens',
     description:
       'Exchanges a valid refresh token for a new access + refresh pair (rotation). ' +
       'Access tokens are short-lived (~15m); refresh lasts ~12h for web sessions.'
   })
   @Swagger(RefreshTokenRequest, RefreshTokenResponse)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('refresh')
   async refresh(@Body() request: RefreshTokenRequest): Promise<RefreshTokenResponse> {
     const tokens = await this.authService.refreshTokens(request.refresh_token);
@@ -131,11 +137,12 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Verify 2FA code',
+    summary: 'Verificar código 2FA',
     description: 'Completes login after email/password when twoAuthentication is enabled. Consumes the 6-digit code from email.'
   })
   @Swagger(VerifyTwoFactorRequest, LoginAuthResponse)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('verify')
   async verifyTwoFactor(@Body() request: VerifyTwoFactorRequest): Promise<LoginAuthResponse> {
     const result = await this.authService.verifyTwoFactor(request.email, request.code);
@@ -143,18 +150,19 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Resend 2FA code',
+    summary: 'Reenviar código 2FA',
     description: 'Resends a new 6-digit login code. Always returns 200 to avoid email enumeration.'
   })
   @Swagger(ResendTwoFactorRequest, null)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('resend')
   async resendTwoFactor(@Body() request: ResendTwoFactorRequest): Promise<{ message: string }> {
     return this.authService.resendTwoFactor(request.email);
   }
 
   @ApiOperation({
-    summary: 'Send reset password email',
+    summary: 'Enviar email de recupero de contraseña',
     description:
       'Sends a 6-digit code by email so the user can set a new password on /reset-password.\n\n' +
       '**Always returns 200**, whether or not the address belongs to an account. Answering ' +
@@ -163,6 +171,7 @@ export class AuthController {
   })
   @Swagger(SendResetPasswordRequest, null)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('send-reset-password')
   async sendResetPassword(@Body() request: SendResetPasswordRequest): Promise<{ message: string }> {
     await this.authService.sendResetPassword(request.email);
@@ -170,36 +179,39 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Change own password',
+    summary: 'Cambiar mi contraseña',
     description:
       'Changes the authenticated user password. Requires the current password: without that ' +
       'check a stolen token would be enough to take over the account.'
   })
   @UserAuth(ChangePasswordRequest, null)
   @HttpCode(200)
+  @ApiTags('Perfil')
   @Post('change-password')
   async changePassword(@Body() request: ChangePasswordRequest, @User() userId: string): Promise<void> {
     await this.authService.changePassword(userId, request.currentPassword, request.newPassword);
   }
 
   @ApiOperation({
-    summary: 'Reset password',
+    summary: 'Restablecer contraseña',
     description:
       'Sets a new password using the 6-digit code from the reset email, plus email and the new password.'
   })
   @Swagger(ResetPasswordRequest, null)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('reset-password')
   async resetPassword(@Body() request: ResetPasswordRequest): Promise<void> {
     await this.authService.resetPassword(request.email, request.password, request.code);
   }
 
   @ApiOperation({
-    summary: 'Register client',
+    summary: 'Registrar cliente',
     description: 'Creates a client account and sends a validation email with a link to /validate-email.'
   })
   @Swagger(RegisterAuthRequest, RegisterAuthResponse)
   @HttpCode(201)
+  @ApiTags('Auth')
   @Post('register/client')
   async registerClient(@Body() request: RegisterAuthRequest): Promise<RegisterAuthResponse> {
     const result = await this.authService.registerAuth(request);
@@ -207,13 +219,14 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Register producer',
+    summary: 'Registrar productora',
     description:
       'Creates a Productor account with a draft organization (validationStatus=draft_incomplete). ' +
       'Sends email verification. Fiscal wizard is required before creating events (FP01).'
   })
   @Swagger(RegisterProducerRequest, RegisterAuthResponse)
   @HttpCode(201)
+  @ApiTags('Auth')
   @Post('register/producer')
   async registerProducer(@Body() request: RegisterProducerRequest): Promise<RegisterAuthResponse> {
     const result = await this.authService.registerProducer({
@@ -227,24 +240,26 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Resend email verification',
+    summary: 'Reenviar verificación de email',
     description:
       'Resends the registration validation email with a new link to /validate-email for users who have not verified their email yet.'
   })
   @Swagger(ResendEmailVerificationRequest, null)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('register/resend-email-verification')
   async resendEmailVerification(@Body() request: ResendEmailVerificationRequest): Promise<void> {
     await this.authService.resendEmailVerification(request.email);
   }
 
   @ApiOperation({
-    summary: 'Validate email',
+    summary: 'Validar email',
     description:
       'Validates the user email using the token from the registration email link. Returns whether it was verified, already verified, or invalid.'
   })
   @Swagger(ValidateEmailRequest, ValidateEmailResponse)
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('validate-email')
   async validateEmail(@Body() request: ValidateEmailRequest): Promise<ValidateEmailResponse> {
     const result = await this.authService.validateEmailAuth(request.token);
@@ -252,9 +267,10 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Validate producer invite token',
+    summary: 'Validar token de invitación',
     description: 'Public endpoint to check if a producer invitation link is still valid.'
   })
+  @ApiTags('Auth')
   @Get('producer-invite/:token')
   async validateProducerInvite(@Param('token') token: string): Promise<ProducerInviteValidationResponse> {
     const result = await this.authService.validateProducerInvite(token);
@@ -262,10 +278,11 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'Accept producer invite',
+    summary: 'Aceptar invitación de productora',
     description: 'Creates or links the invited user as Productor of the organization.'
   })
   @HttpCode(200)
+  @ApiTags('Auth')
   @Post('accept-producer-invite')
   async acceptProducerInvite(
     @Body() request: AcceptProducerInviteRequest

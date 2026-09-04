@@ -29,14 +29,14 @@ import {
  * Dos orígenes: lo copiado desde Mercado Pago (solo lectura) y los ítems que
  * carga la productora a mano. Ambos son org-wide: todos los eventos ven lo mismo.
  */
-@ApiTags('Producer — Catálogo')
+@ApiTags('Productora — Catálogo')
 @Controller({ path: 'organizations/me', version: '1' })
 export class OrgCatalogController {
   constructor(@Inject('IOrgCatalogService') private readonly catalogService: IOrgCatalogService) {}
 
   @UserAuth(null, MpCatalogResponse)
   @ApiOperation({
-    summary: 'List the MP catalog copy',
+    summary: 'Listar catálogo de Mercado Pago',
     description:
       'Products copied from the connected Mercado Pago accounts. Read-only: it is refreshed with ' +
       'the "Actualizar catálogo" action, never automatically (`BR-CASH-002`).'
@@ -50,7 +50,7 @@ export class OrgCatalogController {
 
   @UserAuth(null, ManualItemsResponse)
   @ApiOperation({
-    summary: 'List manual catalog items',
+    summary: 'Listar ítems manuales',
     description: 'Organization-wide: every event of the producer sees the same items.'
   })
   @ApiQuery({
@@ -69,7 +69,7 @@ export class OrgCatalogController {
   }
 
   @UserAuth(CreateManualItemRequest, ManualItemResponse)
-  @ApiOperation({ summary: 'Create a manual catalog item' })
+  @ApiOperation({ summary: 'Crear ítem manual' })
   @HttpCode(201)
   @Post('manual-items')
   async createManualItem(
@@ -81,7 +81,7 @@ export class OrgCatalogController {
 
   @UserAuth(UpdateManualItemRequest, ManualItemResponse)
   @ApiOperation({
-    summary: 'Update a manual catalog item',
+    summary: 'Actualizar ítem manual',
     description:
       'Changing the reference price does NOT alter incomes already registered (`BR-CASH-002`).'
   })
@@ -100,7 +100,7 @@ export class OrgCatalogController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete a manual catalog item',
+    summary: 'Eliminar ítem manual',
     description: 'Logical delete: incomes already registered keep referencing the product.'
   })
   @ApiParam({ name: 'itemUuid' })

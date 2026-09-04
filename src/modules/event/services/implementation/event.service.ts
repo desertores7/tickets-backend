@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { Between, ILike, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
+import { Between, Like, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -90,7 +90,7 @@ export class EventService implements IEventService {
 
     const where: Record<string, unknown> = {
       isActive: true,
-      name: ILike(`%${search.search}%`)
+      name: Like(`%${search.search}%`)
     };
 
     if (options?.mine) {
@@ -1357,9 +1357,9 @@ export class EventService implements IEventService {
     const users = await this.dbRepository.findMany({
       entity: 'user',
       where: [
-        { firstName: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 },
-        { lastName: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 },
-        { email: ILike(`%${term}%`), isDeleted: IsNull(), active: 1 }
+        { firstName: Like(`%${term}%`), isDeleted: IsNull(), active: 1 },
+        { lastName: Like(`%${term}%`), isDeleted: IsNull(), active: 1 },
+        { email: Like(`%${term}%`), isDeleted: IsNull(), active: 1 }
       ] as any,
       other: { take: 10 }
     });
@@ -1523,13 +1523,13 @@ export class EventService implements IEventService {
 
     if (filters.city?.length) {
       c['venueCity'] =
-        filters.city.length === 1 ? ILike(`%${filters.city[0]}%`) : Or(...filters.city.map(x => ILike(`%${x}%`)));
+        filters.city.length === 1 ? Like(`%${filters.city[0]}%`) : Or(...filters.city.map(x => Like(`%${x}%`)));
     }
     if (filters.country?.length) {
       c['venueCountry'] =
         filters.country.length === 1
-          ? ILike(`%${filters.country[0]}%`)
-          : Or(...filters.country.map(x => ILike(`%${x}%`)));
+          ? Like(`%${filters.country[0]}%`)
+          : Or(...filters.country.map(x => Like(`%${x}%`)));
     }
     if (filters.organizationUuid?.length) c['organizationUuid'] = In(filters.organizationUuid);
 
@@ -1723,7 +1723,7 @@ export class EventService implements IEventService {
 
     const where: Record<string, unknown> = { eventUuid, isDeleted: IsNull() };
     if (category) where.category = category;
-    if (searchTerm) where.concept = ILike(`%${searchTerm}%`);
+    if (searchTerm) where.concept = Like(`%${searchTerm}%`);
 
     const result = await this.dbRepository.findManyAndCount({
       entity: 'event_expense',

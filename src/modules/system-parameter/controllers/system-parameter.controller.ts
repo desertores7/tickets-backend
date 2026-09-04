@@ -9,7 +9,7 @@ import { UpdateSystemParameterRequest } from './dtos/update-system-parameter/upd
 import { GetSystemParameterResponse } from './dtos/get-system-parameter/get-system-parameter.response';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
-@ApiTags('System Parameters')
+@ApiTags('Admin — Parámetros')
 @Controller('system-parameters')
 export class SystemParameterController {
   constructor(
@@ -19,7 +19,7 @@ export class SystemParameterController {
 
   @AdminAuth(null, GetSystemParameterResponse)
   @ApiOperation({
-    summary: 'Get all system parameters',
+    summary: 'Listar parámetros',
     description: 'This endpoint returns all active system parameters. Only for administrator use.'
   })
   @HttpCode(200)
@@ -31,7 +31,7 @@ export class SystemParameterController {
 
   @AdminAuth(null, GetSystemParameterResponse)
   @ApiOperation({
-    summary: 'Get system parameter by key',
+    summary: 'Obtener parámetro',
     description: 'This endpoint returns a system parameter by its key. Only for administrator use.'
   })
   @HttpCode(200)
@@ -46,7 +46,7 @@ export class SystemParameterController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Generar token de larga duración para APIs internas',
+    summary: 'Generar token interno',
     description:
       'Genera o rota el token de APIs internas (header X-Internal-Token). Se devuelve solo en esta respuesta. Solo administrador.'
   })
@@ -64,7 +64,7 @@ export class SystemParameterController {
 
   @AdminAuth(CreateSystemParameterRequest, GetSystemParameterResponse)
   @ApiOperation({
-    summary: 'Create system parameter',
+    summary: 'Crear parámetro',
     description:
       'This endpoint creates a new system parameter. If the key already exists, it will be updated. Only for administrator use.'
   })
@@ -90,7 +90,7 @@ export class SystemParameterController {
 
   @AdminAuth(UpdateSystemParameterRequest, GetSystemParameterResponse)
   @ApiOperation({
-    summary: 'Update system parameter',
+    summary: 'Actualizar parámetro',
     description: 'This endpoint updates an existing system parameter by its key. Only for administrator use.'
   })
   @HttpCode(200)
@@ -122,7 +122,7 @@ export class SystemParameterController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Delete system parameter',
+    summary: 'Eliminar parámetro',
     description: 'This endpoint soft deletes a system parameter by its key. Only for administrator use.'
   })
   @HttpCode(200)

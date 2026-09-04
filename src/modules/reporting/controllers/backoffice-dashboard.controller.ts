@@ -13,14 +13,14 @@ import { DashboardResponse } from './responses/reporting.response';
  * Complementa `GET /backoffice/home` (home por rol activo, con eventos de Caja
  * del día). Este endpoint agrega filtros de fecha, gastos y KPIs de reporting.
  */
-@ApiTags('Backoffice')
+@ApiTags('Admin — Backoffice')
 @Controller('backoffice')
 export class BackofficeDashboardController {
   constructor(@Inject('IReportingService') private readonly reportingService: IReportingService) {}
 
   @UserAuth(null, DashboardResponse)
   @ApiOperation({
-    summary: 'Backoffice dashboard summary (reporting)',
+    summary: 'Obtener dashboard de backoffice',
     description:
       'Aggregated KPIs (BR-BACKOFFICE-002). Scope depends on the role: a `Productor` gets their ' +
       "organizations' events; an `Administrador` gets all.\n\n" +

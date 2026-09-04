@@ -77,7 +77,8 @@ import {
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 
-@ApiTags('Events')
+// Sin @ApiTags a nivel de clase: este controller cubre siete secciones
+// distintas del Swagger y cada metodo declara la suya. Las rutas no cambian.
 @Controller('events')
 export class EventController {
   constructor(
@@ -86,8 +87,9 @@ export class EventController {
   ) {}
 
   @UserAuth(CreateEventRequest, null)
-  @ApiOperation({ summary: 'Create event', description: 'Creates a new event for an organization. Requester must be a member of the organization.' })
+  @ApiOperation({ summary: 'Crear evento', description: 'Creates a new event for an organization. Requester must be a member of the organization.' })
   @HttpCode(201)
+  @ApiTags('Productora — Eventos')
   @Post()
   async createEvent(
     @Body() data: CreateEventRequest,
@@ -98,7 +100,7 @@ export class EventController {
 
   @UserAuth(null, AnalyzeFlyersResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Analyze flyer with AI (OpenAI)',
+    summary: 'Crear evento desde flyer (IA)',
     description:
       'Accepts 1 flyer image (multipart field `flyers` — flyer principal only), extracts event fields via OpenAI vision, ' +
       'and generates one 16:9 ShowPass-style hero background via images.edit ' +
@@ -130,6 +132,7 @@ export class EventController {
     })
   )
   @HttpCode(200)
+  @ApiTags('Productora — Eventos')
   @Post('ai/from-flyers')
   async analyzeFromFlyers(
     @UploadedFiles() files: Express.Multer.File[],
@@ -141,7 +144,7 @@ export class EventController {
 
   @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Analyze sales map from image (OpenAI vision)',
+    summary: 'Analizar mapa de sala desde imagen (IA)',
     description:
       'Accepts 1 sales map image (multipart field `mapImage`). Returns an abstract venue layout: ' +
       'stage (semantic position), commercial categories, and structural groups (column/row/grid/zone) ' +
@@ -173,6 +176,7 @@ export class EventController {
     })
   )
   @HttpCode(200)
+  @ApiTags('Productora — Eventos')
   @Post('ai/from-map')
   async analyzeFromMap(
     @UploadedFile() file: Express.Multer.File,
@@ -184,7 +188,7 @@ export class EventController {
 
   @OptionalUserAuth(null, GetAllEventResponse)
   @ApiOperation({
-    summary: 'List events',
+    summary: 'Listar eventos',
     description:
       'Public by default: returns published, active events that have not ended yet. No token required.\n\n' +
       'With `mine=true` (requires token) switches to backoffice scope: includes drafts and past events. ' +
@@ -202,6 +206,7 @@ export class EventController {
   @ApiFilter(eventFilters)
   @HttpCode(200)
   @ApiOrder(EVENT_ORDER_COLUMNS)
+  @ApiTags('Público — Eventos')
   @Get()
   async getEvents(
     @PaginationParams() pagination: IPaginationParams,
@@ -227,13 +232,14 @@ export class EventController {
 
   @OptionalUserAuth(null, GetIdEventResponse)
   @ApiOperation({
-    summary: 'Get event by slug',
+    summary: 'Obtener evento por slug',
     description:
       'Returns event details including ticket types, resolved by public slug. ' +
       'Unpublished drafts are only visible to authenticated users.'
   })
   @ApiParam({ name: 'slug', description: 'Event URL slug' })
   @HttpCode(200)
+  @ApiTags('Público — Eventos')
   @Get('by-slug/:slug')
   async getEventBySlug(
     @Param('slug') slug: string,
@@ -245,12 +251,13 @@ export class EventController {
 
   @OptionalUserAuth(null, GetIdEventResponse)
   @ApiOperation({
-    summary: 'Get event by ID',
+    summary: 'Obtener evento',
     description:
       'Returns event details including ticket types. Public: no token required. ' +
       'Unpublished drafts are only visible to authenticated users.'
   })
   @HttpCode(200)
+  @ApiTags('Público — Eventos')
   @Get(':eventUuid')
   async getEventById(
     @Param('eventUuid') eventUuid: string,
@@ -262,7 +269,7 @@ export class EventController {
 
   @UserAuth(null, GetFeeSummaryResponse)
   @ApiOperation({
-    summary: 'Get event fee summary',
+    summary: 'Obtener resumen de comisiones',
     description:
       'Returns the accumulated fee summary for an event. ' +
       '**BR-REPORT-001**: `serviceFeeAmount` and `grossAmount` are returned ONLY to an `Administrador`. ' +
@@ -276,6 +283,7 @@ export class EventController {
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @HttpCode(200)
+  @ApiTags('Productora — Eventos')
   @Get(':eventUuid/fee-summary')
   async getFeeSummary(
     @Param('eventUuid') eventUuid: string,
@@ -287,8 +295,9 @@ export class EventController {
   }
 
   @UserAuth(UpdateEventRequest, null)
-  @ApiOperation({ summary: 'Update event', description: 'Updates an event. Only members of the owning organization can update.' })
+  @ApiOperation({ summary: 'Actualizar evento', description: 'Updates an event. Only members of the owning organization can update.' })
   @HttpCode(200)
+  @ApiTags('Productora — Eventos')
   @Patch(':eventUuid')
   async updateEvent(
     @Param('eventUuid') eventUuid: string,
@@ -299,16 +308,18 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Delete event (soft)', description: 'Soft-deletes an event by setting isActive to false. Only members of the owning organization can delete.' })
+  @ApiOperation({ summary: 'Eliminar evento — baja lógica', description: 'Soft-deletes an event by setting isActive to false. Only members of the owning organization can delete.' })
   @HttpCode(200)
+  @ApiTags('Productora — Eventos')
   @Delete(':eventUuid')
   async deleteEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.deleteEvent(eventUuid, loggedUser);
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Publish event', description: 'Publishes an event making it visible to the public. Requires at least one active ticket type.' })
+  @ApiOperation({ summary: 'Publicar evento', description: 'Publishes an event making it visible to the public. Requires at least one active ticket type.' })
   @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
   @Post(':eventUuid/publish')
   async publishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.publishEvent(eventUuid, loggedUser);
@@ -316,7 +327,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Unpublish event (draft)',
+    summary: 'Despublicar evento — vuelve a borrador',
     description:
       'Sets the event back to draft (hidden from public catalog). ' +
       'Not allowed if any ticket type already has confirmed sales (quantity > availableQuantity).'
@@ -324,6 +335,7 @@ export class EventController {
   @ApiResponse({ status: 200, description: 'Event unpublished' })
   @ApiResponse({ status: 400, description: 'Already draft, or event has confirmed sales' })
   @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
   @Post(':eventUuid/unpublish')
   async unpublishEvent(@Param('eventUuid') eventUuid: string, @User() loggedUser: string): Promise<boolean> {
     return this._eventService.unpublishEvent(eventUuid, loggedUser);
@@ -331,7 +343,7 @@ export class EventController {
 
   @UserAuth(null, EventChangesResponse)
   @ApiOperation({
-    summary: 'List event changes',
+    summary: 'Listar cambios del evento',
     description:
       'Historial de cambios del evento (FP10 / `29` §17): cancelaciones, materiales, stock, cierre de venta. ' +
       'Orden: más nuevo → más viejo. Solo productor dueño (404 si no es suyo).'
@@ -339,6 +351,7 @@ export class EventController {
   @ApiResponse({ status: 200, type: EventChangesResponse })
   @ApiResponse({ status: 404, description: 'Evento no encontrado o sin acceso' })
   @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
   @Get(':eventUuid/changes')
   async listEventChanges(
     @Param('eventUuid') eventUuid: string,
@@ -350,7 +363,7 @@ export class EventController {
 
   @UserAuth(CancelEventRequest, EventChangeResponse)
   @ApiOperation({
-    summary: 'Cancel event',
+    summary: 'Cancelar evento',
     description:
       'Cancela el evento (BR-EVENT-010): marca cancelledAt, corta la venta, persiste event_change. ' +
       'Con ventas → email + ventana 72 h. No borra ni despublica. Idempotente → 409 si ya cancelado.'
@@ -358,6 +371,7 @@ export class EventController {
   @ApiResponse({ status: 200, type: EventChangeResponse })
   @ApiResponse({ status: 409, description: 'El evento ya está cancelado' })
   @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
   @Post(':eventUuid/cancel')
   async cancelEvent(
     @Param('eventUuid') eventUuid: string,
@@ -370,7 +384,7 @@ export class EventController {
 
   @UserAuth(SetSalesClosedRequest, EventSalesStateResponse)
   @ApiOperation({
-    summary: 'Close or reopen sales',
+    summary: 'Cerrar o reabrir ventas',
     description:
       'Manual sales cut-off (`BR-EVENT-013`). Not a material change. Productor dueño o Admin. ' +
       'A cancelled event cannot be reopened. Kept apart from `saleEndDate`.'
@@ -378,6 +392,7 @@ export class EventController {
   @ApiResponse({ status: 200, type: EventSalesStateResponse })
   @ApiResponse({ status: 400, description: 'No se puede reabrir un evento cancelado' })
   @HttpCode(200)
+  @ApiTags('Productora — Ciclo de vida')
   @Post(':eventUuid/sales-closed')
   async setSalesClosed(
     @Param('eventUuid') eventUuid: string,
@@ -391,11 +406,12 @@ export class EventController {
 
   @OptionalUserAuth(null, EventMapResponse)
   @ApiOperation({
-    summary: 'Get event map (public read)',
+    summary: 'Obtener mapa de sala — lectura pública',
     description:
       'Read-only seating/sector map. Published events are public; drafts require ownership.'
   })
   @HttpCode(200)
+  @ApiTags('Público — Eventos')
   @Get(':eventUuid/map/public')
   async getEventMapPublic(
     @Param('eventUuid') eventUuid: string,
@@ -414,8 +430,9 @@ export class EventController {
   }
 
   @UserAuth(null, EventMapResponse)
-  @ApiOperation({ summary: 'Get event map', description: 'Returns the seating/sector map for the event, or null if not created yet.' })
+  @ApiOperation({ summary: 'Obtener mapa de sala', description: 'Returns the seating/sector map for the event, or null if not created yet.' })
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Get(':eventUuid/map')
   async getEventMap(
     @Param('eventUuid') eventUuid: string,
@@ -431,10 +448,11 @@ export class EventController {
 
   @UserAuth(UpsertEventMapRequest, EventMapResponse)
   @ApiOperation({
-    summary: 'Create or replace event map sectors',
+    summary: 'Reemplazar sectores del mapa',
     description: 'Upserts map metadata and replaces the full sector list (GA sectors linked to ticket types).'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Put(':eventUuid/map')
   async upsertEventMap(
     @Param('eventUuid') eventUuid: string,
@@ -453,7 +471,7 @@ export class EventController {
   }
 
   @UserAuth(null, EventMapResponse)
-  @ApiOperation({ summary: 'Upload map base image', description: 'Multipart field `baseImage`. Max 8MB.' })
+  @ApiOperation({ summary: 'Subir imagen base del mapa', description: 'Multipart field `baseImage`. Max 8MB.' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -464,6 +482,7 @@ export class EventController {
   })
   @UseInterceptors(FileInterceptor('baseImage'))
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Post(':eventUuid/map/base-image')
   async uploadMapBaseImage(
     @Param('eventUuid') eventUuid: string,
@@ -484,10 +503,11 @@ export class EventController {
 
   @UserAuth(null, EventMapResponse)
   @ApiOperation({
-    summary: 'Delete map base image',
+    summary: 'Eliminar imagen base del mapa',
     description: 'Removes the uploaded floor plan. Sectors already drawn are kept.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Delete(':eventUuid/map/base-image')
   async deleteMapBaseImage(
     @Param('eventUuid') eventUuid: string,
@@ -503,10 +523,11 @@ export class EventController {
 
   @UserAuth(SetMapBaseFromMediaRequest, EventMapResponse)
   @ApiOperation({
-    summary: 'Use gallery image as map base',
+    summary: 'Usar imagen de galería como base del mapa',
     description: 'Sets baseImageUrl from an existing event gallery image (e.g. flyer de precios).'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Post(':eventUuid/map/base-from-media')
   async setMapBaseFromMedia(
     @Param('eventUuid') eventUuid: string,
@@ -522,11 +543,12 @@ export class EventController {
 
   @UserAuth(null, SuggestMapSectorsResponse)
   @ApiOperation({
-    summary: 'Suggest map sectors (soft-fail)',
+    summary: 'Sugerir sectores del mapa (IA)',
     description:
       'Proposes sector rectangles from ticket types (+ optional flyer). Always returns a usable list; warning if AI failed.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Mapa')
   @Post(':eventUuid/map/suggest-sectors')
   async suggestMapSectors(
     @Param('eventUuid') eventUuid: string,
@@ -546,7 +568,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Upload event banner (per platform)',
+    summary: 'Subir banner — por variante',
     description:
       'Uploads one banner image per platform variant (multipart/form-data, field `banner`).\n\n' +
       '**Variants:** `desktop` (hero), `mobile`, `thumbnail`.\n\n' +
@@ -572,6 +594,7 @@ export class EventController {
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @UseInterceptors(FileInterceptor('banner'))
   @HttpCode(200)
+  @ApiTags('Productora — Multimedia')
   @Post(':eventUuid/banner/:variant')
   async uploadBanner(
     @Param('eventUuid') eventUuid: string,
@@ -593,7 +616,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete banner variant',
+    summary: 'Eliminar banner — por variante',
     description: 'Removes the image of a specific platform variant and deletes the file from storage.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
@@ -603,6 +626,7 @@ export class EventController {
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 403, description: 'User is not a member of the owning organization nor an admin.' })
   @HttpCode(200)
+  @ApiTags('Productora — Multimedia')
   @Delete(':eventUuid/banner/:variant')
   async deleteBanner(
     @Param('eventUuid') eventUuid: string,
@@ -617,12 +641,13 @@ export class EventController {
 
   @OptionalUserAuth(null, EventMediaResponse)
   @ApiOperation({
-    summary: 'List event gallery media',
+    summary: 'Listar galería del evento',
     description:
       'Returns up to 4 gallery items. Published events are public; drafts require ownership token.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @HttpCode(200)
+  @ApiTags('Productora — Multimedia')
   @Get(':eventUuid/media')
   async getEventMedia(
     @Param('eventUuid') eventUuid: string,
@@ -634,7 +659,7 @@ export class EventController {
 
   @UserAuth(null, EventMediaResponse)
   @ApiOperation({
-    summary: 'Upload gallery media',
+    summary: 'Subir imagen a la galería',
     description:
       'Uploads one gallery file (multipart field `media`). Max 4 active items per event. ' +
       'Images are compressed to WebP; videos are stored as-is (transcode pending). Max 20 MB.'
@@ -650,6 +675,7 @@ export class EventController {
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @UseInterceptors(FileInterceptor('media'))
   @HttpCode(201)
+  @ApiTags('Productora — Multimedia')
   @Post(':eventUuid/media')
   async uploadEventMedia(
     @Param('eventUuid') eventUuid: string,
@@ -666,10 +692,11 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Delete gallery media item' })
+  @ApiOperation({ summary: 'Eliminar imagen de la galería' })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'mediaUuid', description: 'Media UUID.' })
   @HttpCode(200)
+  @ApiTags('Productora — Multimedia')
   @Delete(':eventUuid/media/:mediaUuid')
   async deleteEventMedia(
     @Param('eventUuid') eventUuid: string,
@@ -681,7 +708,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'List producers assigned to the event',
+    summary: 'Listar productores del evento',
     description:
       'Producers explicitly assigned to this event. Access via the event organization is NOT listed here — ' +
       'those users reach the event through `user_organization`.'
@@ -690,6 +717,7 @@ export class EventController {
   @ApiResponse({ status: 200, description: 'Assigned producers.' })
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Get(':eventUuid/producers')
   async getEventProducers(
     @Param('eventUuid') eventUuid: string,
@@ -700,7 +728,7 @@ export class EventController {
 
   @AdminAuth(AssignProducerRequest, null)
   @ApiOperation({
-    summary: 'Assign a producer to the event',
+    summary: 'Asignar productor al evento',
     description:
       'Grants a specific user access to THIS event only (additive to organization membership). ' +
       'Idempotent: assigning someone already assigned is a no-op.'
@@ -710,6 +738,7 @@ export class EventController {
   @ApiResponse({ status: 400, description: 'User not found.' })
   @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Post(':eventUuid/producers')
   async assignProducer(
     @Param('eventUuid') eventUuid: string,
@@ -721,7 +750,7 @@ export class EventController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Remove a producer from the event',
+    summary: 'Quitar productor del evento',
     description: 'Revokes the per-event assignment. Does not affect access granted by organization membership.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
@@ -729,6 +758,7 @@ export class EventController {
   @ApiResponse({ status: 200, description: 'Assignment removed.' })
   @ApiResponse({ status: 403, description: 'Requires the Administrador role.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Delete(':eventUuid/producers/:userUuid')
   async removeProducer(
     @Param('eventUuid') eventUuid: string,
@@ -744,13 +774,14 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'List validators assigned to the event',
+    summary: 'Listar validadores del evento',
     description: 'Door staff assigned to this event. Accessible to an admin or to the event owner.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiResponse({ status: 200, description: 'Assigned validators.' })
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Get(':eventUuid/validators')
   async getEventValidators(
     @Param('eventUuid') eventUuid: string,
@@ -761,7 +792,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Search users to assign as validators',
+    summary: 'Buscar candidatos a validador',
     description:
       'Searches active users by first name, last name or email, excluding those already assigned. ' +
       'Returns up to 10 results; an empty `search` returns an empty list.\n\n' +
@@ -773,6 +804,7 @@ export class EventController {
   @ApiResponse({ status: 200, description: 'Matching users.' })
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Get(':eventUuid/validators/candidates')
   async getValidatorCandidates(
     @Param('eventUuid') eventUuid: string,
@@ -784,7 +816,7 @@ export class EventController {
 
   @UserAuth(AssignValidatorRequest, null)
   @ApiOperation({
-    summary: 'Assign a validator to the event',
+    summary: 'Asignar validador al evento',
     description:
       'Assigns door staff to THIS event and grants the `Validador` role if the user does not ' +
       'already have it (the expected flow is that they register as a Cliente first). ' +
@@ -795,6 +827,7 @@ export class EventController {
   @ApiResponse({ status: 400, description: 'User not found, or the Validador role is missing.' })
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Post(':eventUuid/validators')
   async assignValidator(
     @Param('eventUuid') eventUuid: string,
@@ -806,7 +839,7 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Remove a validator from the event',
+    summary: 'Quitar validador del evento',
     description:
       'Removes the assignment. The `Validador` role is NOT revoked — the person may still be ' +
       'working the door at other events.'
@@ -816,6 +849,7 @@ export class EventController {
   @ApiResponse({ status: 200, description: 'Assignment removed.' })
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
   @Delete(':eventUuid/validators/:userUuid')
   async removeValidator(
     @Param('eventUuid') eventUuid: string,
@@ -826,8 +860,9 @@ export class EventController {
   }
 
   @UserAuth(null, TicketTypeResponse)
-  @ApiOperation({ summary: 'List ticket types', description: 'Returns all active ticket types for an event.' })
+  @ApiOperation({ summary: 'Listar tandas', description: 'Returns all active ticket types for an event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Tandas')
   @Get(':eventUuid/ticket-types')
   async getTicketTypes(@Param('eventUuid') eventUuid: string): Promise<TicketTypeResponse[]> {
     const items = await this._eventService.getTicketTypes(eventUuid);
@@ -836,12 +871,13 @@ export class EventController {
 
   @UserAuth(BulkCreateTicketTypesRequest, TicketTypeResponse)
   @ApiOperation({
-    summary: 'Create ticket types (bulk)',
+    summary: 'Crear tandas (bulk)',
     description:
       'Creates every ticket type of the payload in a single request and initializes their stock in Redis. ' +
       'Preferred over the single-item endpoint: an event with 50 tandas is one request, not 50.'
   })
   @HttpCode(201)
+  @ApiTags('Productora — Tandas')
   @Post(':eventUuid/ticket-types/bulk')
   async createTicketTypesBulk(
     @Param('eventUuid') eventUuid: string,
@@ -854,10 +890,11 @@ export class EventController {
 
   @UserAuth(BulkUpdateTicketTypesRequest, TicketTypeResponse)
   @ApiOperation({
-    summary: 'Update ticket types (bulk)',
+    summary: 'Actualizar tandas (bulk)',
     description: 'Updates every ticket type of the payload in a single request. Each item carries the uuid it patches.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Tandas')
   @Patch(':eventUuid/ticket-types/bulk')
   async updateTicketTypesBulk(
     @Param('eventUuid') eventUuid: string,
@@ -870,12 +907,13 @@ export class EventController {
 
   @UserAuth(BulkDeleteTicketTypesRequest, null)
   @ApiOperation({
-    summary: 'Delete ticket types (bulk)',
+    summary: 'Eliminar tandas (bulk)',
     description:
       'Deactivates every ticket type of the payload in a single request. Used when the event map is ' +
       'regenerated and the previous map tandas have to be cleared. Fails if any of them has sales.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Tandas')
   @Post(':eventUuid/ticket-types/bulk-delete')
   async deleteTicketTypesBulk(
     @Param('eventUuid') eventUuid: string,
@@ -886,8 +924,9 @@ export class EventController {
   }
 
   @UserAuth(UpdateTicketTypeRequest, TicketTypeResponse)
-  @ApiOperation({ summary: 'Update ticket type', description: 'Updates a ticket type. Price cannot be changed once the event is published.' })
+  @ApiOperation({ summary: 'Actualizar tanda', description: 'Updates a ticket type. Price cannot be changed once the event is published.' })
   @HttpCode(200)
+  @ApiTags('Productora — Tandas')
   @Patch(':eventUuid/ticket-types/:ticketTypeUuid')
   async updateTicketType(
     @Param('eventUuid') eventUuid: string,
@@ -900,8 +939,9 @@ export class EventController {
   }
 
   @UserAuth(CreateTicketTypeRequest, TicketTypeResponse)
-  @ApiOperation({ summary: 'Create ticket type', description: 'Creates a new ticket type for an event and initializes its stock in Redis.' })
+  @ApiOperation({ summary: 'Crear tanda', description: 'Creates a new ticket type for an event and initializes its stock in Redis.' })
   @HttpCode(201)
+  @ApiTags('Productora — Tandas')
   @Post(':eventUuid/ticket-types')
   async createTicketType(
     @Param('eventUuid') eventUuid: string,
@@ -914,10 +954,11 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete ticket type (soft)',
+    summary: 'Eliminar tanda — baja lógica',
     description: 'Deactivates a ticket type on a draft event. Not allowed if the type has sales or the event is published.'
   })
   @HttpCode(200)
+  @ApiTags('Productora — Tandas')
   @Delete(':eventUuid/ticket-types/:ticketTypeUuid')
   async deleteTicketType(
     @Param('eventUuid') eventUuid: string,
@@ -932,7 +973,7 @@ export class EventController {
 
   @UserAuth(null, EventExpensesResponse)
   @ApiOperation({
-    summary: 'List event expenses',
+    summary: 'Listar gastos del evento',
     description:
       'Cost lines of the event plus the per-category aggregate used by the dashboard. ' +
       'Filters and pagination narrow `items`, but `byCategory` and `total` always reflect the ' +
@@ -949,6 +990,7 @@ export class EventController {
   @ApiOrder(EXPENSE_ORDER_COLUMNS)
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
+  @ApiTags('Productora — Gastos')
   @Get(':eventUuid/expenses')
   async getExpenses(
     @Param('eventUuid') eventUuid: string,
@@ -973,11 +1015,12 @@ export class EventController {
 
   @UserAuth(CreateExpenseRequest, EventExpenseResponse)
   @ApiOperation({
-    summary: 'Create expense line',
+    summary: 'Crear gasto',
     description: 'Adds a cost line. `totalAmount` is computed as quantity × unitCost — never sent by the client.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @HttpCode(201)
+  @ApiTags('Productora — Gastos')
   @Post(':eventUuid/expenses')
   async createExpense(
     @Param('eventUuid') eventUuid: string,
@@ -989,12 +1032,13 @@ export class EventController {
 
   @UserAuth(UpdateExpenseRequest, EventExpenseResponse)
   @ApiOperation({
-    summary: 'Update expense line',
+    summary: 'Actualizar gasto',
     description: 'Partial update. Changing quantity or unitCost recomputes `totalAmount`.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
   @HttpCode(200)
+  @ApiTags('Productora — Gastos')
   @Patch(':eventUuid/expenses/:expenseUuid')
   async updateExpense(
     @Param('eventUuid') eventUuid: string,
@@ -1009,12 +1053,13 @@ export class EventController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Delete expense line',
+    summary: 'Eliminar gasto',
     description: 'Logical delete: the cost history is kept for auditing.'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'expenseUuid', description: 'Expense UUID.' })
   @HttpCode(200)
+  @ApiTags('Productora — Gastos')
   @Delete(':eventUuid/expenses/:expenseUuid')
   async deleteExpense(
     @Param('eventUuid') eventUuid: string,

@@ -49,14 +49,14 @@ function applyDownloadHeaders(res: Response, mimeType: string, originalName: str
  * El Productor solo lee: es el comprobante de una transferencia ya hecha. El
  * alta y los archivos los carga el Administrador, en el controlador de abajo.
  */
-@ApiTags('Producer — Liquidaciones')
+@ApiTags('Productora — Liquidaciones')
 @Controller({ path: 'organizations/me/payouts', version: '1' })
 export class ProducerPayoutController {
   constructor(@Inject('IPayoutService') private readonly payoutService: IPayoutService) {}
 
   @UserAuth(null, PayoutBlocksResponse)
   @ApiOperation({
-    summary: 'List my payouts, grouped by event',
+    summary: 'Listar mis liquidaciones — agrupadas por evento',
     description:
       'One block per event with its payouts. A payout belongs to exactly one event and an event ' +
       'can have several (BR-PAY-005). Amounts exclude the service fee. Supports `search` (event name), ' +
@@ -86,7 +86,7 @@ export class ProducerPayoutController {
   }
 
   @UserAuth(null, PayoutResponse)
-  @ApiOperation({ summary: 'Payout detail' })
+  @ApiOperation({ summary: 'Obtener liquidación' })
   @ApiParam({ name: 'payoutUuid' })
   @HttpCode(200)
   @Get(':payoutUuid')
@@ -99,7 +99,7 @@ export class ProducerPayoutController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Download the transfer proof',
+    summary: 'Descargar comprobante de transferencia',
     description: 'Private file: served through this authenticated endpoint, never a public URL.'
   })
   @ApiParam({ name: 'payoutUuid' })
@@ -114,7 +114,7 @@ export class ProducerPayoutController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Download the ARCA invoice',
+    summary: 'Descargar factura ARCA',
     description: 'Returns 404 while the invoice is still pending (BR-FACT-002).'
   })
   @ApiParam({ name: 'payoutUuid' })
@@ -146,7 +146,7 @@ export class AdminPayoutController {
   constructor(@Inject('IPayoutService') private readonly payoutService: IPayoutService) {}
 
   @AdminAuth(null, PayoutBlocksResponse)
-  @ApiOperation({ summary: 'List payouts of an organization' })
+  @ApiOperation({ summary: 'Listar liquidaciones de una productora' })
   @ApiParam({ name: 'organizationUuid' })
   @ApiSearch()
   @ApiFilter(payoutFilters)
@@ -170,7 +170,7 @@ export class AdminPayoutController {
 
   @AdminAuth(CreatePayoutRequest, PayoutResponse)
   @ApiOperation({
-    summary: 'Register a payout',
+    summary: 'Registrar liquidación',
     description:
       'Records a transfer that already happened - the payment process itself is manual ' +
       '(BR-PAY-005). The event must belong to the organization.'
@@ -190,7 +190,7 @@ export class AdminPayoutController {
 
   @AdminAuth(null, PayoutResponse)
   @ApiOperation({
-    summary: 'Upload the transfer proof',
+    summary: 'Subir comprobante de transferencia',
     description: 'Multipart field `file`. PDF, JPG, PNG or WebP, max 5MB.'
   })
   @ApiConsumes('multipart/form-data')
@@ -209,7 +209,7 @@ export class AdminPayoutController {
 
   @AdminAuth(null, PayoutResponse)
   @ApiOperation({
-    summary: 'Upload the ARCA invoice',
+    summary: 'Subir factura ARCA',
     description:
       'Multipart field `file`. Uploading it moves the payout to `invoice_available`; until then ' +
       'the producer sees it as pending.'
@@ -230,7 +230,7 @@ export class AdminPayoutController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Delete a payout',
+    summary: 'Eliminar liquidación',
     description: 'Logical delete: it is an accounting record and must not vanish from history.'
   })
   @ApiParam({ name: 'payoutUuid' })

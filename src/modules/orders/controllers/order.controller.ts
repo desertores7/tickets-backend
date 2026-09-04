@@ -20,7 +20,7 @@ import { CreateOrderRequest } from './dtos/create-order/create-order.request';
 import { GetOrderResponse } from './dtos/get-order/get-order.response';
 import { GetUserOrdersResponse, OrderSummaryResponse } from './dtos/get-user-orders/get-user-orders.response';
 
-@ApiTags('Orders')
+@ApiTags('Compra — Órdenes')
 @Controller('orders')
 export class OrderController {
   constructor(@Inject('IOrderService') private readonly _orderService: IOrderService) {}
@@ -31,7 +31,7 @@ export class OrderController {
 
   @UserAuth(CreateOrderRequest, null)
   @ApiOperation({
-    summary: 'Create order',
+    summary: 'Crear orden',
     description:
       'Validates the event and requested ticket types, reserves stock atomically in Redis, ' +
       'persists the order and its line items in a single MySQL transaction, and enqueues a ' +
@@ -63,7 +63,7 @@ export class OrderController {
 
   @UserAuth(null, GetUserOrdersResponse)
   @ApiOperation({
-    summary: 'List my orders',
+    summary: 'Listar mis órdenes',
     description:
       'Returns a paginated list of all orders belonging to the authenticated user, sorted by ' +
       'creation date descending. Each item includes a summary with status, total and item count.'
@@ -102,7 +102,7 @@ export class OrderController {
 
   @UserAuth(null, GetOrderResponse)
   @ApiOperation({
-    summary: 'Get order by ID',
+    summary: 'Obtener orden',
     description:
       'Returns full order details including all line items and their individual tickets. ' +
       'Only the owner of the order can access it.'
@@ -124,7 +124,7 @@ export class OrderController {
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Cancel order',
+    summary: 'Cancelar orden',
     description:
       'Cancels an order that is still in `pending_payment` status and immediately releases ' +
       'the reserved stock back to the Redis pool so other buyers can purchase those tickets.'

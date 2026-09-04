@@ -30,13 +30,13 @@ import { GetIdUserResponse } from './dtos/get-id-user/get-id-user.response';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 
-@ApiTags('Users')
+@ApiTags('Admin — Usuarios')
 @Controller('users')
 export class UserController {
   constructor(@Inject('IUserService') public userService: IUserService) {}
 
   @ApiOperation({
-    summary: 'Get all users',
+    summary: 'Listar usuarios',
     description: 'Returns all users from the local database with pagination, search and filters.'
   })
   @AdminAuth(null, GetAllUserResponse)
@@ -62,7 +62,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Get list of users',
+    summary: 'Listar usuarios — formato reducido',
     description: 'This endpoint is for get list of users'
   })
   @AdminAuth(null, GetListUserResponse)
@@ -74,7 +74,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Get user by id',
+    summary: 'Obtener usuario',
     description: 'Returns a single user from the local user entity by UUID (not deleted).'
   })
   @AdminAuth(null, GetIdUserResponse)
@@ -86,7 +86,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Create user',
+    summary: 'Crear usuario',
     description: 'This endpoint is for create user'
   })
   // requestType en null: el body es multipart y lo describe @ApiConsumes,
@@ -105,7 +105,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Update user',
+    summary: 'Actualizar usuario',
     description:
       'Partial update of a user. Optional: firstName, lastName, email, username, password, roleUuid, activeUser, imgProfile.'
   })
@@ -123,7 +123,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Delete user (logical)',
+    summary: 'Eliminar usuario — baja lógica',
     description: 'Soft-deletes the user by setting isDeleted.'
   })
   @AdminAuth(null, null)
@@ -134,7 +134,7 @@ export class UserController {
   }
 
   @ApiOperation({
-    summary: 'Assign role to user',
+    summary: 'Asignar rol a usuario',
     description: 'This endpoint assigns a role to an existing user'
   })
   @AdminAuth(AssignRoleRequest, null)

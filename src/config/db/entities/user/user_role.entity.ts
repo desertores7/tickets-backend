@@ -17,10 +17,10 @@ export class UserRoleEntity {
   @PrimaryGeneratedColumn('uuid')
   uuid: string;
 
-  @Column({ type: 'char' })
+  @Column({ type: 'varchar', length: 36 })
   userUuid: string;
 
-  @Column({ type: 'char' })
+  @Column({ type: 'varchar', length: 36 })
   roleUuid: string;
 
   @Column({ type: 'date', nullable: true, default: null })

@@ -87,7 +87,7 @@ export class StockAlertsResponse {
  * El tono de los avisos es de felicitación: agotar una tanda es que el evento
  * vende bien, no una crisis.
  */
-@ApiTags('Producer — Alertas de stock')
+@ApiTags('Productora — Alertas de stock')
 @Controller({ path: 'events/:eventUuid/stock-alerts', version: '1' })
 export class StockAlertController {
   constructor(
@@ -95,7 +95,7 @@ export class StockAlertController {
   ) {}
 
   @UserAuth(null, StockAlertsResponse)
-  @ApiOperation({ summary: 'List stock alerts of the event' })
+  @ApiOperation({ summary: 'Listar alertas de stock' })
   @ApiParam({ name: 'eventUuid' })
   @HttpCode(200)
   @Get()
@@ -109,7 +109,7 @@ export class StockAlertController {
 
   @UserAuth(UpsertStockAlertRequest, StockAlertResponse)
   @ApiOperation({
-    summary: 'Create or update the alert of a ticket type',
+    summary: 'Crear o actualizar alerta de una tanda',
     description:
       'PUT because there is at most one alert per ticket type: two configurations would only ' +
       'duplicate the notices. Changing the configuration rearms the notice.'
@@ -128,7 +128,7 @@ export class StockAlertController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Delete a stock alert' })
+  @ApiOperation({ summary: 'Eliminar alerta de stock' })
   @ApiParam({ name: 'eventUuid' })
   @ApiParam({ name: 'alertUuid' })
   @HttpCode(204)

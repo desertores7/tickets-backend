@@ -45,7 +45,7 @@ type TMyTicketTimeframe = (typeof MY_TICKET_TIMEFRAME)[number];
 
 // ── User-facing ticket endpoints ─────────────────────────────────────────────
 
-@ApiTags('Tickets')
+@ApiTags('Compra — Tickets')
 @Controller('tickets')
 export class TicketController {
   private readonly logger = new Logger(TicketController.name);
@@ -61,7 +61,7 @@ export class TicketController {
 
   @UserAuth(null, GetMyTicketsResponse)
   @ApiOperation({
-    summary: 'List my tickets',
+    summary: 'Listar mis tickets',
     description:
       'Returns a paginated list of all active and used tickets belonging to the authenticated user, ' +
       'sorted by creation date descending. Cancelled tickets are excluded.'
@@ -173,7 +173,7 @@ export class TicketController {
 
   @UserAuth(null, GetTicketResponse)
   @ApiOperation({
-    summary: 'Get ticket detail',
+    summary: 'Obtener ticket',
     description:
       'Returns the full detail of a ticket including event info, ticket type, and order reference. ' +
       'Only the owner of the ticket can access it.'
@@ -250,7 +250,7 @@ export class AdminTicketController {
 
   @AdminAuth(null, null)
   @ApiOperation({
-    summary: 'Regenerate ticket QR (admin)',
+    summary: 'Regenerar QR del ticket',
     description:
       'Clears existing QR/PDF assets for a ticket and enqueues a new `generate-qr` job. ' +
       'The operation is asynchronous — HTTP 202 is returned immediately; the new QR image and PDF ' +

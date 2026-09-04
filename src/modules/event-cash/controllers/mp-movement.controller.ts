@@ -19,7 +19,7 @@ import {
  * asignadas. Todo acá es **solo del Productor**: el rol Caja carga ingresos,
  * no toca lo que llegó de MP.
  */
-@ApiTags('Producer — Caja')
+@ApiTags('Productora — Caja')
 @Controller({ path: 'events/:eventUuid/mp-movements', version: '1' })
 export class MpMovementController {
   constructor(
@@ -28,7 +28,7 @@ export class MpMovementController {
 
   @UserAuth(null, MpMovementsResponse)
   @ApiOperation({
-    summary: 'List synced MP movements',
+    summary: 'Listar movimientos de Mercado Pago',
     description:
       'Movements copied from the MP accounts assigned to this event during its window ' +
       '(`BR-CASH-003`). Producer only.'
@@ -46,7 +46,7 @@ export class MpMovementController {
 
   @UserAuth(UpdateMpMovementRequest, MpMovementResponse)
   @ApiOperation({
-    summary: 'Reclassify or reassign a movement',
+    summary: 'Reclasificar movimiento',
     description:
       'Producer only. `targetEventUuid` moves the movement to another event of the same ' +
       'organization, and is rejected once the movement already has an income attached.'
@@ -68,7 +68,7 @@ export class MpMovementController {
 
   @UserAuth(CompleteMovementProductsRequest, IncomeResponse)
   @ApiOperation({
-    summary: 'Complete the product detail of a movement',
+    summary: 'Completar detalle de productos del movimiento',
     description:
       'Creates an `mp_auto` income linked to the movement. It is the breakdown of money that ' +
       'already came in through MP, so the summary does not add it to the total again.'
