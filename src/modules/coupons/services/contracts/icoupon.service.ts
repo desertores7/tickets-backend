@@ -92,6 +92,7 @@ export interface ICouponService {
       order?: IOrderParams<typeof COUPON_ORDER_COLUMNS>;
     }
   ): Promise<ICouponListResult>;
+  getByUuid(eventUuid: string, couponUuid: string, loggedUser: string): Promise<ICoupon>;
   create(eventUuid: string, payload: ICouponPayload, loggedUser: string): Promise<ICoupon>;
   update(
     eventUuid: string,
