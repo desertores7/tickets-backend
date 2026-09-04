@@ -170,11 +170,14 @@ export class PaymentController {
   })
   @ApiResponse({ status: 200, type: GetPaymentResponse, description: 'Payment record returned.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
-  @ApiResponse({ status: 404, description: 'No payment record found for this order.' })
+  @ApiResponse({ status: 404, description: 'No payment record found, or the order belongs to someone else.' })
   @HttpCode(200)
   @Get('orders/:orderId')
-  async getPaymentByOrder(@Param('orderId') orderId: string): Promise<GetPaymentResponse> {
-    const payment = await this.paymentService.getPaymentByOrder(orderId);
+  async getPaymentByOrder(
+    @Param('orderId') orderId: string,
+    @User() userId: string
+  ): Promise<GetPaymentResponse> {
+    const payment = await this.paymentService.getPaymentByOrder(orderId, userId);
     return new GetPaymentResponse(payment);
   }
 

@@ -1,4 +1,14 @@
 import { CouponType } from '@config/db/entities/tickets/coupon.entity';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
+import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
+import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
+import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
+import {
+  COUPON_ORDER_COLUMNS,
+  CouponStatusFilter,
+  couponFilters
+} from '../../controllers/const/coupon.filters';
 
 export interface ICoupon {
   uuid: string;
@@ -9,6 +19,8 @@ export interface ICoupon {
   value: number;
   maxUses: number | null;
   usedCount: number;
+  /** Suma de `coupon_redemption.discountAmount` (ARS descontados en órdenes pagadas). */
+  totalDiscountAmount: number;
   oncePerUser: boolean;
   validFrom: Date | null;
   validUntil: Date | null;
@@ -53,8 +65,33 @@ export interface ICouponApplication {
   discountedSubtotal: number;
 }
 
+export type ICouponStatusTotal = {
+  status: CouponStatusFilter;
+  count: number;
+};
+
+export type ICouponListResult = {
+  items: ICoupon[];
+  meta: PaginationMetaResponse;
+  /** Conteo por estado del evento completo (sin filtros ni paginación). */
+  byStatus: ICouponStatusTotal[];
+  /** Suma de descuentos del evento completo. */
+  totalDiscountAmount: number;
+  totalUses: number;
+  totalCoupons: number;
+};
+
 export interface ICouponService {
-  listByEvent(eventUuid: string, loggedUser: string): Promise<ICoupon[]>;
+  listByEvent(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: {
+      pagination?: IPaginationParams;
+      search?: ISearchParams;
+      filters?: IFiltersParams<typeof couponFilters>;
+      order?: IOrderParams<typeof COUPON_ORDER_COLUMNS>;
+    }
+  ): Promise<ICouponListResult>;
   create(eventUuid: string, payload: ICouponPayload, loggedUser: string): Promise<ICoupon>;
   update(
     eventUuid: string,

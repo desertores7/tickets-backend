@@ -17,7 +17,21 @@ import {
 import { COUPON_TYPES, CouponType } from '@config/db/entities/tickets/coupon.entity';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
-import { ICoupon, ICouponService } from '../services/contracts/icoupon.service';
+import {
+  ApiPagination,
+  IPaginationParams,
+  PaginationParams
+} from '@root/shared/decorators/pagination-query.decorator';
+import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
+import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import { ICoupon, ICouponService, ICouponStatusTotal } from '../services/contracts/icoupon.service';
+import {
+  COUPON_ORDER_COLUMNS,
+  COUPON_STATUS_FILTERS,
+  couponFilters
+} from './const/coupon.filters';
 
 /** Sin constructor: `plainToInstance` instancia los request sin argumentos. */
 export class CreateCouponRequest {
@@ -113,6 +127,8 @@ export class CouponResponse {
   @ApiProperty() value: number;
   @ApiProperty({ nullable: true, description: 'Null = ilimitado' }) maxUses: number | null;
   @ApiProperty() usedCount: number;
+  @ApiProperty({ description: 'Suma de descuentos aplicados en órdenes pagadas (ARS)' })
+  totalDiscountAmount: number;
   @ApiProperty() oncePerUser: boolean;
   @ApiProperty({ nullable: true }) validFrom: string | null;
   @ApiProperty({ nullable: true }) validUntil: string | null;
@@ -139,6 +155,7 @@ export class CouponResponse {
     this.value = data.value;
     this.maxUses = data.maxUses;
     this.usedCount = data.usedCount;
+    this.totalDiscountAmount = data.totalDiscountAmount;
     this.oncePerUser = data.oncePerUser;
     this.validFrom = data.validFrom ? new Date(data.validFrom).toISOString() : null;
     this.validUntil = data.validUntil ? new Date(data.validUntil).toISOString() : null;
@@ -149,10 +166,55 @@ export class CouponResponse {
   }
 }
 
+export class CouponStatusTotalResponse {
+  @ApiProperty({ enum: COUPON_STATUS_FILTERS }) status: string;
+  @ApiProperty() count: number;
+
+  constructor(status: string, count: number) {
+    this.status = status;
+    this.count = count;
+  }
+}
+
 export class CouponsResponse {
   @ApiProperty({ type: [CouponResponse] }) items: CouponResponse[];
-  constructor(items: CouponResponse[]) {
+
+  @ApiProperty({
+    description: 'Suma de descuentos del evento (ignora filtros y paginación)'
+  })
+  totalDiscountAmount: number;
+
+  @ApiProperty({ description: 'Usos totales del evento (ignora filtros y paginación)' })
+  totalUses: number;
+
+  @ApiProperty({ description: 'Cantidad de cupones del evento (ignora filtros y paginación)' })
+  totalCoupons: number;
+
+  @ApiProperty({
+    type: [CouponStatusTotalResponse],
+    description: 'Conteo por estado del evento completo'
+  })
+  byStatus: CouponStatusTotalResponse[];
+
+  @ApiProperty({ type: PaginationMetaResponse, required: false })
+  meta?: PaginationMetaResponse;
+
+  constructor(
+    items: CouponResponse[],
+    byStatus: ICouponStatusTotal[],
+    opts: {
+      meta: PaginationMetaResponse;
+      totalDiscountAmount: number;
+      totalUses: number;
+      totalCoupons: number;
+    }
+  ) {
     this.items = items;
+    this.byStatus = byStatus.map(s => new CouponStatusTotalResponse(s.status, s.count));
+    this.meta = opts.meta;
+    this.totalDiscountAmount = opts.totalDiscountAmount;
+    this.totalUses = opts.totalUses;
+    this.totalCoupons = opts.totalCoupons;
   }
 }
 
@@ -168,16 +230,47 @@ export class CouponController {
   constructor(@Inject('ICouponService') private readonly couponService: ICouponService) {}
 
   @UserAuth(null, CouponsResponse)
-  @ApiOperation({ summary: 'List coupons of the event' })
+  @ApiOperation({
+    summary: 'List coupons of the event',
+    description:
+      'Filtros y paginación estrechan `items`, pero `byStatus`, `totalDiscountAmount`, ' +
+      '`totalUses` y `totalCoupons` siempre reflejan el evento completo.\n\n' +
+      '- `search`: nombre o código.\n' +
+      '- `type`: percent | fixed.\n' +
+      '- `status`: usable | paused | exhausted | expired.\n' +
+      '- `order_by`: createdAt, usedCount, name (asc|desc).'
+  })
   @ApiParam({ name: 'eventUuid' })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(couponFilters)
+  @ApiOrder(COUPON_ORDER_COLUMNS)
   @HttpCode(200)
   @Get()
   async list(
     @Param('eventUuid') eventUuid: string,
-    @User() loggedUser: string
+    @User() loggedUser: string,
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(couponFilters) filters: IFiltersParams<typeof couponFilters>,
+    @OrderParams() order: IOrderParams<typeof COUPON_ORDER_COLUMNS>
   ): Promise<CouponsResponse> {
-    const coupons = await this.couponService.listByEvent(eventUuid, loggedUser);
-    return new CouponsResponse(coupons.map(c => new CouponResponse(c)));
+    const result = await this.couponService.listByEvent(eventUuid, loggedUser, {
+      pagination,
+      search,
+      filters,
+      order
+    });
+    return new CouponsResponse(
+      result.items.map(c => new CouponResponse(c)),
+      result.byStatus,
+      {
+        meta: result.meta,
+        totalDiscountAmount: result.totalDiscountAmount,
+        totalUses: result.totalUses,
+        totalCoupons: result.totalCoupons
+      }
+    );
   }
 
   @UserAuth(CreateCouponRequest, CouponResponse)

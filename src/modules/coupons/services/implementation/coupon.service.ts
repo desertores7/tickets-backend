@@ -5,12 +5,20 @@ import { DBRepository } from '@config/db/db.repository';
 import { CouponEntity } from '@config/db/entities/tickets/coupon.entity';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { CouponRedemptionEntity } from '@config/db/entities/tickets/coupon_redemption.entity';
+import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
+import { resolveListOrder } from '@root/shared/decorators/order-query.decorator';
+import {
+  COUPON_ORDER_COLUMNS,
+  CouponStatusFilter
+} from '../../controllers/const/coupon.filters';
 import {
   ICoupon,
   ICouponApplication,
   ICouponLine,
+  ICouponListResult,
   ICouponPayload,
-  ICouponService
+  ICouponService,
+  ICouponStatusTotal
 } from '../contracts/icoupon.service';
 
 @Injectable()
@@ -102,7 +110,11 @@ export class CouponService implements ICouponService {
     return true;
   }
 
-  private toCoupon(entity: CouponEntity, ticketTypeUuids: string[] = []): ICoupon {
+  private toCoupon(
+    entity: CouponEntity,
+    ticketTypeUuids: string[] = [],
+    totalDiscountAmount = 0
+  ): ICoupon {
     return {
       uuid: entity.uuid,
       eventUuid: entity.eventUuid,
@@ -112,6 +124,7 @@ export class CouponService implements ICouponService {
       value: Number(entity.value),
       maxUses: entity.maxUses,
       usedCount: Number(entity.usedCount),
+      totalDiscountAmount,
       oncePerUser: Boolean(entity.oncePerUser),
       validFrom: entity.validFrom,
       validUntil: entity.validUntil,
@@ -120,6 +133,25 @@ export class CouponService implements ICouponService {
       usable: this.isUsable(entity),
       createdAt: entity.createdAt
     };
+  }
+
+  /** Suma de descuentos por cupón (solo redenciones de órdenes pagadas). */
+  private async sumDiscountsByCoupon(couponUuids: string[]): Promise<Map<string, number>> {
+    const totals = new Map<string, number>();
+    if (couponUuids.length === 0) return totals;
+
+    const rows = (await this.dataSource.query(
+      `SELECT couponUuid, COALESCE(SUM(discountAmount), 0) AS total
+       FROM coupon_redemption
+       WHERE couponUuid IN (${couponUuids.map(() => '?').join(',')})
+       GROUP BY couponUuid`,
+      couponUuids
+    )) as Array<{ couponUuid: string; total: string | number }>;
+
+    for (const row of rows) {
+      totals.set(row.couponUuid, Number(row.total) || 0);
+    }
+    return totals;
   }
 
   /** MySQL devuelve ER_DUP_ENTRY (1062) al chocar contra un índice único. */
@@ -152,20 +184,116 @@ export class CouponService implements ICouponService {
     }
   }
 
+  /** Clasifica un cupón en uno de los 4 estados de UI del productor. */
+  private resolveStatus(coupon: Pick<CouponEntity, 'active' | 'maxUses' | 'usedCount' | 'validUntil'>, now = new Date()): CouponStatusFilter {
+    if (!coupon.active) return 'paused';
+    if (coupon.maxUses !== null && Number(coupon.usedCount) >= coupon.maxUses) return 'exhausted';
+    if (coupon.validUntil && now > new Date(coupon.validUntil)) return 'expired';
+    return 'usable';
+  }
+
+  /** Condición SQL alineada con `resolveStatus` (prioridad: pausado → agotado → vencido → disponible). */
+  private statusSql(alias: string, status: CouponStatusFilter): string {
+    switch (status) {
+      case 'paused':
+        return `${alias}.active = 0`;
+      case 'exhausted':
+        return `${alias}.active = 1 AND ${alias}.maxUses IS NOT NULL AND ${alias}.usedCount >= ${alias}.maxUses`;
+      case 'expired':
+        return `${alias}.active = 1 AND (${alias}.maxUses IS NULL OR ${alias}.usedCount < ${alias}.maxUses) AND ${alias}.validUntil IS NOT NULL AND ${alias}.validUntil < NOW(3)`;
+      case 'usable':
+        return `${alias}.active = 1 AND (${alias}.maxUses IS NULL OR ${alias}.usedCount < ${alias}.maxUses) AND (${alias}.validUntil IS NULL OR ${alias}.validUntil >= NOW(3))`;
+    }
+  }
+
   // ── CRUD del productor ──────────────────────────────────────────────────────
 
-  async listByEvent(eventUuid: string, loggedUser: string): Promise<ICoupon[]> {
+  async listByEvent(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: Parameters<ICouponService['listByEvent']>[2]
+  ): Promise<ICouponListResult> {
     await this.assertOwnsEvent(eventUuid, loggedUser);
 
-    const coupons = (await this.dbRepository.findMany({
+    const page = Math.max(opts?.pagination?.page ?? 1, 1);
+    const limit = opts?.pagination?.limit ?? 10;
+    const type = opts?.filters?.type?.[0];
+    const status = opts?.filters?.status?.[0] as CouponStatusFilter | undefined;
+    const searchTerm = opts?.search?.search?.trim();
+
+    const qb = this.dataSource
+      .getRepository(CouponEntity)
+      .createQueryBuilder('c')
+      .where('c.eventUuid = :eventUuid', { eventUuid })
+      .andWhere('c.isDeleted IS NULL');
+
+    if (type) qb.andWhere('c.type = :type', { type });
+    if (status && ['usable', 'paused', 'exhausted', 'expired'].includes(status)) {
+      qb.andWhere(this.statusSql('c', status));
+    }
+    if (searchTerm) {
+      qb.andWhere('(LOWER(c.name) LIKE :q OR LOWER(c.code) LIKE :q)', {
+        q: `%${searchTerm.toLowerCase()}%`
+      });
+    }
+
+    const order = resolveListOrder(opts?.order, COUPON_ORDER_COLUMNS, {
+      createdAt: 'DESC',
+      uuid: 'ASC'
+    });
+    for (const [col, dir] of Object.entries(order)) {
+      qb.addOrderBy(`c.${col}`, dir);
+    }
+
+    const [rows, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    const discountByCoupon = await this.sumDiscountsByCoupon(rows.map(c => c.uuid));
+    const items = await Promise.all(
+      rows.map(async c =>
+        this.toCoupon(c, await this.getScopedTicketTypes(c.uuid), discountByCoupon.get(c.uuid) ?? 0)
+      )
+    );
+
+    // Resumen del evento completo: no debe moverse con filtros/paginación.
+    const all = (await this.dbRepository.findMany({
       entity: 'coupon',
-      where: { eventUuid, isDeleted: IsNull() },
-      other: { order: { createdAt: 'DESC' } }
+      where: { eventUuid, isDeleted: IsNull() }
     })) as CouponEntity[];
 
-    return Promise.all(
-      coupons.map(async c => this.toCoupon(c, await this.getScopedTicketTypes(c.uuid)))
-    );
+    const statusCounts: Record<CouponStatusFilter, number> = {
+      usable: 0,
+      paused: 0,
+      exhausted: 0,
+      expired: 0
+    };
+    let totalUses = 0;
+    for (const row of all) {
+      statusCounts[this.resolveStatus(row)] += 1;
+      totalUses += Number(row.usedCount) || 0;
+    }
+    const byStatus: ICouponStatusTotal[] = (
+      Object.keys(statusCounts) as CouponStatusFilter[]
+    ).map(s => ({ status: s, count: statusCounts[s] }));
+
+    const discountRows = (await this.dataSource.query(
+      `SELECT COALESCE(SUM(r.discountAmount), 0) AS total
+       FROM coupon_redemption r
+       INNER JOIN coupon c ON c.uuid = r.couponUuid
+       WHERE c.eventUuid = ? AND c.isDeleted IS NULL`,
+      [eventUuid]
+    )) as Array<{ total: string | number }>;
+
+    return {
+      items,
+      meta: new PaginationMetaResponse({ limit, page, total }),
+      byStatus,
+      totalDiscountAmount: Number(discountRows[0]?.total) || 0,
+      totalUses,
+      totalCoupons: all.length
+    };
   }
 
   async create(
@@ -274,9 +402,11 @@ export class CouponService implements ICouponService {
       await this.replaceScopedTicketTypes(coupon.uuid, eventUuid, payload.ticketTypeUuids);
     }
 
+    const discountByCoupon = await this.sumDiscountsByCoupon([coupon.uuid]);
     return this.toCoupon(
       { ...coupon, ...patch } as CouponEntity,
-      await this.getScopedTicketTypes(coupon.uuid)
+      await this.getScopedTicketTypes(coupon.uuid),
+      discountByCoupon.get(coupon.uuid) ?? 0
     );
   }
 

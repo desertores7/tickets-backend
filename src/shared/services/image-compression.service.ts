@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { mkdirSync } from 'fs';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -12,16 +11,15 @@ const WEBP_MIME = 'image/webp';
 export class ImageCompressionService {
   private readonly userMediaDir: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor() {
     this.userMediaDir = join(process.cwd(), USER_MEDIA_RELATIVE);
     mkdirSync(this.userMediaDir, { recursive: true });
   }
 
   private buildPublicUrl(filename: string): string {
-    const publicPath = `/api/multimedia/user/${filename}`;
-    const baseUrl = this.config.get<string>('BASE_URL');
-    if (!baseUrl) return publicPath;
-    return `${baseUrl.replace(/\/$/, '')}${publicPath}`;
+    // Path relativo: el frontend antepone el origen de NEXT_PUBLIC_API_URL.
+    // Si se guarda BASE_URL de prod, en local el avatar apunta a gemdam y 404.
+    return `/api/multimedia/user/${filename}`;
   }
 
   assertImageMimeType(mimetype: string): void {

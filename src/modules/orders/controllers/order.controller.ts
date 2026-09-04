@@ -1,9 +1,21 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Query
+} from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { IOrderService } from '../services/contracts/iorder.service';
+import { OrderStatus } from '../services/core/order';
 import { CreateOrderRequest } from './dtos/create-order/create-order.request';
 import { GetOrderResponse } from './dtos/get-order/get-order.response';
 import { GetUserOrdersResponse, OrderSummaryResponse } from './dtos/get-user-orders/get-user-orders.response';
@@ -61,9 +73,23 @@ export class OrderController {
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
   @HttpCode(200)
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: OrderStatus,
+    description: 'Filtra por estado de la orden. Sin valor devuelve todas.'
+  })
   @Get()
-  async getUserOrders(@PaginationParams() pagination: IPaginationParams, @User() userId: string): Promise<GetUserOrdersResponse> {
-    const result = await this._orderService.getUserOrders(userId, pagination);
+  async getUserOrders(
+    @PaginationParams() pagination: IPaginationParams,
+    @User() userId: string,
+    @Query('status') status?: string
+  ): Promise<GetUserOrdersResponse> {
+    if (status && !Object.values(OrderStatus).includes(status as OrderStatus)) {
+      throw new BadRequestException(`status debe ser uno de: ${Object.values(OrderStatus).join(', ')}`);
+    }
+
+    const result = await this._orderService.getUserOrders(userId, pagination, status);
     return new GetUserOrdersResponse(
       result.items.map(o => new OrderSummaryResponse(o)),
       result.meta

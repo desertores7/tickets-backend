@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
@@ -7,12 +8,13 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UnprocessableEntityException
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Queue } from 'bullmq';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, LessThan, MoreThanOrEqual } from 'typeorm';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
@@ -29,6 +31,17 @@ import {
   GetTicketTypeData
 } from './dtos/get-ticket/get-ticket.response';
 import { GetMyTicketsResponse, TicketSummaryData, TicketSummaryResponse } from './dtos/get-my-tickets/get-my-tickets.response';
+
+/** Estado pedido por el cliente; `all` incluye las canceladas y transferidas. */
+const MY_TICKET_STATUS = ['active', 'used', 'all'] as const;
+type TMyTicketStatus = (typeof MY_TICKET_STATUS)[number];
+
+/**
+ * Corte temporal del listado. Se mira `endDate` y no `startDate` para que un
+ * evento en curso siga contando como proximo.
+ */
+const MY_TICKET_TIMEFRAME = ['upcoming', 'past', 'all'] as const;
+type TMyTicketTimeframe = (typeof MY_TICKET_TIMEFRAME)[number];
 
 // ── User-facing ticket endpoints ─────────────────────────────────────────────
 
@@ -56,18 +69,72 @@ export class TicketController {
   @ApiResponse({ status: 200, type: GetMyTicketsResponse, description: 'Paginated list of tickets.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: MY_TICKET_STATUS,
+    description: 'Por defecto activas y usadas; `all` suma canceladas y transferidas.'
+  })
+  @ApiQuery({
+    name: 'timeframe',
+    required: false,
+    enum: MY_TICKET_TIMEFRAME,
+    description: 'Recorta por fin del evento. Por defecto `all`.'
+  })
   @HttpCode(200)
   @Get('me')
-  async getMyTickets(@PaginationParams() pagination: IPaginationParams, @User() userId: string): Promise<GetMyTicketsResponse> {
+  async getMyTickets(
+    @PaginationParams() pagination: IPaginationParams,
+    @User() userId: string,
+    @Query('status') statusFilter?: string,
+    @Query('timeframe') timeframeFilter?: string
+  ): Promise<GetMyTicketsResponse> {
     const { page, limit } = pagination;
+
+    const status = (statusFilter ?? 'active,used') as TMyTicketStatus | 'active,used';
+    if (statusFilter && !MY_TICKET_STATUS.includes(statusFilter as TMyTicketStatus)) {
+      throw new BadRequestException(`status debe ser uno de: ${MY_TICKET_STATUS.join(', ')}`);
+    }
+
+    const timeframe = (timeframeFilter ?? 'all') as TMyTicketTimeframe;
+    if (!MY_TICKET_TIMEFRAME.includes(timeframe)) {
+      throw new BadRequestException(`timeframe debe ser uno de: ${MY_TICKET_TIMEFRAME.join(', ')}`);
+    }
+
+    const statusWhere =
+      status === 'active'
+        ? TicketStatus.ACTIVE
+        : status === 'used'
+          ? TicketStatus.USED
+          : status === 'all'
+            ? undefined
+            : In([TicketStatus.ACTIVE, TicketStatus.USED]);
+
+    const now = new Date();
+    const eventWhere =
+      timeframe === 'upcoming'
+        ? { endDate: MoreThanOrEqual(now) }
+        : timeframe === 'past'
+          ? { endDate: LessThan(now) }
+          : undefined;
+
+    // Proximas de la mas cercana a la mas lejana; pasadas de la mas reciente
+    // hacia atras. Sin corte temporal manda la fecha de compra.
+    const order =
+      timeframe === 'upcoming'
+        ? ({ event: { startDate: 'ASC' } } as const)
+        : timeframe === 'past'
+          ? ({ event: { startDate: 'DESC' } } as const)
+          : ({ createdAt: 'DESC' } as const);
 
     const [tickets, total] = await this.dataSource.getRepository(TicketEntity).findAndCount({
       where: {
         userUuid: userId,
-        status: In([TicketStatus.ACTIVE, TicketStatus.USED])
+        ...(statusWhere ? { status: statusWhere } : {}),
+        ...(eventWhere ? { event: eventWhere } : {})
       },
       relations: { orderItem: { order: true }, event: true, ticketType: true },
-      order: { createdAt: 'DESC' },
+      order,
       skip: (page - 1) * limit,
       take: limit
     });
@@ -79,10 +146,18 @@ export class TicketController {
         status: t.status,
         qrUrl: t.qrUrl,
         pdfUrl: t.pdfUrl,
+        eventUuid: t.event.uuid,
         eventName: t.event.name,
         eventDate: t.event.startDate,
+        eventEndDate: t.event.endDate,
+        eventBannerUrl: t.event.bannerUrl ?? null,
         venueName: t.event.venueName,
+        venueCity: t.event.venueCity ?? null,
         ticketTypeName: t.ticketType.name,
+        ticketTypePrice: t.ticketType.price !== undefined ? Number(t.ticketType.price) : null,
+        // La orden ya viene en la relacion: se usa para linkear la compra.
+        orderUuid: t.orderItem?.order?.uuid ?? null,
+        orderNumber: t.orderItem?.order?.orderNumber ?? null,
         createdAt: t.createdAt
       };
       return new TicketSummaryResponse(data);
@@ -113,7 +188,7 @@ export class TicketController {
   async getTicketById(@Param('ticketId') ticketId: string, @User() userId: string): Promise<GetTicketResponse> {
     const ticket = await this.dataSource.getRepository(TicketEntity).findOne({
       where: { uuid: ticketId },
-      relations: { orderItem: { order: true }, event: true, ticketType: true, user: true }
+      relations: { orderItem: { order: true }, event: true, ticketType: true }
     });
 
     if (!ticket) throw new NotFoundException('Ticket not found');

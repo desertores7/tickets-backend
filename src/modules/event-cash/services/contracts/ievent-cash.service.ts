@@ -143,8 +143,28 @@ export interface IUpdateMpMovementPayload {
   targetEventUuid?: string;
 }
 
+export interface IListIncomesResult {
+  items: IIncome[];
+  meta: { limit: number; page: number; total: number };
+  /** Suma de todos los ingresos del evento (sin filtros de listado). */
+  total: number;
+}
+
+export interface IListIncomesOpts {
+  page?: number;
+  limit?: number;
+  search?: string;
+  method?: IncomeMethod;
+  orderBy?: 'occurredAt' | 'total';
+  orderDir?: 'ASC' | 'DESC';
+}
+
 export interface IEventCashService {
-  listIncomes(eventUuid: string, loggedUser: string): Promise<IIncome[]>;
+  listIncomes(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: IListIncomesOpts
+  ): Promise<IListIncomesResult>;
 
   /**
    * Cuentas MP de la organización, marcando cuáles están asignadas a este

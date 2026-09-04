@@ -11,6 +11,9 @@ import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.r
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { EVENT_ORDER_COLUMNS } from '@modules/event/controllers/const/event.filters';
+import { EXPENSE_ORDER_COLUMNS, expenseFilters } from '@modules/event/controllers/const/expense.filters';
+import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
+import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
@@ -1696,36 +1699,66 @@ export class EventService implements IEventService {
   async getExpenses(
     eventUuid: string,
     loggedUser: string,
-    filters?: { category?: string; supplier?: string }
-  ): Promise<{ items: TEventExpense[]; byCategory: { category: string; total: number }[] }> {
+    opts?: {
+      pagination?: IPaginationParams;
+      search?: ISearchParams;
+      filters?: IFiltersParams<typeof expenseFilters>;
+      order?: IOrderParams<typeof EXPENSE_ORDER_COLUMNS>;
+    }
+  ): Promise<{
+    items: TEventExpense[];
+    byCategory: { category: string; total: number }[];
+    meta: PaginationMetaResponse;
+    total: number;
+  }> {
     await this.assertOwnership(eventUuid, loggedUser);
 
-    const where: Record<string, unknown> = { eventUuid, isDeleted: IsNull() };
-    if (filters?.category) where.category = filters.category;
-    if (filters?.supplier) where.supplier = ILike(`%${filters.supplier}%`);
+    const page = Math.max(opts?.pagination?.page ?? 1, 1);
+    const limit = opts?.pagination?.limit ?? 10;
+    const category = opts?.filters?.category?.[0];
+    const searchTerm = opts?.search?.search?.trim();
 
-    const rows = await this.dbRepository.findMany({
+    const where: Record<string, unknown> = { eventUuid, isDeleted: IsNull() };
+    if (category) where.category = category;
+    if (searchTerm) where.concept = ILike(`%${searchTerm}%`);
+
+    const result = await this.dbRepository.findManyAndCount({
       entity: 'event_expense',
       where: where as any,
-      other: { order: { expenseDate: 'DESC', createdAt: 'DESC' } }
+      other: {
+        take: limit,
+        skip: (page - 1) * limit,
+        order: {
+          ...resolveListOrder(opts?.order, EXPENSE_ORDER_COLUMNS, {
+            expenseDate: 'DESC',
+            createdAt: 'DESC'
+          }),
+          uuid: 'ASC'
+        }
+      }
     });
 
-    // El agregado se calcula SIN los filtros: el desglose por categoría del
-    // dashboard tiene que reflejar el total del evento, no la vista filtrada.
-    const all = filters?.category || filters?.supplier
-      ? await this.dbRepository.findMany({ entity: 'event_expense', where: { eventUuid, isDeleted: IsNull() } as any })
-      : rows;
+    // El agregado y el total reflejan el evento completo, sin filtros ni paginación.
+    const all = await this.dbRepository.findMany({
+      entity: 'event_expense',
+      where: { eventUuid, isDeleted: IsNull() } as any
+    });
 
     const totals = new Map<string, number>();
+    let grandTotal = 0;
     for (const row of all as any[]) {
-      totals.set(row.category, (totals.get(row.category) ?? 0) + Number(row.totalAmount));
+      const amount = Number(row.totalAmount);
+      totals.set(row.category, (totals.get(row.category) ?? 0) + amount);
+      grandTotal += amount;
     }
 
     return {
-      items: rows as unknown as TEventExpense[],
+      items: result.items as unknown as TEventExpense[],
       byCategory: [...totals.entries()]
         .map(([category, total]) => ({ category, total: Math.round(total * 100) / 100 }))
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => b.total - a.total),
+      meta: new PaginationMetaResponse({ limit, page, total: result.count }),
+      total: Math.round(grandTotal * 100) / 100
     };
   }
 
@@ -1737,7 +1770,6 @@ export class EventService implements IEventService {
     expense.eventUuid = eventUuid;
     expense.category = data.category;
     expense.concept = data.concept.trim();
-    expense.supplier = data.supplier.trim();
     expense.quantity = data.quantity;
     expense.unitCost = data.unitCost;
     expense.totalAmount = this.computeTotal(data.quantity, data.unitCost);
@@ -1762,7 +1794,6 @@ export class EventService implements IEventService {
     const patch: Record<string, unknown> = {};
     if (data.category !== undefined) patch.category = data.category;
     if (data.concept !== undefined) patch.concept = data.concept.trim();
-    if (data.supplier !== undefined) patch.supplier = data.supplier.trim();
     if (data.quantity !== undefined) patch.quantity = data.quantity;
     if (data.unitCost !== undefined) patch.unitCost = data.unitCost;
     if (data.expenseDate !== undefined) patch.expenseDate = data.expenseDate;

@@ -11,6 +11,8 @@ import {
   ICreateIncomePayload,
   ICashOperationalIncome,
   IEventCashService,
+  IListIncomesOpts,
+  IListIncomesResult,
   IMpMovement,
   IMpMovementItem,
   IUpdateMpMovementPayload,
@@ -122,33 +124,94 @@ export class EventCashService implements IEventCashService {
     };
   }
 
-  async listIncomes(eventUuid: string, loggedUser: string): Promise<IIncome[]> {
+  /** Recarga el nombre de quien registró el cobro (create/update no traen la relación). */
+  private async resolveCreatorName(createdBy: string | null): Promise<{
+    firstName?: string;
+    lastName?: string;
+  } | undefined> {
+    if (!createdBy) return undefined;
+    const user = (await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: createdBy } as never,
+      select: { firstName: true, lastName: true } as never
+    })) as { firstName?: string; lastName?: string } | null;
+    return user ?? undefined;
+  }
+
+  async listIncomes(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: IListIncomesOpts
+  ): Promise<IListIncomesResult> {
     await this.resolveAccess(eventUuid, loggedUser);
 
-    const incomes = (await this.dbRepository.findMany({
-      entity: 'event_income',
-      where: { eventUuid, isDeleted: IsNull() },
-      relations: { creator: true },
-      other: { order: { occurredAt: 'DESC' } }
-    })) as (EventIncomeEntity & { creator?: { firstName?: string; lastName?: string } })[];
+    const page = Math.max(opts?.page ?? 1, 1);
+    const limit = Math.min(Math.max(opts?.limit ?? 10, 1), 100);
+    const searchTerm = opts?.search?.trim();
+    const method = opts?.method;
+    const orderBy = opts?.orderBy === 'total' ? 'total' : 'occurredAt';
+    const orderDir = opts?.orderDir === 'ASC' ? 'ASC' : 'DESC';
 
-    if (!incomes.length) return [];
+    const qb = this.dataSource
+      .getRepository(EventIncomeEntity)
+      .createQueryBuilder('income')
+      .leftJoinAndSelect('income.creator', 'creator')
+      .where('income.eventUuid = :eventUuid', { eventUuid })
+      .andWhere('income.isDeleted IS NULL');
 
-    // Una sola consulta para todos los productos: con muchos ingresos, pedirlos
-    // por separado sería el clásico N+1 en la pantalla que más se refresca.
-    const products = (await this.dbRepository.findMany({
-      entity: 'event_income_product',
-      where: { eventIncomeUuid: In(incomes.map(i => i.uuid)) } as never
-    })) as EventIncomeProductEntity[];
-
-    const byIncome = new Map<string, EventIncomeProductEntity[]>();
-    for (const p of products) {
-      const list = byIncome.get(p.eventIncomeUuid) ?? [];
-      list.push(p);
-      byIncome.set(p.eventIncomeUuid, list);
+    if (method) {
+      qb.andWhere('income.method = :method', { method });
     }
 
-    return incomes.map(i => this.toIncome(i, byIncome.get(i.uuid) ?? []));
+    if (searchTerm) {
+      // Notas, nombre de producto o quién cobró — mismo patrón de search
+      // que gastos (parcial), ampliado a relaciones útiles del cobro.
+      qb.andWhere(
+        `(income.notes LIKE :q
+          OR CONCAT(COALESCE(creator.firstName, ''), ' ', COALESCE(creator.lastName, '')) LIKE :q
+          OR EXISTS (
+            SELECT 1 FROM event_income_product p
+            WHERE p.eventIncomeUuid = income.uuid AND p.name LIKE :q
+          ))`,
+        { q: `%${searchTerm}%` }
+      );
+    }
+
+    qb.orderBy(`income.${orderBy}`, orderDir).addOrderBy('income.uuid', 'ASC');
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [incomes, count] = await qb.getManyAndCount();
+
+    let productsByIncome = new Map<string, EventIncomeProductEntity[]>();
+    if (incomes.length) {
+      const products = (await this.dbRepository.findMany({
+        entity: 'event_income_product',
+        where: { eventIncomeUuid: In(incomes.map(i => i.uuid)) } as never
+      })) as EventIncomeProductEntity[];
+
+      productsByIncome = new Map();
+      for (const p of products) {
+        const list = productsByIncome.get(p.eventIncomeUuid) ?? [];
+        list.push(p);
+        productsByIncome.set(p.eventIncomeUuid, list);
+      }
+    }
+
+    // Total del evento completo (sin filtros): alimenta KPIs laterales.
+    const allForTotal = (await this.dbRepository.findMany({
+      entity: 'event_income',
+      where: { eventUuid, isDeleted: IsNull() } as never,
+      select: { uuid: true, total: true } as never
+    })) as Pick<EventIncomeEntity, 'uuid' | 'total'>[];
+
+    const grandTotal =
+      Math.round(allForTotal.reduce((s, row) => s + Number(row.total), 0) * 100) / 100;
+
+    return {
+      items: incomes.map(i => this.toIncome(i, productsByIncome.get(i.uuid) ?? [])),
+      meta: { limit, page, total: count },
+      total: grandTotal
+    };
   }
   // ── Alta ────────────────────────────────────────────────────────────────────
 
@@ -267,7 +330,10 @@ export class EventCashService implements IEventCashService {
       await queryRunner.release();
     }
 
-    return this.toIncome(income, resolved);
+    const creator = await this.resolveCreatorName(income.createdBy);
+    return this.toIncome({ ...income, creator } as EventIncomeEntity & {
+      creator?: { firstName?: string; lastName?: string };
+    }, resolved);
   }
   // ── Edición y baja (solo Productor, BR-CASH-014) ────────────────────────────
 
@@ -340,7 +406,11 @@ export class EventCashService implements IEventCashService {
       await queryRunner.release();
     }
 
-    return this.toIncome({ ...income, ...patch } as EventIncomeEntity, products);
+    const merged = { ...income, ...patch } as EventIncomeEntity;
+    const creator = await this.resolveCreatorName(merged.createdBy);
+    return this.toIncome({ ...merged, creator } as EventIncomeEntity & {
+      creator?: { firstName?: string; lastName?: string };
+    }, products);
   }
 
   async deleteIncome(
@@ -853,6 +923,9 @@ export class EventCashService implements IEventCashService {
       await queryRunner.release();
     }
 
-    return this.toIncome(income, resolved);
+    const creator = await this.resolveCreatorName(income.createdBy);
+    return this.toIncome({ ...income, creator } as EventIncomeEntity & {
+      creator?: { firstName?: string; lastName?: string };
+    }, resolved);
   }
 }

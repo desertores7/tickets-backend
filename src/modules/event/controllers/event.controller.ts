@@ -30,6 +30,7 @@ import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
 import { EVENT_ORDER_COLUMNS, eventFilters } from './const/event.filters';
+import { EXPENSE_ORDER_COLUMNS, expenseFilters } from './const/expense.filters';
 import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import {
   BANNER_VARIANT_NAMES,
@@ -51,7 +52,6 @@ import {
 import { AssignProducerRequest } from './requests/assign-producer.request';
 import { AssignValidatorRequest } from './requests/assign-validator.request';
 import { CreateExpenseRequest, UpdateExpenseRequest } from './requests/upsert-expense.request';
-import { EXPENSE_CATEGORIES } from './const/expense-category.const';
 import {
   EventExpenseResponse,
   EventExpensesResponse,
@@ -935,25 +935,39 @@ export class EventController {
     summary: 'List event expenses',
     description:
       'Cost lines of the event plus the per-category aggregate used by the dashboard. ' +
-      'Filters narrow `items`, but `byCategory` always reflects the WHOLE event: the dashboard ' +
-      'breakdown must not change with the table filter.'
+      'Filters and pagination narrow `items`, but `byCategory` and `total` always reflect the ' +
+      'WHOLE event: the dashboard breakdown must not change with the table filter.\n\n' +
+      '- `search`: coincidencia parcial sobre el concepto de la línea.\n' +
+      '- `category`: filtro por categoría fija de la plataforma.\n' +
+      '- `order_by`: `expenseDate:desc` (más reciente), `expenseDate:asc` (más antiguo), ' +
+      '`totalAmount:desc` (mayor precio), `totalAmount:asc` (menor precio).'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @ApiQuery({ name: 'category', required: false, enum: EXPENSE_CATEGORIES })
-  @ApiQuery({ name: 'supplier', required: false, description: 'Partial match.' })
+  @ApiPagination()
+  @ApiSearch()
+  @ApiFilter(expenseFilters)
+  @ApiOrder(EXPENSE_ORDER_COLUMNS)
   @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
   @Get(':eventUuid/expenses')
   async getExpenses(
     @Param('eventUuid') eventUuid: string,
     @User() loggedUser: string,
-    @Query('category') category?: string,
-    @Query('supplier') supplier?: string
+    @PaginationParams() pagination: IPaginationParams,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(expenseFilters) filters: IFiltersParams<typeof expenseFilters>,
+    @OrderParams() order: IOrderParams<typeof EXPENSE_ORDER_COLUMNS>
   ): Promise<EventExpensesResponse> {
-    const result = await this._eventService.getExpenses(eventUuid, loggedUser, { category, supplier });
+    const result = await this._eventService.getExpenses(eventUuid, loggedUser, {
+      pagination,
+      search,
+      filters,
+      order
+    });
     return new EventExpensesResponse(
       result.items.map(item => new EventExpenseResponse(item)),
-      result.byCategory.map(c => new ExpenseCategoryTotalResponse(c.category as never, c.total))
+      result.byCategory.map(c => new ExpenseCategoryTotalResponse(c.category as never, c.total)),
+      { meta: result.meta, total: result.total }
     );
   }
 

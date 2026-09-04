@@ -204,7 +204,18 @@ export class PaymentService implements IPaymentService {
     this.logger.log(`Webhook enqueued: ${idempotencyKey}`);
   }
 
-  async getPaymentByOrder(orderId: string): Promise<Payment> {
+  async getPaymentByOrder(orderId: string, userId: string): Promise<Payment> {
+    // Primero la orden y su dueño: si no es de esta persona, el pago no existe
+    // para ella. Se responde 404 y no 403 para no confirmar que la orden existe.
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId, userUuid: userId }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Pago no encontrado para esta orden');
+    }
+
     const entity = await this.dbRepository.findOne({
       entity: 'payment',
       where: { orderUuid: orderId }

@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsIn,
-  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -22,12 +21,6 @@ export class CreateExpenseRequest {
   @MaxLength(255)
   @ApiProperty({ example: 'Coca-Cola 2L' })
   concept: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(255)
-  @ApiProperty({ description: 'Permite comparar precios entre proveedores', example: 'Distribuidora Norte' })
-  supplier: string;
 
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
@@ -66,13 +59,6 @@ export class UpdateExpenseRequest {
   @MaxLength(255)
   @ApiPropertyOptional()
   concept?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(255)
-  @ApiPropertyOptional()
-  supplier?: string;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

@@ -12,7 +12,11 @@ export interface IOrderService {
 
   getOrderById(orderId: string, userId: string): Promise<Order>;
 
-  getUserOrders(userId: string, pagination: IPaginationParams): Promise<PaginatedResult<Order>>;
+  getUserOrders(
+    userId: string,
+    pagination: IPaginationParams,
+    status?: string
+  ): Promise<PaginatedResult<Order>>;
 
   cancelOrder(orderId: string, userId: string): Promise<void>;
 

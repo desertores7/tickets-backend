@@ -17,12 +17,7 @@ import {
 
 const tableName = 'event_expense' as const;
 
-/**
- * Línea de costo de un evento (FP08 / BR-BACKOFFICE-006).
- *
- * Varias líneas pueden compartir categoría a propósito: la idea es poder
- * comparar precios entre proveedores dentro del mismo rubro.
- */
+/** Línea de costo de un evento (FP08 / BR-BACKOFFICE-006). */
 @Entity(tableName, { database: DB_NAME.tickets, synchronize: false })
 export class EventExpenseEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -36,9 +31,6 @@ export class EventExpenseEntity {
 
   @Column({ type: 'varchar', length: 255 })
   concept: string;
-
-  @Column({ type: 'varchar', length: 255 })
-  supplier: string;
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   quantity: number;
