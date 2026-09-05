@@ -18,9 +18,13 @@ import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { EventProducerEntity } from '@config/db/entities/tickets/event_producer.entity';
 import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
+import { UserEventCashierEntity } from '@config/db/entities/tickets/user_event_cashier.entity';
 import { EventExpenseEntity } from '@config/db/entities/tickets/event_expense.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
+import { UserEntity } from '@config/db/entities/user/user.entity';
+import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
+import * as bcryptjs from 'bcryptjs';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
@@ -40,6 +44,9 @@ import {
   TEventMapSector,
   TUpsertEventMap,
   TEventProducer,
+  TEventEmployee,
+  TEventEmployeeRole,
+  TUpsertEventEmployeeInput,
   TEventValidator,
   TUserSummary,
   TEventListItem,
@@ -1331,48 +1338,79 @@ export class EventService implements IEventService {
     await this.dbRepository.delete({ entity: 'event_producer', where: { eventUuid, userUuid } as any });
   }
 
-  // ── Validadores del evento ────────────────────────────────────────────────
+  // ── Empleados del evento (Validador / Caja) ───────────────────────────────
 
-  async getEventValidators(eventUuid: string, loggedUser: string): Promise<TEventValidator[]> {
+  async getEventEmployees(eventUuid: string, loggedUser: string): Promise<TEventEmployee[]> {
     await this.assertOwnership(eventUuid, loggedUser);
 
-    const rows = await this.dbRepository.findMany({
-      entity: 'event_validator',
-      where: { eventUuid } as any,
-      relations: { user: true } as any
-    });
+    const [validators, cashiers] = await Promise.all([
+      this.dbRepository.findMany({
+        entity: 'event_validator',
+        where: { eventUuid } as any,
+        relations: { user: true } as any
+      }),
+      this.dbRepository.findMany({
+        entity: 'user_event_cashier',
+        where: { eventUuid, isDeleted: IsNull() } as any,
+        relations: { user: true } as any
+      })
+    ]);
 
-    return rows.map((r: any) => ({
-      uuid: r.uuid,
-      userUuid: r.userUuid,
-      firstName: r.user?.firstName ?? '',
-      lastName: r.user?.lastName ?? '',
-      email: r.user?.email ?? '',
-      createdAt: r.createdAt
-    }));
+    const items: TEventEmployee[] = [
+      ...validators.map((r: any) => ({
+        uuid: r.uuid,
+        userUuid: r.userUuid,
+        role: 'validator' as const,
+        firstName: r.user?.firstName ?? '',
+        lastName: r.user?.lastName ?? '',
+        email: r.user?.email ?? '',
+        createdAt: r.createdAt
+      })),
+      ...cashiers.map((r: any) => ({
+        uuid: r.uuid,
+        userUuid: r.userUuid,
+        role: 'cashier' as const,
+        firstName: r.user?.firstName ?? '',
+        lastName: r.user?.lastName ?? '',
+        email: r.user?.email ?? '',
+        createdAt: r.createdAt
+      }))
+    ];
+
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return items;
   }
 
-  /**
-   * Candidatos a validador: cualquier usuario activo que no esté ya asignado.
-   *
-   * Existe como endpoint propio del evento en lugar de reusar `GET /users`
-   * porque ese listado es solo para administradores, y acá también tiene que
-   * poder buscar un productor sobre su propio evento.
-   */
-  async getValidatorCandidates(eventUuid: string, search: string, loggedUser: string): Promise<TUserSummary[]> {
+  async getEmployeeCandidates(
+    eventUuid: string,
+    search: string,
+    role: TEventEmployeeRole | undefined,
+    loggedUser: string
+  ): Promise<TUserSummary[]> {
     await this.assertOwnership(eventUuid, loggedUser);
 
     const term = search?.trim();
     if (!term) return [];
 
-    const assigned = await this.dbRepository.findMany({
-      entity: 'event_validator',
-      where: { eventUuid } as any
-    });
-    const assignedUuids = new Set(assigned.map((a: any) => a.userUuid));
+    const assignedUuids = new Set<string>();
+    const wantValidator = !role || role === 'validator';
+    const wantCashier = !role || role === 'cashier';
 
-    // Se busca por nombre, apellido o email: en la puerta se lo suele identificar
-    // por el correo con el que se registró.
+    if (wantValidator) {
+      const assigned = await this.dbRepository.findMany({
+        entity: 'event_validator',
+        where: { eventUuid } as any
+      });
+      for (const a of assigned as any[]) assignedUuids.add(a.userUuid);
+    }
+    if (wantCashier) {
+      const assigned = await this.dbRepository.findMany({
+        entity: 'user_event_cashier',
+        where: { eventUuid, isDeleted: IsNull() } as any
+      });
+      for (const a of assigned as any[]) assignedUuids.add(a.userUuid);
+    }
+
     const users = await this.dbRepository.findMany({
       entity: 'user',
       where: [
@@ -1393,47 +1431,185 @@ export class EventService implements IEventService {
       }));
   }
 
-  async assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+  async upsertEventEmployee(
+    eventUuid: string,
+    data: TUpsertEventEmployeeInput,
+    loggedUser: string
+  ): Promise<TEventEmployee> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    const role = data.role;
+
+    let userUuid = data.userUuid?.trim();
+
+    if (!userUuid) {
+      const email = data.email?.trim().toLowerCase();
+      const password = data.password ?? '';
+      if (!email || !password) {
+        throw new BadRequestException('Para crear un empleado necesitás email y contraseña');
+      }
+      if (!PASSWORD_POLICY.test(password)) {
+        throw new BadRequestException(
+          'La contraseña debe tener al menos 8 caracteres, con letras, números y un carácter especial.'
+        );
+      }
+
+      let user = await this.dbRepository.findOne({
+        entity: 'user',
+        where: { email, isDeleted: IsNull() }
+      });
+
+      if (!user) {
+        const entity = new UserEntity();
+        entity.uuid = uuidv4();
+        entity.firstName = (data.firstName?.trim() || email.split('@')[0] || 'Usuario').slice(0, 255);
+        entity.lastName = (data.lastName?.trim() || 'Staff').slice(0, 255);
+        entity.email = email;
+        entity.password = await bcryptjs.hash(password, 10);
+        entity.active = 1;
+        entity.emailVerified = true;
+        entity.emailVerifiedAt = new Date();
+        entity.twoAuthentication = false;
+        entity.isDeleted = null;
+        entity.createdBy = loggedUser;
+        await this.dbRepository.create({ entity: 'user', data: entity });
+        user = entity;
+      }
+
+      userUuid = user.uuid;
+    } else {
+      const user = await this.dbRepository.findOne({
+        entity: 'user',
+        where: { uuid: userUuid, isDeleted: IsNull() }
+      });
+      if (!user) throw new BadRequestException('Usuario no encontrado');
+    }
+
+    if (role === 'validator') {
+      await this.assignValidatorLink(eventUuid, userUuid, loggedUser);
+    } else {
+      await this.assignCashierLink(eventUuid, event.organizationUuid, userUuid, loggedUser);
+    }
+
+    await this.grantStaffRole(userUuid, role === 'validator' ? 'Validador' : 'Caja', loggedUser);
+    await this.linkUserToOrganization(userUuid, event.organizationUuid);
 
     const user = await this.dbRepository.findOne({
       entity: 'user',
-      where: { uuid: userUuid, isDeleted: IsNull() }
+      where: { uuid: userUuid }
     });
-    if (!user) throw new BadRequestException('Usuario no encontrado');
 
+    const assignment =
+      role === 'validator'
+        ? await this.dbRepository.findOne({
+            entity: 'event_validator',
+            where: { eventUuid, userUuid } as any
+          })
+        : await this.dbRepository.findOne({
+            entity: 'user_event_cashier',
+            where: { eventUuid, userUuid, isDeleted: IsNull() } as any
+          });
+
+    return {
+      uuid: (assignment as any)?.uuid ?? userUuid,
+      userUuid,
+      role,
+      firstName: (user as any)?.firstName ?? '',
+      lastName: (user as any)?.lastName ?? '',
+      email: (user as any)?.email ?? '',
+      createdAt: (assignment as any)?.createdAt ?? new Date()
+    };
+  }
+
+  async removeEventEmployee(
+    eventUuid: string,
+    userUuid: string,
+    role: TEventEmployeeRole,
+    loggedUser: string
+  ): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser);
+
+    if (role === 'validator') {
+      await this.dbRepository.delete({
+        entity: 'event_validator',
+        where: { eventUuid, userUuid } as any
+      });
+      return;
+    }
+
+    const row = await this.dbRepository.findOne({
+      entity: 'user_event_cashier',
+      where: { eventUuid, userUuid, isDeleted: IsNull() } as any
+    });
+    if (row) {
+      await this.dbRepository.update({
+        entity: 'user_event_cashier',
+        where: { uuid: (row as any).uuid } as any,
+        data: { isDeleted: new Date() }
+      });
+    }
+  }
+
+  private async assignValidatorLink(
+    eventUuid: string,
+    userUuid: string,
+    loggedUser: string
+  ): Promise<void> {
     const existing = await this.dbRepository.findOne({
       entity: 'event_validator',
       where: { eventUuid, userUuid } as any
     });
+    if (existing) return;
 
-    if (!existing) {
-      const assignment = new EventValidatorEntity();
-      assignment.uuid = uuidv4();
-      assignment.eventUuid = eventUuid;
-      assignment.userUuid = userUuid;
-      assignment.assignedBy = loggedUser;
-      await this.dbRepository.create({ entity: 'event_validator', data: assignment });
+    const assignment = new EventValidatorEntity();
+    assignment.uuid = uuidv4();
+    assignment.eventUuid = eventUuid;
+    assignment.userUuid = userUuid;
+    assignment.assignedBy = loggedUser;
+    await this.dbRepository.create({ entity: 'event_validator', data: assignment });
+  }
+
+  private async assignCashierLink(
+    eventUuid: string,
+    organizationUuid: string,
+    userUuid: string,
+    loggedUser: string
+  ): Promise<void> {
+    const existing = await this.dbRepository.findOne({
+      entity: 'user_event_cashier',
+      where: { eventUuid, userUuid } as any
+    });
+
+    if (existing) {
+      if ((existing as any).isDeleted) {
+        await this.dbRepository.update({
+          entity: 'user_event_cashier',
+          where: { uuid: (existing as any).uuid } as any,
+          data: { isDeleted: null, isHidden: false }
+        });
+      }
+      return;
     }
 
-    await this.grantValidatorRole(userUuid, loggedUser);
-
-    // El alcance del validador se define por organización: sin esta membresía
-    // no vería el evento en el escáner ni podría validar sus entradas.
-    await this.linkUserToOrganization(userUuid, event.organizationUuid);
+    const row = new UserEventCashierEntity();
+    row.uuid = uuidv4();
+    row.userUuid = userUuid;
+    row.eventUuid = eventUuid;
+    row.organizationUuid = organizationUuid;
+    row.isHidden = false;
+    row.isDeleted = null;
+    row.createdBy = loggedUser;
+    await this.dbRepository.create({ entity: 'user_event_cashier', data: row });
   }
 
   /**
-   * Otorga el rol `Validador` si el usuario no lo tiene. El flujo esperado es
-   * que la persona se registre como Cliente y acá se la habilite para escanear;
-   * sin esto quedaría asignada al evento pero el check-in le daría 403.
-   *
-   * El rol se busca por nombre y no por UUID: los UUIDs de los roles base
-   * difieren entre bases (los seeds matchearon filas preexistentes por nombre).
+   * Otorga Validador o Caja si falta. No se lo suma a un Administrador.
+   * Se busca el rol por nombre (UUIDs de seeds varían entre entornos).
    */
-  private async grantValidatorRole(userUuid: string, assignedBy: string): Promise<void> {
-    // Un administrador ya pasa @ValidatorAuth: sumarle el rol Validador solo
-    // le agrega un segundo rol activo y confunde a la sesión, que maneja uno.
+  private async grantStaffRole(
+    userUuid: string,
+    roleName: 'Validador' | 'Caja',
+    assignedBy: string
+  ): Promise<void> {
     const currentRoles = await this.dbRepository.findMany({
       entity: 'user_role',
       where: { userUuid, isDeleted: IsNull() } as any,
@@ -1443,38 +1619,63 @@ export class EventService implements IEventService {
 
     const role = await this.dbRepository.findOne({
       entity: 'role',
-      where: { name: 'Validador', isDeleted: IsNull() } as any
+      where: { name: roleName, isDeleted: IsNull() } as any
     });
-    if (!role) throw new BadRequestException('No existe el rol Validador en el sistema');
+    if (!role) throw new BadRequestException(`No existe el rol ${roleName} en el sistema`);
 
     const existing = await this.dbRepository.findOne({
       entity: 'user_role',
-      where: { userUuid, roleUuid: role.uuid } as any
+      where: { userUuid, roleUuid: (role as any).uuid } as any
     });
 
     if (!existing) {
       const link = new UserRoleEntity();
       link.uuid = uuidv4();
       link.userUuid = userUuid;
-      link.roleUuid = role.uuid;
+      link.roleUuid = (role as any).uuid;
       link.createdBy = assignedBy;
       await this.dbRepository.create({ entity: 'user_role', data: link });
-    } else if (existing.isDeleted) {
+    } else if ((existing as any).isDeleted) {
       await this.dbRepository.update({
         entity: 'user_role',
-        where: { uuid: existing.uuid } as any,
+        where: { uuid: (existing as any).uuid } as any,
         data: { isDeleted: null, updatedBy: assignedBy }
       });
     }
   }
 
-  /**
-   * Quita la asignación al evento. NO revoca el rol `Validador`: la persona
-   * puede estar trabajando la puerta de otros shows.
-   */
+  /** @deprecated Prefer getEventEmployees */
+  async getEventValidators(eventUuid: string, loggedUser: string): Promise<TEventValidator[]> {
+    const employees = await this.getEventEmployees(eventUuid, loggedUser);
+    return employees
+      .filter(e => e.role === 'validator')
+      .map(({ uuid, userUuid, firstName, lastName, email, createdAt }) => ({
+        uuid,
+        userUuid,
+        firstName,
+        lastName,
+        email,
+        createdAt
+      }));
+  }
+
+  /** @deprecated Prefer getEmployeeCandidates */
+  async getValidatorCandidates(
+    eventUuid: string,
+    search: string,
+    loggedUser: string
+  ): Promise<TUserSummary[]> {
+    return this.getEmployeeCandidates(eventUuid, search, 'validator', loggedUser);
+  }
+
+  /** @deprecated Prefer upsertEventEmployee */
+  async assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
+    await this.upsertEventEmployee(eventUuid, { role: 'validator', userUuid }, loggedUser);
+  }
+
+  /** @deprecated Prefer removeEventEmployee */
   async removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void> {
-    await this.assertOwnership(eventUuid, loggedUser);
-    await this.dbRepository.delete({ entity: 'event_validator', where: { eventUuid, userUuid } as any });
+    await this.removeEventEmployee(eventUuid, userUuid, 'validator', loggedUser);
   }
 
   /** Aplica los filtros de la query y ejecuta la búsqueda paginada */
