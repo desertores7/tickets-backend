@@ -5,6 +5,13 @@ export class GetAllEventResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() name: string;
   @ApiProperty({ nullable: true }) description: string | null;
+  @ApiProperty({ nullable: true, description: 'HTML de “Sobre el evento”' })
+  content: string | null;
+  @ApiProperty({
+    nullable: true,
+    description: 'Redes del evento'
+  })
+  socialLinks: { network: string; url: string; label?: string | null }[] | null;
   @ApiProperty() slug: string;
   @ApiProperty({ nullable: true }) bannerUrl: string | null;
   @ApiProperty({
@@ -60,6 +67,8 @@ export class GetAllEventResponse {
     this.uuid = data.uuid;
     this.name = data.name;
     this.description = data.description;
+    this.content = data.content ?? null;
+    this.socialLinks = data.socialLinks ?? null;
     this.slug = data.slug;
     this.bannerUrl = data.bannerUrl;
     this.bannerImages = data.bannerImages ?? null;

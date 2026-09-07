@@ -56,6 +56,7 @@ import {
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { normalizeLineup } from '../core/event-change.helpers';
+import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
@@ -212,6 +213,8 @@ export class EventService implements IEventService {
     event.uuid = uuidv4();
     event.name = data.name;
     event.description = data.description ?? null;
+    event.content = normalizeEventContent(data.content);
+    event.socialLinks = normalizeSocialLinks(data.socialLinks);
     event.slug = data.slug;
     event.bannerUrl = data.bannerUrl ?? null;
     event.startDate = data.startDate;
@@ -257,6 +260,8 @@ export class EventService implements IEventService {
     const patch: Partial<EventEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
+    if (data.content !== undefined) patch.content = normalizeEventContent(data.content);
+    if (data.socialLinks !== undefined) patch.socialLinks = normalizeSocialLinks(data.socialLinks);
     if (data.bannerUrl !== undefined) patch.bannerUrl = data.bannerUrl;
     if (data.startDate !== undefined) patch.startDate = data.startDate;
     if (data.endDate !== undefined) patch.endDate = data.endDate;
@@ -302,6 +307,8 @@ export class EventService implements IEventService {
         venuePostalCode: data.venuePostalCode,
         googleMapsUrl: data.googleMapsUrl,
         description: data.description,
+        content: data.content !== undefined ? patch.content : undefined,
+        socialLinks: data.socialLinks !== undefined ? normalizeSocialLinks(data.socialLinks) : undefined,
         lineup: data.lineup !== undefined ? (patch.lineup as string[] | null) : undefined
       },
       loggedUser
