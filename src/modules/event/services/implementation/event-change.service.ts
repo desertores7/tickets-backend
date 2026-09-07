@@ -29,6 +29,7 @@ import {
   normalizeLineup,
   resolveOpenRefundWindowEndsAt
 } from '../core/event-change.helpers';
+import { normalizeSocialLinks } from '../core/event-social-links';
 
 export type TEventChangeItem = {
   uuid: string;
@@ -681,6 +682,8 @@ export function toEventSnapshot(event: EventEntity): EventSnapshotForChange & {
     venuePostalCode: event.venuePostalCode ?? '',
     googleMapsUrl: event.googleMapsUrl,
     description: event.description,
+    content: event.content ?? null,
+    socialLinks: normalizeSocialLinks(event.socialLinks),
     lineup: normalizeLineup(event.lineup)
   };
 }

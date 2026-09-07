@@ -984,11 +984,6 @@ export class OrganizationService implements IOrganizationService {
     }
 
     const existingPending = await this.findPendingRequest(org.uuid, 'fiscal_change');
-    if (existingPending) {
-      throw new BadRequestException(
-        'Ya hay un cambio de información fiscal en revisión. Esperá la resolución del administrador.'
-      );
-    }
 
     const name = data.name.trim();
     const legalName = data.legalName.trim();
@@ -1042,8 +1037,23 @@ export class OrganizationService implements IOrganizationService {
       (org.taxCondition ?? null) !== taxCondition ||
       (org.contactEmail ?? '').trim().toLowerCase() !== contactEmail.toLowerCase();
 
+    const pendingPayload =
+      existingPending && isFiscalChangePayload(existingPending.type, existingPending.payload)
+        ? existingPending.payload
+        : null;
+    const identityChangedVsPending =
+      !pendingPayload ||
+      pendingPayload.name !== name ||
+      pendingPayload.legalName !== legalName ||
+      pendingPayload.taxId !== normalizedTaxId ||
+      pendingPayload.taxCondition !== taxCondition ||
+      pendingPayload.contactEmail.trim().toLowerCase() !== contactEmail.toLowerCase();
+
     const docsChanged = deleteUuids.length > 0 || files.length > 0;
     if (!identityChanged && !docsChanged) {
+      throw new BadRequestException('No hay cambios para enviar');
+    }
+    if (existingPending && !identityChangedVsPending && !docsChanged) {
       throw new BadRequestException('No hay cambios para enviar');
     }
 
@@ -1057,23 +1067,43 @@ export class OrganizationService implements IOrganizationService {
       docsAfterDelete = [...docsAfterDelete, created];
     }
 
-    await this.createPendingRequest(
-      org.uuid,
-      'fiscal_change',
-      {
-        name,
-        legalName,
-        taxId: normalizedTaxId,
-        taxCondition,
-        contactEmail
-      },
-      userUuid
-    );
+    if (existingPending) {
+      await this.dbRepository.update({
+        entity: 'organization_request',
+        where: { uuid: existingPending.uuid },
+        data: {
+          payload: {
+            name,
+            legalName,
+            taxId: normalizedTaxId,
+            taxCondition,
+            contactEmail
+          },
+          updatedBy: userUuid,
+          updatedAt: new Date()
+        }
+      });
+    } else {
+      await this.createPendingRequest(
+        org.uuid,
+        'fiscal_change',
+        {
+          name,
+          legalName,
+          taxId: normalizedTaxId,
+          taxCondition,
+          contactEmail
+        },
+        userUuid
+      );
+    }
 
     const updated = await this.resolveMembershipOrganization(userUuid);
-    this.notifyOwnerFiscalChangeSubmitted(updated, userUuid).catch(err => {
-      this.logger.error(`Failed to notify fiscal change submitted for ${org.uuid}`, err?.stack);
-    });
+    if (!existingPending) {
+      this.notifyOwnerFiscalChangeSubmitted(updated, userUuid).catch(err => {
+        this.logger.error(`Failed to notify fiscal change submitted for ${org.uuid}`, err?.stack);
+      });
+    }
 
     return updated;
   }

@@ -1,6 +1,10 @@
+import type { EventSocialLink } from '../../const/event-social-network.const';
+
 export interface IEventCreate {
   name: string;
   description?: string | null;
+  content?: string | null;
+  socialLinks?: EventSocialLink[] | null;
   slug: string;
   bannerUrl?: string | null;
   startDate: Date;
@@ -20,6 +24,8 @@ export interface IEventCreate {
 export interface IEventUpdate {
   name?: string;
   description?: string | null;
+  content?: string | null;
+  socialLinks?: EventSocialLink[] | null;
   slug?: string;
   bannerUrl?: string | null;
   startDate?: Date;

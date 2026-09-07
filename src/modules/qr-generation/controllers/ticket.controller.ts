@@ -8,21 +8,28 @@ import {
   NotFoundException,
   Param,
   Post,
-  Query,
   UnprocessableEntityException
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Queue } from 'bullmq';
 import { DataSource, In, LessThan, MoreThanOrEqual } from 'typeorm';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
+import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { StorageService } from '@root/shared/services/storage.service';
 import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
 import { TicketEntity, TicketStatus } from '@config/db/entities/tickets/ticket.entity';
+import {
+  MY_TICKET_STATUS,
+  MY_TICKET_TIMEFRAME,
+  myTicketFilters,
+  TMyTicketStatus,
+  TMyTicketTimeframe
+} from './const/my-ticket.filters';
 import {
   GetTicketData,
   GetTicketEventData,
@@ -32,16 +39,33 @@ import {
 } from './dtos/get-ticket/get-ticket.response';
 import { GetMyTicketsResponse, TicketSummaryData, TicketSummaryResponse } from './dtos/get-my-tickets/get-my-tickets.response';
 
-/** Estado pedido por el cliente; `all` incluye las canceladas y transferidas. */
-const MY_TICKET_STATUS = ['active', 'used', 'all'] as const;
-type TMyTicketStatus = (typeof MY_TICKET_STATUS)[number];
+function resolveTicketStatusWhere(
+  raw: string[] | undefined
+): TicketStatus | ReturnType<typeof In> | undefined {
+  const values = (raw ?? []).filter(Boolean);
+  if (values.length === 0) {
+    return In([TicketStatus.ACTIVE, TicketStatus.USED]);
+  }
+  if (values.includes('all')) return undefined;
 
-/**
- * Corte temporal del listado. Se mira `endDate` y no `startDate` para que un
- * evento en curso siga contando como proximo.
- */
-const MY_TICKET_TIMEFRAME = ['upcoming', 'past', 'all'] as const;
-type TMyTicketTimeframe = (typeof MY_TICKET_TIMEFRAME)[number];
+  const allowed = values.filter((value): value is Exclude<TMyTicketStatus, 'all'> =>
+    value === 'active' || value === 'used'
+  );
+  if (allowed.length === 0) {
+    throw new BadRequestException(`status debe ser uno de: ${MY_TICKET_STATUS.join(', ')}`);
+  }
+
+  const mapped = allowed.map(value => (value === 'active' ? TicketStatus.ACTIVE : TicketStatus.USED));
+  return mapped.length === 1 ? mapped[0] : In(mapped);
+}
+
+function resolveTicketTimeframe(raw: string[] | undefined): TMyTicketTimeframe {
+  const value = raw?.[0] ?? 'all';
+  if (!MY_TICKET_TIMEFRAME.includes(value as TMyTicketTimeframe)) {
+    throw new BadRequestException(`timeframe debe ser uno de: ${MY_TICKET_TIMEFRAME.join(', ')}`);
+  }
+  return value as TMyTicketTimeframe;
+}
 
 // ── User-facing ticket endpoints ─────────────────────────────────────────────
 
@@ -63,52 +87,25 @@ export class TicketController {
   @ApiOperation({
     summary: 'Listar mis tickets',
     description:
-      'Returns a paginated list of all active and used tickets belonging to the authenticated user, ' +
-      'sorted by creation date descending. Cancelled tickets are excluded.'
+      'Listado paginado de entradas del usuario autenticado.\n' +
+      '- `page` / `limit`: paginación (`@PaginationParams`).\n' +
+      '- `status`: active | used | all. Sin valor: activas y usadas.\n' +
+      '- `timeframe`: upcoming | past | all. Sin valor: todas.'
   })
-  @ApiResponse({ status: 200, type: GetMyTicketsResponse, description: 'Paginated list of tickets.' })
+  @ApiResponse({ status: 200, type: GetMyTicketsResponse, description: 'Listado paginado de tickets.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    enum: MY_TICKET_STATUS,
-    description: 'Por defecto activas y usadas; `all` suma canceladas y transferidas.'
-  })
-  @ApiQuery({
-    name: 'timeframe',
-    required: false,
-    enum: MY_TICKET_TIMEFRAME,
-    description: 'Recorta por fin del evento. Por defecto `all`.'
-  })
+  @ApiFilter(myTicketFilters)
   @HttpCode(200)
   @Get('me')
   async getMyTickets(
     @PaginationParams() pagination: IPaginationParams,
-    @User() userId: string,
-    @Query('status') statusFilter?: string,
-    @Query('timeframe') timeframeFilter?: string
+    @FilterParams(myTicketFilters) filters: IFiltersParams<typeof myTicketFilters>,
+    @User() userId: string
   ): Promise<GetMyTicketsResponse> {
     const { page, limit } = pagination;
-
-    const status = (statusFilter ?? 'active,used') as TMyTicketStatus | 'active,used';
-    if (statusFilter && !MY_TICKET_STATUS.includes(statusFilter as TMyTicketStatus)) {
-      throw new BadRequestException(`status debe ser uno de: ${MY_TICKET_STATUS.join(', ')}`);
-    }
-
-    const timeframe = (timeframeFilter ?? 'all') as TMyTicketTimeframe;
-    if (!MY_TICKET_TIMEFRAME.includes(timeframe)) {
-      throw new BadRequestException(`timeframe debe ser uno de: ${MY_TICKET_TIMEFRAME.join(', ')}`);
-    }
-
-    const statusWhere =
-      status === 'active'
-        ? TicketStatus.ACTIVE
-        : status === 'used'
-          ? TicketStatus.USED
-          : status === 'all'
-            ? undefined
-            : In([TicketStatus.ACTIVE, TicketStatus.USED]);
+    const statusWhere = resolveTicketStatusWhere(filters.status);
+    const timeframe = resolveTicketTimeframe(filters.timeframe);
 
     const now = new Date();
     const eventWhere =
@@ -118,8 +115,8 @@ export class TicketController {
           ? { endDate: LessThan(now) }
           : undefined;
 
-    // Proximas de la mas cercana a la mas lejana; pasadas de la mas reciente
-    // hacia atras. Sin corte temporal manda la fecha de compra.
+    // Próximas de la más cercana a la más lejana; pasadas de la más reciente
+    // hacia atrás. Sin corte temporal manda la fecha de compra.
     const order =
       timeframe === 'upcoming'
         ? ({ event: { startDate: 'ASC' } } as const)
@@ -198,6 +195,8 @@ export class TicketController {
       uuid: ticket.event.uuid,
       name: ticket.event.name,
       startDate: ticket.event.startDate,
+      endDate: ticket.event.endDate,
+      bannerUrl: ticket.event.bannerUrl ?? null,
       venueName: ticket.event.venueName,
       venueCity: ticket.event.venueCity
     };

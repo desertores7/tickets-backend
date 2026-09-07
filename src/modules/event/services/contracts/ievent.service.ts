@@ -82,15 +82,38 @@ export type TEventProducer = {
   createdAt: Date;
 };
 
-/** Validador de puerta asignado a un evento. Misma forma que el productor. */
+/** Rol de empleado operativo del evento (puerta o caja). */
+export type TEventEmployeeRole = 'validator' | 'cashier';
+
+/** Empleado del evento (validador de puerta o caja). */
+export type TEventEmployee = {
+  uuid: string;
+  userUuid: string;
+  role: TEventEmployeeRole;
+  firstName: string;
+  lastName: string;
+  email: string;
+  createdAt: Date;
+};
+
+/** @deprecated Prefer TEventEmployee — listado legacy solo validadores. */
 export type TEventValidator = TEventProducer;
 
-/** Usuario candidato a ser asignado como validador */
+/** Usuario candidato a ser asignado como empleado */
 export type TUserSummary = {
   uuid: string;
   firstName: string;
   lastName: string;
   email: string;
+};
+
+export type TUpsertEventEmployeeInput = {
+  role: TEventEmployeeRole;
+  userUuid?: string;
+  email?: string;
+  password?: string;
+  firstName?: string;
+  lastName?: string;
 };
 
 export type TEventMediaItem = {
@@ -277,12 +300,39 @@ export interface IEventService {
 
   removeProducerFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
+  /** Empleados del evento: validadores + caja, con `role`. */
+  getEventEmployees(eventUuid: string, loggedUser: string): Promise<TEventEmployee[]>;
+
+  getEmployeeCandidates(
+    eventUuid: string,
+    search: string,
+    role: TEventEmployeeRole | undefined,
+    loggedUser: string
+  ): Promise<TUserSummary[]>;
+
+  upsertEventEmployee(
+    eventUuid: string,
+    data: TUpsertEventEmployeeInput,
+    loggedUser: string
+  ): Promise<TEventEmployee>;
+
+  removeEventEmployee(
+    eventUuid: string,
+    userUuid: string,
+    role: TEventEmployeeRole,
+    loggedUser: string
+  ): Promise<void>;
+
+  /** @deprecated Prefer getEventEmployees */
   getEventValidators(eventUuid: string, loggedUser: string): Promise<TEventValidator[]>;
 
+  /** @deprecated Prefer getEmployeeCandidates */
   getValidatorCandidates(eventUuid: string, search: string, loggedUser: string): Promise<TUserSummary[]>;
 
+  /** @deprecated Prefer upsertEventEmployee */
   assignValidatorToEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
+  /** @deprecated Prefer removeEventEmployee */
   removeValidatorFromEvent(eventUuid: string, userUuid: string, loggedUser: string): Promise<void>;
 
   getExpenses(
