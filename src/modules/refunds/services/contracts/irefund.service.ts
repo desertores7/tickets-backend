@@ -50,6 +50,8 @@ export type TRefundRequest = {
   /** Número del procesador de MP: con este se le reclama. */
   uniqueSequenceNumber: string | null;
   amountRefundedToPayer: number | null;
+  /** Cuántas veces se ejecutó el reintegro contra MP. >1 significa que ya alguien reintentó. */
+  attempts: number;
   requestedAt: Date;
   resolvedAt: Date | null;
   tickets: TRefundRequestTicket[];

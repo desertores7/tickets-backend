@@ -422,6 +422,10 @@ export const entityRelations = {
     createdBy: 'user'
   },
 
+  support_request: {
+    user: 'user'
+  },
+
   refund_request: {
     order: 'orders',
     event: 'event',

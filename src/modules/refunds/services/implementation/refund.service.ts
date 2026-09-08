@@ -369,6 +369,7 @@ export class RefundService implements IRefundService {
       .addSelect('r.resolutionReason', 'resolutionReason')
       .addSelect('r.uniqueSequenceNumber', 'uniqueSequenceNumber')
       .addSelect('r.amountRefundedToPayer', 'amountRefundedToPayer')
+      .addSelect('r.attempts', 'attempts')
       .addSelect('r.requestedAt', 'requestedAt')
       .addSelect('r.resolvedAt', 'resolvedAt')
       .from('refund_request', 'r')
@@ -437,6 +438,7 @@ export class RefundService implements IRefundService {
       uniqueSequenceNumber: r.uniqueSequenceNumber,
       amountRefundedToPayer:
         r.amountRefundedToPayer === null ? null : this.round(Number(r.amountRefundedToPayer)),
+      attempts: Number(r.attempts ?? 0),
       requestedAt: r.requestedAt,
       resolvedAt: r.resolvedAt,
       tickets: byRequest.get(r.uuid) ?? []
