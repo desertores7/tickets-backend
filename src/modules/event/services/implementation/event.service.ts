@@ -647,7 +647,7 @@ export class EventService implements IEventService {
       eventUuid: row.eventUuid,
       sortOrder: row.sortOrder,
       kind: row.kind,
-      url: row.url,
+      url: this.storageService.toPublicUrl(row.url) ?? row.url,
       mimeType: row.mimeType,
       createdAt: row.createdAt
     }));
@@ -722,7 +722,7 @@ export class EventService implements IEventService {
       eventUuid: media.eventUuid,
       sortOrder: media.sortOrder,
       kind: media.kind,
-      url: media.url,
+      url: this.storageService.toPublicUrl(media.url) ?? media.url,
       mimeType: media.mimeType,
       createdAt: media.createdAt ?? new Date()
     };
@@ -746,18 +746,16 @@ export class EventService implements IEventService {
     // Si el mismo archivo se usa como banner, no borrar el disco: quitar el flyer
     // de la galería no debe dejar el banner roto.
     const banners = (event.bannerImages as BannerImages) ?? {};
-    const bannerUrls = new Set(
-      [event.bannerUrl, banners.desktop, banners.mobile, banners.thumbnail].filter(
-        (url): url is string => Boolean(url?.trim())
-      )
+    const bannerUrls = [event.bannerUrl, banners.desktop, banners.mobile, banners.thumbnail].filter(
+      (u): u is string => Boolean(u?.trim())
     );
-    const mediaUrl = media.url?.trim() ?? '';
-    if (mediaUrl && bannerUrls.has(mediaUrl)) {
+    if (bannerUrls.some(b => this.storageService.sameStaticAsset(media.url, b))) {
       return;
     }
 
-    if (media.url?.includes(`/static/${GALLERY_BASE_PATH}/${eventUuid}/`)) {
-      const filename = media.url.split('/').pop();
+    const mediaPath = this.storageService.staticPathname(media.url);
+    if (mediaPath?.includes(`/static/${GALLERY_BASE_PATH}/${eventUuid}/`)) {
+      const filename = mediaPath.split('/').pop();
       if (filename) {
         await this.storageService.deleteFile(
           this.storageService.resolveAbsolutePath(`${GALLERY_BASE_PATH}/${eventUuid}`, filename)
@@ -828,7 +826,11 @@ export class EventService implements IEventService {
 
     await this.removeStoredBanner(event.uuid, previousUrl);
 
-    return { variant, url, bannerImages };
+    return {
+      variant,
+      url: this.storageService.toPublicUrl(url) ?? url,
+      bannerImages: this.publicBannerImages(bannerImages)
+    };
   }
 
   /** Extensión de archivo alineada al mime/format detectado (sin re-encode). */
@@ -872,7 +874,7 @@ export class EventService implements IEventService {
 
     await this.removeStoredBanner(event.uuid, targetUrl);
 
-    return { bannerImages };
+    return { bannerImages: this.publicBannerImages(bannerImages) };
   }
 
   async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap> {
@@ -1121,7 +1123,7 @@ export class EventService implements IEventService {
       uuid: map.uuid,
       eventUuid: map.eventUuid,
       name: map.name,
-      baseImageUrl: map.baseImageUrl,
+      baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
       canvasWidth: map.canvasWidth,
       canvasHeight: map.canvasHeight,
       sectors: mappedSectors,
@@ -1285,8 +1287,9 @@ export class EventService implements IEventService {
   }
 
   private async removeStoredMapBase(eventUuid: string, url: string | undefined): Promise<void> {
-    if (!url?.includes(`/static/${MAPS_BASE_PATH}/${eventUuid}/`)) return;
-    const filename = url.split('/').pop();
+    const pathname = this.storageService.staticPathname(url);
+    if (!pathname?.includes(`/static/${MAPS_BASE_PATH}/${eventUuid}/`)) return;
+    const filename = pathname.split('/').pop();
     if (!filename) return;
     await this.storageService.deleteFile(
       this.storageService.resolveAbsolutePath(`${MAPS_BASE_PATH}/${eventUuid}`, filename)
@@ -1295,8 +1298,9 @@ export class EventService implements IEventService {
 
   /** Borra del volumen una imagen previa, solo si es un archivo servido por nosotros. */
   private async removeStoredBanner(eventUuid: string, url: string | undefined): Promise<void> {
-    if (!url?.includes(`/static/${BANNERS_BASE_PATH}/${eventUuid}/`)) return;
-    const filename = url.split('/').pop();
+    const pathname = this.storageService.staticPathname(url);
+    if (!pathname?.includes(`/static/${BANNERS_BASE_PATH}/${eventUuid}/`)) return;
+    const filename = pathname.split('/').pop();
     if (!filename) return;
     await this.storageService.deleteFile(
       this.storageService.resolveAbsolutePath(`${BANNERS_BASE_PATH}/${eventUuid}`, filename)
@@ -1787,10 +1791,12 @@ export class EventService implements IEventService {
     return events.map(event => ({
       ...event,
       soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid),
-      eventImages: buildEventImages(
-        event,
-        flyerByEvent.get(event.uuid) ?? null,
-        mapByEvent.get(event.uuid) ?? null
+      eventImages: this.publicEventImages(
+        buildEventImages(
+          event,
+          flyerByEvent.get(event.uuid) ?? null,
+          mapByEvent.get(event.uuid) ?? null
+        )
       )
     }));
   }
@@ -1814,6 +1820,8 @@ export class EventService implements IEventService {
         where: { uuid: event.organizationUuid },
         select: {
           name: true,
+          website: true,
+          contactPhone: true,
           instagram: true,
           tiktok: true,
           facebook: true,
@@ -1824,15 +1832,44 @@ export class EventService implements IEventService {
 
     return {
       ...event,
-      eventImages: buildEventImages(event, flyerMedia?.url ?? null, map?.baseImageUrl ?? null),
+      eventImages: this.publicEventImages(
+        buildEventImages(event, flyerMedia?.url ?? null, map?.baseImageUrl ?? null)
+      ),
       producer: {
         name: org?.name ?? '',
+        website: org?.website ?? null,
+        phone: org?.contactPhone ?? null,
         instagram: org?.instagram ?? null,
         tiktok: org?.tiktok ?? null,
         facebook: org?.facebook ?? null,
         socialX: org?.socialX ?? null
       }
     };
+  }
+
+  /** Reescribe hosts de storage al APP_URL del entorno (local / ngrok / prod). */
+  private publicEventImages(images: {
+    flyer: string | null;
+    bannerDesktop: string | null;
+    bannerMobile: string | null;
+    mapEvent: string | null;
+  }) {
+    return {
+      flyer: this.storageService.toPublicUrl(images.flyer),
+      bannerDesktop: this.storageService.toPublicUrl(images.bannerDesktop),
+      bannerMobile: this.storageService.toPublicUrl(images.bannerMobile),
+      mapEvent: this.storageService.toPublicUrl(images.mapEvent)
+    };
+  }
+
+  private publicBannerImages(banners: BannerImages): BannerImages {
+    const out: BannerImages = {};
+    if (banners.desktop) out.desktop = this.storageService.toPublicUrl(banners.desktop) ?? banners.desktop;
+    if (banners.mobile) out.mobile = this.storageService.toPublicUrl(banners.mobile) ?? banners.mobile;
+    if (banners.thumbnail) {
+      out.thumbnail = this.storageService.toPublicUrl(banners.thumbnail) ?? banners.thumbnail;
+    }
+    return out;
   }
 
   /**

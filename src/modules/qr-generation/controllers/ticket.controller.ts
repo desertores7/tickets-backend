@@ -76,6 +76,7 @@ export class TicketController {
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly storageService: StorageService,
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue
   ) {}
 
@@ -141,8 +142,8 @@ export class TicketController {
         uuid: t.uuid,
         ticketNumber: t.ticketNumber,
         status: t.status,
-        qrUrl: t.qrUrl,
-        pdfUrl: t.pdfUrl,
+        qrUrl: this.storageService.toPublicUrl(t.qrUrl),
+        pdfUrl: this.storageService.toPublicUrl(t.pdfUrl),
         eventUuid: t.event.uuid,
         eventName: t.event.name,
         eventDate: t.event.startDate,
@@ -216,8 +217,8 @@ export class TicketController {
       uuid: ticket.uuid,
       ticketNumber: ticket.ticketNumber,
       status: ticket.status,
-      qrUrl: ticket.qrUrl,
-      pdfUrl: ticket.pdfUrl,
+      qrUrl: this.storageService.toPublicUrl(ticket.qrUrl),
+      pdfUrl: this.storageService.toPublicUrl(ticket.pdfUrl),
       qrCode: ticket.qrCode,
       checkedInAt: ticket.checkedInAt,
       event,

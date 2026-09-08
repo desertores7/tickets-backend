@@ -76,6 +76,8 @@ export type TEventListItem = TEventResponse & {
 export type TEventOrganizationPublic = {
   /** Nombre comercial de la productora */
   name: string;
+  website: string | null;
+  phone: string | null;
   instagram: string | null;
   tiktok: string | null;
   facebook: string | null;
@@ -84,7 +86,7 @@ export type TEventOrganizationPublic = {
 
 export type TEventDetailItem = TEventResponse & {
   eventImages: TEventImages;
-  /** Productora dueña: solo datos públicos (nombre comercial + redes). */
+  /** Productora dueña: datos públicos (nombre, contacto y redes). */
   producer: TEventOrganizationPublic;
 };
 

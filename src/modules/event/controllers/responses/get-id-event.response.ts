@@ -2,10 +2,16 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TEventDetailItem } from '@modules/event/services/contracts/ievent.service';
 import { EventImagesResponse } from './event-images.response';
 
-/** Datos públicos de la productora dueña del evento (nombre comercial + redes). */
+/** Datos públicos de la productora dueña del evento (nombre, contacto y redes). */
 export class EventProducerPublicResponse {
   @ApiProperty({ description: 'Nombre comercial de la productora' })
   name: string;
+
+  @ApiProperty({ nullable: true, description: 'Sitio web' })
+  website: string | null;
+
+  @ApiProperty({ nullable: true, description: 'Teléfono de contacto' })
+  phone: string | null;
 
   @ApiProperty({ nullable: true })
   instagram: string | null;
@@ -21,6 +27,8 @@ export class EventProducerPublicResponse {
 
   constructor(data: TEventDetailItem['producer']) {
     this.name = data.name;
+    this.website = data.website;
+    this.phone = data.phone;
     this.instagram = data.instagram;
     this.tiktok = data.tiktok;
     this.facebook = data.facebook;
