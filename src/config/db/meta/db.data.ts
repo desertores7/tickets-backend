@@ -10,6 +10,7 @@ import { OrganizationStatusEntityData } from '../entities/user/organization-stat
 import { PasswordResetCodeEntityData } from '../entities/user/password-reset-code.entity';
 import { UserOrganizationEntityData } from '../entities/user/user_organization.entity';
 import { SystemParameterEntityData } from '../entities/system/system_parameter.entity';
+import { SupportRequestEntityData } from '../entities/system/support_request.entity';
 import { UserSessionEntityData } from '../entities/user/user_session.entity';
 import { EmailEntityData } from '../entities/user/email.entity';
 import { EventEntityData } from '../entities/tickets/event.entity';
@@ -60,6 +61,7 @@ export const entitiesData = [
   OrganizationStatusEntityData,
   PasswordResetCodeEntityData,
   SystemParameterEntityData,
+  SupportRequestEntityData,
   UserSessionEntityData,
   EmailEntityData,
   EventEntityData,

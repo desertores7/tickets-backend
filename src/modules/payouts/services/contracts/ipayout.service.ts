@@ -82,7 +82,8 @@ export interface IPayoutService {
   listOrganizationPayouts(
     organizationUuid: string,
     search?: ISearchParams,
-    filters?: TPayoutFilters
+    filters?: TPayoutFilters,
+    pagination?: IPaginationParams
   ): Promise<IPayoutListResult>;
 
   createPayout(

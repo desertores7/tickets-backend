@@ -127,6 +127,13 @@ export class RefundRequestResponse {
   @ApiProperty({ nullable: true, description: 'Lo que MP dice que volvió al comprador' })
   amountRefundedToPayer: number | null;
 
+  @ApiProperty({
+    description:
+      'Cuántas veces se ejecutó el reintegro contra Mercado Pago. Mayor a 1 significa que ya ' +
+      'hubo un reintento manual: verificar en el panel de MP antes de volver a intentar.'
+  })
+  attempts: number;
+
   @ApiProperty({ description: 'ISO-8601' }) requestedAt: string;
   @ApiProperty({ nullable: true, description: 'ISO-8601' }) resolvedAt: string | null;
 
@@ -147,6 +154,7 @@ export class RefundRequestResponse {
     this.resolutionReason = data.resolutionReason;
     this.uniqueSequenceNumber = data.uniqueSequenceNumber;
     this.amountRefundedToPayer = data.amountRefundedToPayer;
+    this.attempts = data.attempts;
     this.requestedAt = new Date(data.requestedAt).toISOString();
     this.resolvedAt = data.resolvedAt ? new Date(data.resolvedAt).toISOString() : null;
     this.tickets = data.tickets.map(t => ({

@@ -269,9 +269,10 @@ export class PayoutService implements IPayoutService {
   async listOrganizationPayouts(
     organizationUuid: string,
     search?: ISearchParams,
-    filters?: TPayoutFilters
+    filters?: TPayoutFilters,
+    pagination?: IPaginationParams
   ): Promise<IPayoutListResult> {
-    return this.listByOrganization(organizationUuid, search, filters);
+    return this.listByOrganization(organizationUuid, search, filters, pagination);
   }
 
   async createPayout(

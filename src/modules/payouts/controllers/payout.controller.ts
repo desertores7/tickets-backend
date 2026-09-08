@@ -150,21 +150,29 @@ export class AdminPayoutController {
   @ApiParam({ name: 'organizationUuid' })
   @ApiSearch()
   @ApiFilter(payoutFilters)
+  @ApiPagination()
   @HttpCode(200)
   @Get()
   async list(
     @Param('organizationUuid') organizationUuid: string,
     @SearchParams() search: ISearchParams,
-    @FilterParams(payoutFilters) filters: IFiltersParams<typeof payoutFilters>
+    @FilterParams(payoutFilters) filters: IFiltersParams<typeof payoutFilters>,
+    @PaginationParams() pagination: IPaginationParams
   ): Promise<PayoutBlocksResponse> {
     const result = await this.payoutService.listOrganizationPayouts(
       organizationUuid,
       search,
-      filters
+      filters,
+      pagination
     );
     return new PayoutBlocksResponse(
       result.items.map(b => new PayoutEventBlockResponse(b)),
-      result.eventOptions
+      result.eventOptions,
+      new PaginationMetaResponse({
+        total: result.total ?? 0,
+        page: result.page ?? pagination.page,
+        limit: result.limit ?? pagination.limit
+      })
     );
   }
 
