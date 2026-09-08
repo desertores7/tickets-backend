@@ -73,8 +73,19 @@ export type TEventListItem = TEventResponse & {
 };
 
 /** Detalle público/backoffice: evento + imágenes resueltas (sin tandas). */
+export type TEventOrganizationPublic = {
+  /** Nombre comercial de la productora */
+  name: string;
+  instagram: string | null;
+  tiktok: string | null;
+  facebook: string | null;
+  socialX: string | null;
+};
+
 export type TEventDetailItem = TEventResponse & {
   eventImages: TEventImages;
+  /** Productora dueña: solo datos públicos (nombre comercial + redes). */
+  producer: TEventOrganizationPublic;
 };
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;

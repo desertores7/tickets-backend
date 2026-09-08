@@ -1795,9 +1795,9 @@ export class EventService implements IEventService {
     }));
   }
 
-  /** Adjunta flyer (galería) + mapa al detalle del evento. */
+  /** Adjunta flyer (galería) + mapa + datos públicos de la productora. */
   private async withEventImages(event: TEventResponse): Promise<TEventDetailItem> {
-    const [flyerMedia, map] = await Promise.all([
+    const [flyerMedia, map, org] = await Promise.all([
       this.dbRepository.findOne({
         entity: 'event_media',
         where: { eventUuid: event.uuid, isDeleted: IsNull(), kind: 'image' },
@@ -1808,12 +1808,30 @@ export class EventService implements IEventService {
         entity: 'event_map',
         where: { eventUuid: event.uuid },
         select: { baseImageUrl: true }
+      }),
+      this.dbRepository.findOne({
+        entity: 'organization',
+        where: { uuid: event.organizationUuid },
+        select: {
+          name: true,
+          instagram: true,
+          tiktok: true,
+          facebook: true,
+          socialX: true
+        }
       })
     ]);
 
     return {
       ...event,
-      eventImages: buildEventImages(event, flyerMedia?.url ?? null, map?.baseImageUrl ?? null)
+      eventImages: buildEventImages(event, flyerMedia?.url ?? null, map?.baseImageUrl ?? null),
+      producer: {
+        name: org?.name ?? '',
+        instagram: org?.instagram ?? null,
+        tiktok: org?.tiktok ?? null,
+        facebook: org?.facebook ?? null,
+        socialX: org?.socialX ?? null
+      }
     };
   }
 

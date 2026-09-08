@@ -2,6 +2,32 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TEventDetailItem } from '@modules/event/services/contracts/ievent.service';
 import { EventImagesResponse } from './event-images.response';
 
+/** Datos públicos de la productora dueña del evento (nombre comercial + redes). */
+export class EventProducerPublicResponse {
+  @ApiProperty({ description: 'Nombre comercial de la productora' })
+  name: string;
+
+  @ApiProperty({ nullable: true })
+  instagram: string | null;
+
+  @ApiProperty({ nullable: true })
+  tiktok: string | null;
+
+  @ApiProperty({ nullable: true })
+  facebook: string | null;
+
+  @ApiProperty({ nullable: true })
+  socialX: string | null;
+
+  constructor(data: TEventDetailItem['producer']) {
+    this.name = data.name;
+    this.instagram = data.instagram;
+    this.tiktok = data.tiktok;
+    this.facebook = data.facebook;
+    this.socialX = data.socialX;
+  }
+}
+
 export class GetIdEventResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() name: string;
@@ -26,6 +52,11 @@ export class GetIdEventResponse {
   publishedAt: Date | null;
   @ApiProperty() isActive: boolean;
   @ApiProperty() organizationUuid: string;
+  @ApiProperty({
+    type: EventProducerPublicResponse,
+    description: 'Productora dueña: nombre comercial y redes'
+  })
+  producer: EventProducerPublicResponse;
   @ApiProperty() venueName: string;
   @ApiProperty() venueAddress: string;
   @ApiProperty() venueCity: string;
@@ -64,6 +95,7 @@ export class GetIdEventResponse {
     this.publishedAt = data.publishedAt ?? null;
     this.isActive = data.isActive;
     this.organizationUuid = data.organizationUuid;
+    this.producer = new EventProducerPublicResponse(data.producer);
     this.venueName = data.venueName;
     this.venueAddress = data.venueAddress;
     this.venueCity = data.venueCity;
