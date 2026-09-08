@@ -124,9 +124,10 @@ export class EventService implements IEventService {
         return this.runEventsQuery(scoped, filters, pagination, options?.order);
       }
     } else {
-      // Vista pública: solo publicados y que todavía no terminaron. Se filtra por
-      // endDate (no startDate) para que un evento en curso siga visible.
+      // Vista pública: solo publicados, no cancelados, y que todavía no terminaron.
+      // Se filtra por endDate (no startDate) para que un evento en curso siga visible.
       where['isPublished'] = true;
+      where['cancelledAt'] = IsNull();
       where['endDate'] = MoreThanOrEqual(new Date());
     }
 

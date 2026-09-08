@@ -197,7 +197,7 @@ export class EventController {
   @ApiOperation({
     summary: 'Listar eventos',
     description:
-      'Public by default: returns published, active events that have not ended yet. No token required.\n\n' +
+      'Public by default: returns published, active, non-cancelled events that have not ended yet. No token required.\n\n' +
       'With `mine=true` (requires token) switches to backoffice scope: includes drafts and past events. ' +
       'An `Administrador` gets every event; any other role only gets events belonging to the ' +
       'organizations the user is a member of (e.g. `Productor`).'
