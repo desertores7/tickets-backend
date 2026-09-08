@@ -26,6 +26,17 @@ export class EventEntity {
   @Column({ type: 'text', nullable: true, default: null })
   description: string | null;
 
+  /** HTML de “Sobre el evento” (TipTap). Distinto de `description` corta. */
+  @Column({ type: 'text', nullable: true, default: null })
+  content: string | null;
+
+  /**
+   * Redes del evento: `{ network, url, label }[]`. Se puede repetir la misma red.
+   * Null = ninguna.
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  socialLinks: { network: string; url: string; label?: string | null }[] | null;
+
   @Column({ type: 'varchar', length: 255, unique: true })
   slug: string;
 

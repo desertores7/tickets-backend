@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsDate,
   IsInt,
@@ -8,8 +9,10 @@ import {
   IsString,
   IsUrl,
   MaxLength,
-  Min
+  Min,
+  ValidateNested
 } from 'class-validator';
+import { EventSocialLinkRequest } from './event-social-link.request';
 
 function parseArgentinaDate({ value }: { value: unknown }): Date | unknown {
   if (value === null || value === undefined || value === '') return value;
@@ -31,8 +34,28 @@ export class UpdateEventRequest {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ description: 'Event description', required: false, nullable: true })
+  @ApiProperty({ description: 'Descripción corta', required: false, nullable: true })
   description?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  @MaxLength(65535)
+  @ApiProperty({ description: 'HTML de “Sobre el evento”', required: false, nullable: true })
+  content?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => EventSocialLinkRequest)
+  @ApiProperty({
+    type: [EventSocialLinkRequest],
+    required: false,
+    nullable: true,
+    description: 'Redes del evento. Lista vacía o null = ninguna.'
+  })
+  socialLinks?: EventSocialLinkRequest[] | null;
 
   @IsOptional()
   @IsString()

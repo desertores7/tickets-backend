@@ -135,7 +135,7 @@ export class OrganizationController {
   @ApiOperation({
     summary: 'Solicitar cambio de identidad fiscal',
     description:
-      'Queues identity fields for admin review and optionally applies document add/delete. Does not change validationStatus; producer stays operational.'
+      'Si ya hay una solicitud pendiente, actualiza esa misma. Los datos vigentes siguen activos hasta que un administrador apruebe.'
   })
   @UseInterceptors(FilesInterceptor('files', ORGANIZATION_FISCAL_DOC_MAX_FILES))
   @HttpCode(200)

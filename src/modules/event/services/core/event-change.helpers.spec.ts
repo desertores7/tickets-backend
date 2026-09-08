@@ -19,6 +19,8 @@ describe('event-change.helpers', () => {
     venuePostalCode: '1000',
     googleMapsUrl: null as string | null,
     description: 'Show',
+    content: null as string | null,
+    socialLinks: null,
     lineup: ['A', 'B'] as string[] | null
   };
 
@@ -92,6 +94,17 @@ describe('event-change.helpers', () => {
     expect(lineupEquals([' A ', 'B'], ['A', 'B'])).toBe(true);
     expect(formatLineup(['A', 'B'])).toBe('A, B');
     expect(formatLineup([])).toBeNull();
+  });
+
+  it('content y redes son info, no materiales', () => {
+    const groups = detectEventUpdateChanges(base, {
+      content: '<p>Nuevo texto</p>',
+      socialLinks: [{ network: 'instagram', url: 'https://instagram.com/showpass', label: 'Oficial' }]
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].type).toBe('info');
+    expect(groups[0].isMaterial).toBe(false);
+    expect(groups[0].changes.map(c => c.field).sort()).toEqual(['content', 'socialLinks']);
   });
 });
 

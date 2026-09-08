@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDate,
   IsInt,
   IsNotEmpty,
@@ -9,8 +11,10 @@ import {
   IsUrl,
   IsUUID,
   MaxLength,
-  Min
+  Min,
+  ValidateNested
 } from 'class-validator';
+import { EventSocialLinkRequest } from './event-social-link.request';
 
 // Parses "DD/MM/YYYY HH:mm:ss" treating the time as Argentina (UTC-3).
 // Also accepts any string natively parseable by Date (ISO 8601, etc.).
@@ -33,8 +37,32 @@ export class CreateEventRequest {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ description: 'Event description', required: false, nullable: true, example: 'Show musical de cumbia peruana' })
+  @ApiProperty({ description: 'Descripción corta', required: false, nullable: true, example: 'Show musical de cumbia peruana' })
   description?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsString()
+  @MaxLength(65535)
+  @ApiProperty({
+    description: 'HTML de “Sobre el evento”',
+    required: false,
+    nullable: true
+  })
+  content?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => EventSocialLinkRequest)
+  @ApiProperty({
+    type: [EventSocialLinkRequest],
+    required: false,
+    nullable: true,
+    description: 'Redes del evento. Lista vacía o null = ninguna.'
+  })
+  socialLinks?: EventSocialLinkRequest[] | null;
 
   @IsNotEmpty()
   @IsString()

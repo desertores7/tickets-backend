@@ -5,6 +5,8 @@ export interface GetTicketEventData {
   uuid: string;
   name: string;
   startDate: Date;
+  endDate: Date;
+  bannerUrl: string | null;
   venueName: string;
   venueCity: string;
 }
@@ -38,6 +40,8 @@ class TicketEventResponse {
   @ApiProperty({ example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' }) id: string;
   @ApiProperty({ example: 'Lollapalooza Argentina 2025' }) name: string;
   @ApiProperty() startDate: Date;
+  @ApiProperty() endDate: Date;
+  @ApiPropertyOptional({ nullable: true }) bannerUrl: string | null;
   @ApiProperty({ example: 'Hipódromo de San Isidro' }) venueName: string;
   @ApiProperty({ example: 'Buenos Aires' }) venueCity: string;
 
@@ -45,6 +49,8 @@ class TicketEventResponse {
     this.id = data.uuid;
     this.name = data.name;
     this.startDate = data.startDate;
+    this.endDate = data.endDate;
+    this.bannerUrl = data.bannerUrl;
     this.venueName = data.venueName;
     this.venueCity = data.venueCity;
   }

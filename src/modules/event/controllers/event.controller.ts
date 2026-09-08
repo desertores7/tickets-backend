@@ -52,6 +52,11 @@ import {
 } from './requests/bulk-ticket-types.request';
 import { AssignProducerRequest } from './requests/assign-producer.request';
 import { AssignValidatorRequest } from './requests/assign-validator.request';
+import {
+  EVENT_EMPLOYEE_ROLES,
+  UpsertEventEmployeeRequest
+} from './requests/upsert-event-employee.request';
+import { EventEmployeeResponse } from './responses/event-employee.response';
 import { CreateExpenseRequest, UpdateExpenseRequest } from './requests/upsert-expense.request';
 import {
   EventExpenseResponse,
@@ -823,18 +828,114 @@ export class EventController {
     await this._eventService.removeProducerFromEvent(eventUuid, userUuid, loggedUser);
   }
 
-  // ── Validadores del evento ────────────────────────────────────────────────
-  // A diferencia de los productores usan @UserAuth: el productor dueño del
-  // evento también arma su equipo de puerta. assertOwnership acota el alcance.
+  // ── Empleados del evento (Validador / Caja) ───────────────────────────────
+  // Un solo CRUD: el `role` elige Validador (event_validator) o Caja
+  // (user_event_cashier) y otorga el roleUuid correspondiente.
+
+  @UserAuth(null, EventEmployeeResponse)
+  @ApiOperation({
+    summary: 'Listar empleados del evento',
+    description: 'Validadores de puerta y personal de caja asignados a este evento.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 200, type: [EventEmployeeResponse] })
+  @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
+  @Get(':eventUuid/employees')
+  async getEventEmployees(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<EventEmployeeResponse[]> {
+    const items = await this._eventService.getEventEmployees(eventUuid, loggedUser);
+    return items.map(i => new EventEmployeeResponse(i));
+  }
 
   @UserAuth(null, null)
   @ApiOperation({
-    summary: 'Listar validadores del evento',
-    description: 'Door staff assigned to this event. Accessible to an admin or to the event owner.'
+    summary: 'Buscar candidatos a empleado',
+    description:
+      'Busca usuarios activos por nombre o email, excluyendo los ya asignados ' +
+      'al rol indicado (o a cualquiera si no se pasa `role`).'
   })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @ApiResponse({ status: 200, description: 'Assigned validators.' })
-  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @ApiQuery({ name: 'search', required: false, description: 'Nombre o email.' })
+  @ApiQuery({ name: 'role', required: false, enum: EVENT_EMPLOYEE_ROLES })
+  @ApiResponse({ status: 200, description: 'Matching users.' })
+  @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
+  @Get(':eventUuid/employees/candidates')
+  async getEmployeeCandidates(
+    @Param('eventUuid') eventUuid: string,
+    @Query('search') search: string,
+    @Query('role') role: string | undefined,
+    @User() loggedUser: string
+  ): Promise<TUserSummary[]> {
+    const parsed =
+      role && (EVENT_EMPLOYEE_ROLES as readonly string[]).includes(role)
+        ? (role as (typeof EVENT_EMPLOYEE_ROLES)[number])
+        : undefined;
+    if (role && !parsed) {
+      throw new BadRequestException(`role debe ser uno de: ${EVENT_EMPLOYEE_ROLES.join(', ')}`);
+    }
+    return this._eventService.getEmployeeCandidates(eventUuid, search ?? '', parsed, loggedUser);
+  }
+
+  @UserAuth(UpsertEventEmployeeRequest, EventEmployeeResponse)
+  @ApiOperation({
+    summary: 'Crear o asignar empleado',
+    description:
+      'Con `userUuid` asigna una cuenta existente. Sin `userUuid`, crea la cuenta ' +
+      '(email + password) y la asigna. El `role` determina Validador o Caja.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiResponse({ status: 201, type: EventEmployeeResponse })
+  @HttpCode(201)
+  @ApiTags('Productora — Equipo del evento')
+  @Post(':eventUuid/employees')
+  async upsertEventEmployee(
+    @Param('eventUuid') eventUuid: string,
+    @Body() data: UpsertEventEmployeeRequest,
+    @User() loggedUser: string
+  ): Promise<EventEmployeeResponse> {
+    const item = await this._eventService.upsertEventEmployee(eventUuid, data, loggedUser);
+    return new EventEmployeeResponse(item);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Quitar empleado del evento',
+    description:
+      'Quita la asignación según `role`. No revoca el rol del sistema (puede seguir en otros eventos).'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiParam({ name: 'userUuid', description: 'User UUID.' })
+  @ApiQuery({ name: 'role', required: true, enum: EVENT_EMPLOYEE_ROLES })
+  @ApiResponse({ status: 200, description: 'Assignment removed.' })
+  @HttpCode(200)
+  @ApiTags('Productora — Equipo del evento')
+  @Delete(':eventUuid/employees/:userUuid')
+  async removeEventEmployee(
+    @Param('eventUuid') eventUuid: string,
+    @Param('userUuid') userUuid: string,
+    @Query('role') role: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    if (!(EVENT_EMPLOYEE_ROLES as readonly string[]).includes(role)) {
+      throw new BadRequestException(`role debe ser uno de: ${EVENT_EMPLOYEE_ROLES.join(', ')}`);
+    }
+    await this._eventService.removeEventEmployee(
+      eventUuid,
+      userUuid,
+      role as (typeof EVENT_EMPLOYEE_ROLES)[number],
+      loggedUser
+    );
+  }
+
+  // Legacy validators → mismos servicios con role=validator (compat).
+
+  @UserAuth(null, null)
+  @ApiOperation({ summary: 'Listar validadores del evento', deprecated: true })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @HttpCode(200)
   @ApiTags('Productora — Equipo del evento')
   @Get(':eventUuid/validators')
@@ -846,18 +947,9 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({
-    summary: 'Buscar candidatos a validador',
-    description:
-      'Searches active users by first name, last name or email, excluding those already assigned. ' +
-      'Returns up to 10 results; an empty `search` returns an empty list.\n\n' +
-      'Exists as an event-scoped endpoint because `GET /users` is admin-only, and a producer ' +
-      'must also be able to staff their own event.'
-  })
+  @ApiOperation({ summary: 'Buscar candidatos a validador', deprecated: true })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @ApiQuery({ name: 'search', required: false, description: 'Name or email fragment.' })
-  @ApiResponse({ status: 200, description: 'Matching users.' })
-  @ApiResponse({ status: 403, description: 'No access to this event.' })
+  @ApiQuery({ name: 'search', required: false })
   @HttpCode(200)
   @ApiTags('Productora — Equipo del evento')
   @Get(':eventUuid/validators/candidates')
@@ -870,17 +962,8 @@ export class EventController {
   }
 
   @UserAuth(AssignValidatorRequest, null)
-  @ApiOperation({
-    summary: 'Asignar validador al evento',
-    description:
-      'Assigns door staff to THIS event and grants the `Validador` role if the user does not ' +
-      'already have it (the expected flow is that they register as a Cliente first). ' +
-      'Idempotent: assigning someone already assigned is a no-op.'
-  })
+  @ApiOperation({ summary: 'Asignar validador al evento', deprecated: true })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
-  @ApiResponse({ status: 200, description: 'Validator assigned.' })
-  @ApiResponse({ status: 400, description: 'User not found, or the Validador role is missing.' })
-  @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
   @ApiTags('Productora — Equipo del evento')
   @Post(':eventUuid/validators')
@@ -893,16 +976,9 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({
-    summary: 'Quitar validador del evento',
-    description:
-      'Removes the assignment. The `Validador` role is NOT revoked — the person may still be ' +
-      'working the door at other events.'
-  })
+  @ApiOperation({ summary: 'Quitar validador del evento', deprecated: true })
   @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
   @ApiParam({ name: 'userUuid', description: 'User UUID.' })
-  @ApiResponse({ status: 200, description: 'Assignment removed.' })
-  @ApiResponse({ status: 403, description: 'No access to this event.' })
   @HttpCode(200)
   @ApiTags('Productora — Equipo del evento')
   @Delete(':eventUuid/validators/:userUuid')

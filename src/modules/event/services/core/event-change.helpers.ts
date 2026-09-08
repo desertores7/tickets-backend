@@ -1,5 +1,12 @@
 import type { EventChangeFieldSnapshot } from '@config/db/entities/tickets/event_change.entity';
 import type { EventChangeType } from '@config/db/entities/tickets/event_change.entity';
+import type { EventSocialLink } from '../../const/event-social-network.const';
+import {
+  formatContentPreview,
+  formatSocialLinks,
+  normalizeEventContent,
+  socialLinksEqual
+} from './event-social-links';
 
 /**
  * Ventana de reembolso vigente de un evento (`BR-REFUND-010`).
@@ -43,6 +50,8 @@ export type EventSnapshotForChange = {
   venuePostalCode: string;
   googleMapsUrl: string | null;
   description: string | null;
+  content: string | null;
+  socialLinks: EventSocialLink[] | null;
   lineup: string[] | null;
 };
 
@@ -56,6 +65,8 @@ export type EventUpdateForChange = Partial<{
   venuePostalCode: string;
   googleMapsUrl: string | null;
   description: string | null;
+  content: string | null;
+  socialLinks: EventSocialLink[] | null;
   lineup: string[] | null;
 }>;
 
@@ -189,22 +200,39 @@ export function detectEventUpdateChanges(
     });
   }
 
+  const infoChanges: EventChangeFieldSnapshot[] = [];
   if (
     patch.description !== undefined &&
     normalizeText(before.description) !== normalizeText(patch.description)
   ) {
-    groups.push({
-      type: 'info',
-      isMaterial: false,
-      changes: [
-        {
-          field: 'description',
-          label: 'Descripción',
-          before: before.description?.trim() || null,
-          after: patch.description?.trim() || null
-        }
-      ]
+    infoChanges.push({
+      field: 'description',
+      label: 'Descripción',
+      before: before.description?.trim() || null,
+      after: patch.description?.trim() || null
     });
+  }
+  if (
+    patch.content !== undefined &&
+    normalizeEventContent(before.content) !== normalizeEventContent(patch.content)
+  ) {
+    infoChanges.push({
+      field: 'content',
+      label: 'Sobre el evento',
+      before: formatContentPreview(before.content),
+      after: formatContentPreview(patch.content)
+    });
+  }
+  if (patch.socialLinks !== undefined && !socialLinksEqual(before.socialLinks, patch.socialLinks)) {
+    infoChanges.push({
+      field: 'socialLinks',
+      label: 'Redes',
+      before: formatSocialLinks(before.socialLinks),
+      after: formatSocialLinks(patch.socialLinks)
+    });
+  }
+  if (infoChanges.length) {
+    groups.push({ type: 'info', isMaterial: false, changes: infoChanges });
   }
 
   return groups;
