@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { TEventWithTicketTypesResponse } from '@modules/event/services/contracts/ievent.service';
-import { TicketTypeResponse } from './ticket-type.response';
+import { TEventDetailItem } from '@modules/event/services/contracts/ievent.service';
+import { EventImagesResponse } from './event-images.response';
 
 export class GetIdEventResponse {
   @ApiProperty() uuid: string;
@@ -15,13 +15,8 @@ export class GetIdEventResponse {
   })
   socialLinks: { network: string; url: string; label?: string | null }[] | null;
   @ApiProperty() slug: string;
-  @ApiProperty({ nullable: true }) bannerUrl: string | null;
-  @ApiProperty({
-    nullable: true,
-    description: 'URLs por plataforma',
-    example: { desktop: '…/desktop-1.webp', mobile: '…/mobile-1.webp', thumbnail: '…/thumbnail-1.webp' }
-  })
-  bannerImages: Record<string, string> | null;
+  @ApiProperty({ type: EventImagesResponse, description: 'Imágenes del evento (flyer, banners, mapa)' })
+  eventImages: EventImagesResponse;
   @ApiProperty() startDate: Date;
   @ApiProperty() endDate: Date;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
@@ -45,7 +40,6 @@ export class GetIdEventResponse {
   })
   lineup: string[] | null;
   @ApiProperty() maxCapacity: number;
-  @ApiProperty({ type: [TicketTypeResponse] }) ticketTypes: TicketTypeResponse[];
   @ApiProperty({ nullable: true, description: 'Cancelado el (BR-EVENT-010)' })
   cancelledAt: Date | null;
   @ApiProperty({ nullable: true }) cancellationReason: string | null;
@@ -54,15 +48,14 @@ export class GetIdEventResponse {
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 
-  constructor(data: TEventWithTicketTypesResponse) {
+  constructor(data: TEventDetailItem) {
     this.uuid = data.uuid;
     this.name = data.name;
     this.description = data.description;
     this.content = data.content ?? null;
     this.socialLinks = data.socialLinks ?? null;
     this.slug = data.slug;
-    this.bannerUrl = data.bannerUrl;
-    this.bannerImages = data.bannerImages ?? null;
+    this.eventImages = new EventImagesResponse(data.eventImages);
     this.startDate = data.startDate;
     this.endDate = data.endDate;
     this.saleStartDate = data.saleStartDate;
@@ -79,7 +72,6 @@ export class GetIdEventResponse {
     this.googleMapsUrl = data.googleMapsUrl ?? null;
     this.lineup = data.lineup ?? null;
     this.maxCapacity = data.maxCapacity;
-    this.ticketTypes = (data.ticketTypes ?? []).map(tt => new TicketTypeResponse(tt));
     this.cancelledAt = data.cancelledAt ?? null;
     this.cancellationReason = data.cancellationReason ?? null;
     this.salesClosedAt = data.salesClosedAt ?? null;

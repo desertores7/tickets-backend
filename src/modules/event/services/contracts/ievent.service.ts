@@ -30,13 +30,16 @@ export type TEventMapSector = {
 };
 
 export type TEventMap = {
-  uuid: string;
+  /** Null cuando el evento aún no tiene mapa configurado (solo en GET). */
+  uuid: string | null;
   eventUuid: string;
   name: string;
   baseImageUrl: string | null;
   canvasWidth: number;
   canvasHeight: number;
   sectors: TEventMapSector[];
+  /** Tandas del evento (agrupadas con el mapa para compra / sectores). */
+  ticketTypes: TTicketTypeResponse[];
 };
 
 export type TUpsertEventMapSector = {
@@ -57,14 +60,21 @@ export type TUpsertEventMap = {
   sectors: TUpsertEventMapSector[];
 };
 
+import type { TEventImages } from '../../controllers/responses/event-images.response';
+
 /**
  * Item del listado: el evento más si quedan entradas por vender. Se resuelve en
  * el listado para no obligar al frontend a pedir el detalle de cada tarjeta.
- * `coverUrl` = primera imagen de galería (flyer principal), si existe.
+ * `eventImages` agrupa flyer, banners y mapa de sala.
  */
 export type TEventListItem = TEventResponse & {
   soldOut: boolean;
-  coverUrl: string | null;
+  eventImages: TEventImages;
+};
+
+/** Detalle público/backoffice: evento + imágenes resueltas (sin tandas). */
+export type TEventDetailItem = TEventResponse & {
+  eventImages: TEventImages;
 };
 
 export type TEventFilters = IFiltersParams<typeof eventFilters>;
@@ -169,9 +179,9 @@ export interface IEventService {
     options?: { mine?: boolean; loggedUser?: string | null; order?: TEventOrder }
   ): Promise<{ meta: PaginationMetaResponse; items: TEventListItem[] }>;
 
-  getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
+  getEventById(uuid: string, role?: string | null): Promise<TEventDetailItem>;
 
-  getEventBySlug(slug: string, role?: string | null): Promise<TEventWithTicketTypesResponse>;
+  getEventBySlug(slug: string, role?: string | null): Promise<TEventDetailItem>;
 
   createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }>;
 
@@ -273,13 +283,13 @@ export interface IEventService {
 
   deleteBanner(eventUuid: string, variant: BannerVariant, loggedUser: string): Promise<{ bannerImages: BannerImages }>;
 
-  getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null>;
+  getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap>;
 
-  /** Mapa de solo lectura: publicado = público; borrador = dueño/admin. */
+  /** Mapa de solo lectura: publicado = público; borrador = dueño/admin. Siempre incluye ticketTypes. */
   getEventMapPublic(
     eventUuid: string,
     opts?: { loggedUser?: string | null; role?: string | null }
-  ): Promise<TEventMap | null>;
+  ): Promise<TEventMap>;
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
 
