@@ -63,6 +63,8 @@ export type TRefundFilters = {
   /** Fecha de solicitud, YYYY-MM-DD inclusive */
   dateFrom?: string;
   dateTo?: string;
+  /** Comprador, email, orden, evento o número de entrada. */
+  search?: string;
 };
 
 /** Resultado de una corrida del cron (`BR-REFUND-011`). */

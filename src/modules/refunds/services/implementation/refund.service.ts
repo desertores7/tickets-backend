@@ -352,6 +352,7 @@ export class RefundService implements IRefundService {
     status?: RefundRequestStatus;
     dateFrom?: string;
     dateTo?: string;
+    search?: string;
   }): Promise<TRefundRequest[]> {
     const qb = this.dataSource
       .createQueryBuilder()
@@ -390,6 +391,21 @@ export class RefundService implements IRefundService {
     }
     if (filter.dateTo) {
       qb.andWhere('r.requestedAt <= :to', { to: `${filter.dateTo} 23:59:59` });
+    }
+    const searchTerm = filter.search?.trim();
+    if (searchTerm) {
+      qb.andWhere(
+        `(o.orderNumber LIKE :q
+          OR u.email LIKE :q
+          OR CONCAT(u.firstName, ' ', u.lastName) LIKE :q
+          OR e.name LIKE :q
+          OR EXISTS (
+            SELECT 1 FROM refund_request_ticket rrt
+            INNER JOIN ticket t ON t.uuid = rrt.ticketUuid
+            WHERE rrt.refundRequestUuid = r.uuid AND t.ticketNumber LIKE :q
+          ))`,
+        { q: `%${searchTerm}%` }
+      );
     }
 
     const rows = await qb.getRawMany();
@@ -478,7 +494,8 @@ export class RefundService implements IRefundService {
       eventUuids,
       status: filters.status,
       dateFrom: filters.dateFrom,
-      dateTo: filters.dateTo
+      dateTo: filters.dateTo,
+      search: filters.search
     });
   }
 
