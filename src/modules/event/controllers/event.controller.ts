@@ -76,7 +76,7 @@ import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.re
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
 import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
-import { EventMapResponse, EventMapSectorResponse } from './responses/event-map.response';
+import { EventMapResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import {
   SetMapBaseFromMediaRequest,
@@ -241,8 +241,9 @@ export class EventController {
   @ApiOperation({
     summary: 'Obtener evento por slug',
     description:
-      'Returns event details including ticket types, resolved by public slug. ' +
-      'Unpublished drafts are only visible to authenticated users.'
+      'Returns event details, resolved by public slug. ' +
+      'Unpublished drafts are only visible to authenticated users. ' +
+      'Ticket types live in GET /events/:eventUuid/map/public.'
   })
   @ApiParam({ name: 'slug', description: 'Event URL slug' })
   @HttpCode(200)
@@ -260,8 +261,9 @@ export class EventController {
   @ApiOperation({
     summary: 'Obtener evento',
     description:
-      'Returns event details including ticket types. Public: no token required. ' +
-      'Unpublished drafts are only visible to authenticated users.'
+      'Returns event details. Public: no token required. ' +
+      'Unpublished drafts are only visible to authenticated users. ' +
+      'Ticket types live in GET /events/:eventUuid/map/public (grouped with the venue map).'
   })
   @HttpCode(200)
   @ApiTags('Público — Eventos')
@@ -468,7 +470,8 @@ export class EventController {
   @ApiOperation({
     summary: 'Obtener mapa de sala — lectura pública',
     description:
-      'Read-only seating/sector map. Published events are public; drafts require ownership.'
+      'Read-only seating/sector map plus ticket types. Published events are public; drafts require ownership. ' +
+      'If the event has no map yet, `uuid` is null and `sectors` is empty, but `ticketTypes` is still returned.'
   })
   @HttpCode(200)
   @ApiTags('Público — Eventos')
@@ -477,33 +480,30 @@ export class EventController {
     @Param('eventUuid') eventUuid: string,
     @OptionalUser() loggedUser: string | null,
     @UserRole() role: string | null
-  ): Promise<EventMapResponse | null> {
+  ): Promise<EventMapResponse> {
     const map = await this._eventService.getEventMapPublic(eventUuid, {
       loggedUser,
       role
     });
-    if (!map) return null;
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(null, EventMapResponse)
-  @ApiOperation({ summary: 'Obtener mapa de sala', description: 'Returns the seating/sector map for the event, or null if not created yet.' })
+  @ApiOperation({
+    summary: 'Obtener mapa de sala',
+    description:
+      'Returns the seating/sector map for the event plus ticket types. ' +
+      'If not created yet, `uuid` is null and `sectors` is empty.'
+  })
   @HttpCode(200)
   @ApiTags('Productora — Mapa')
   @Get(':eventUuid/map')
   async getEventMap(
     @Param('eventUuid') eventUuid: string,
     @User() loggedUser: string
-  ): Promise<EventMapResponse | null> {
+  ): Promise<EventMapResponse> {
     const map = await this._eventService.getEventMap(eventUuid, loggedUser);
-    if (!map) return null;
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(UpsertEventMapRequest, EventMapResponse)
@@ -524,10 +524,7 @@ export class EventController {
       body as unknown as TUpsertEventMap,
       loggedUser
     );
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(null, EventMapResponse)
@@ -555,10 +552,7 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<EventMapResponse> {
     const map = await this._eventService.uploadMapBaseImage(eventUuid, file, loggedUser);
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(null, EventMapResponse)
@@ -575,10 +569,7 @@ export class EventController {
   ): Promise<EventMapResponse | null> {
     const map = await this._eventService.removeMapBaseImage(eventUuid, loggedUser);
     if (!map) return null;
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(SetMapBaseFromMediaRequest, EventMapResponse)
@@ -595,10 +586,7 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<EventMapResponse> {
     const map = await this._eventService.setMapBaseFromMedia(eventUuid, body.mediaUuid, loggedUser);
-    return new EventMapResponse({
-      ...map,
-      sectors: map.sectors.map(s => new EventMapSectorResponse(s))
-    });
+    return new EventMapResponse(map);
   }
 
   @UserAuth(null, SuggestMapSectorsResponse)

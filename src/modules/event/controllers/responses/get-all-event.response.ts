@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TEventListItem } from '@modules/event/services/contracts/ievent.service';
+import { EventImagesResponse } from './event-images.response';
 
 export class GetAllEventResponse {
   @ApiProperty() uuid: string;
@@ -13,18 +14,8 @@ export class GetAllEventResponse {
   })
   socialLinks: { network: string; url: string; label?: string | null }[] | null;
   @ApiProperty() slug: string;
-  @ApiProperty({ nullable: true }) bannerUrl: string | null;
-  @ApiProperty({
-    nullable: true,
-    description: 'URLs por plataforma',
-    example: { desktop: '…/desktop-1.webp', mobile: '…/mobile-1.webp', thumbnail: '…/thumbnail-1.webp' }
-  })
-  bannerImages: Record<string, string> | null;
-  @ApiProperty({
-    nullable: true,
-    description: 'URL del flyer principal (primera imagen de galería). Preferida para cards del listado.'
-  })
-  coverUrl: string | null;
+  @ApiProperty({ type: EventImagesResponse, description: 'Imágenes del evento (flyer, banners, mapa)' })
+  eventImages: EventImagesResponse;
   @ApiProperty() startDate: Date;
   @ApiProperty() endDate: Date;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
@@ -70,9 +61,7 @@ export class GetAllEventResponse {
     this.content = data.content ?? null;
     this.socialLinks = data.socialLinks ?? null;
     this.slug = data.slug;
-    this.bannerUrl = data.bannerUrl;
-    this.bannerImages = data.bannerImages ?? null;
-    this.coverUrl = data.coverUrl ?? null;
+    this.eventImages = new EventImagesResponse(data.eventImages);
     this.startDate = data.startDate;
     this.endDate = data.endDate;
     this.saleStartDate = data.saleStartDate;

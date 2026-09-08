@@ -12,6 +12,7 @@ import OpenAI, { APIError, toFile } from 'openai';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import sharp from 'sharp';
 import { HERO_FROM_FLYER_PROMPT } from '../../const/hero-from-flyer.prompt';
+import { HERO_MOBILE_FROM_FLYER_PROMPT } from '../../const/hero-mobile-from-flyer.prompt';
 import {
   MAP_LAYOUT_SYSTEM_PROMPT,
   MAP_LAYOUT_USER_TEXT
@@ -54,7 +55,13 @@ const HOUR_TTL_SEC = 60 * 60;
 /** Reintentos ante 429/5xx de OpenAI (no bucles infinitos). */
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BASE_DELAY_MS = 2_500;
-/** Landscape 16:9 — hero full-width (espacio texto a la izquierda) */
+/**
+ * Size enviado a OpenAI para el mobile (múltiplos de 16, ~7:10).
+ * Luego sharp lo lleva exactamente a 350×500.
+ */
+const MOBILE_HERO_AI_SIZE = '704x1008';
+const MOBILE_HERO_OUTPUT_WIDTH = 350;
+const MOBILE_HERO_OUTPUT_HEIGHT = 500;
 
 type HeroImageQuality = 'low' | 'medium' | 'high';
 type HeroImageFormat = 'png' | 'webp' | 'jpeg';

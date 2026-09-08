@@ -50,8 +50,8 @@ import {
   TEventValidator,
   TUserSummary,
   TEventListItem,
+  TEventDetailItem,
   TEventResponse,
-  TEventWithTicketTypesResponse,
   TTicketTypeResponse
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
@@ -65,6 +65,7 @@ import {
   EventMapSectorGeometry
 } from '@config/db/entities/tickets/event_map_sector.entity';
 import { EventMapSectorTicketTypeEntity } from '@config/db/entities/tickets/event_map_sector_ticket_type.entity';
+import { buildEventImages } from '../../controllers/responses/event-images.response';
 
 const BANNERS_BASE_PATH = 'events/banners';
 const GALLERY_BASE_PATH = 'events/gallery';
@@ -152,11 +153,10 @@ export class EventService implements IEventService {
     return { meta, items: await this.attachSoldOut(result.items as TEventResponse[]) };
   }
 
-  async getEventById(uuid: string, role?: string | null): Promise<TEventWithTicketTypesResponse> {
+  async getEventById(uuid: string, role?: string | null): Promise<TEventDetailItem> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
-      where: { uuid, isActive: true },
-      relations: { ticketTypes: true }
+      where: { uuid, isActive: true }
     });
 
     if (!event) throw new BadRequestException('Evento no encontrado');
@@ -165,23 +165,22 @@ export class EventService implements IEventService {
     // Los usuarios autenticados mantienen el acceso: el backoffice los necesita.
     if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
 
-    return event as TEventWithTicketTypesResponse;
+    return this.withEventImages(event as TEventResponse);
   }
 
-  async getEventBySlug(slug: string, role?: string | null): Promise<TEventWithTicketTypesResponse> {
+  async getEventBySlug(slug: string, role?: string | null): Promise<TEventDetailItem> {
     const normalized = (slug ?? '').trim();
     if (!normalized) throw new BadRequestException('Evento no encontrado');
 
     const event = await this.dbRepository.findOne({
       entity: 'event',
-      where: { slug: normalized, isActive: true },
-      relations: { ticketTypes: true }
+      where: { slug: normalized, isActive: true }
     });
 
     if (!event) throw new BadRequestException('Evento no encontrado');
     if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
 
-    return event as TEventWithTicketTypesResponse;
+    return this.withEventImages(event as TEventResponse);
   }
 
   async createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }> {
@@ -863,20 +862,19 @@ export class EventService implements IEventService {
     return { bannerImages };
   }
 
-  async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
+  async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap> {
     await this.assertOwnership(eventUuid, loggedUser);
     const map = await this.dbRepository.findOne({
       entity: 'event_map',
       where: { eventUuid }
     });
-    if (!map) return null;
-    return this.loadEventMap(map);
+    return this.loadEventMapBundle(eventUuid, map);
   }
 
   async getEventMapPublic(
     eventUuid: string,
     opts?: { loggedUser?: string | null; role?: string | null }
-  ): Promise<TEventMap | null> {
+  ): Promise<TEventMap> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid: eventUuid, isActive: true }
@@ -892,8 +890,7 @@ export class EventService implements IEventService {
       entity: 'event_map',
       where: { eventUuid }
     });
-    if (!map) return null;
-    return this.loadEventMap(map);
+    return this.loadEventMapBundle(eventUuid, map);
   }
 
   async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
@@ -1072,11 +1069,14 @@ export class EventService implements IEventService {
     canvasWidth: number;
     canvasHeight: number;
   }): Promise<TEventMap> {
-    const sectors = await this.dbRepository.findMany({
-      entity: 'event_map_sector',
-      where: { mapUuid: map.uuid },
-      other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
-    });
+    const [sectors, ticketTypes] = await Promise.all([
+      this.dbRepository.findMany({
+        entity: 'event_map_sector',
+        where: { mapUuid: map.uuid },
+        other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } }
+      }),
+      this.getTicketTypes(map.eventUuid)
+    ]);
 
     const sectorUuids = sectors.map(s => s.uuid);
     const links =
@@ -1111,7 +1111,35 @@ export class EventService implements IEventService {
       baseImageUrl: map.baseImageUrl,
       canvasWidth: map.canvasWidth,
       canvasHeight: map.canvasHeight,
-      sectors: mappedSectors
+      sectors: mappedSectors,
+      ticketTypes
+    };
+  }
+
+  /** GET mapa: siempre incluye tandas; si no hay mapa, uuid queda null. */
+  private async loadEventMapBundle(
+    eventUuid: string,
+    map: {
+      uuid: string;
+      eventUuid: string;
+      name: string;
+      baseImageUrl: string | null;
+      canvasWidth: number;
+      canvasHeight: number;
+    } | null
+  ): Promise<TEventMap> {
+    if (map) return this.loadEventMap(map);
+
+    const ticketTypes = await this.getTicketTypes(eventUuid);
+    return {
+      uuid: null,
+      eventUuid,
+      name: '',
+      baseImageUrl: null,
+      canvasWidth: 0,
+      canvasHeight: 0,
+      sectors: [],
+      ticketTypes
     };
   }
 
@@ -1694,13 +1722,15 @@ export class EventService implements IEventService {
    * Se mira `availableQuantity` de MySQL, que baja recién al confirmarse el
    * pago. Las reservas en Redis sin pagar no cuentan como vendidas: expiran a
    * los 10 minutos y volverían a estar disponibles.
+   *
+   * También resuelve `eventImages` (flyer de galería + banners + mapa).
    */
   private async attachSoldOut(events: TEventResponse[]): Promise<TEventListItem[]> {
     if (events.length === 0) return [];
 
     const eventUuids = events.map(e => e.uuid);
 
-    const [ticketTypes, galleryImages] = await Promise.all([
+    const [ticketTypes, galleryImages, maps] = await Promise.all([
       this.dbRepository.findMany({
         entity: 'ticket_type',
         where: { eventUuid: In(eventUuids), isActive: true },
@@ -1711,6 +1741,11 @@ export class EventService implements IEventService {
         where: { eventUuid: In(eventUuids), isDeleted: IsNull(), kind: 'image' },
         other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } },
         select: { eventUuid: true, url: true, sortOrder: true }
+      }),
+      this.dbRepository.findMany({
+        entity: 'event_map',
+        where: { eventUuid: In(eventUuids) },
+        select: { eventUuid: true, baseImageUrl: true }
       })
     ]);
 
@@ -1724,18 +1759,49 @@ export class EventService implements IEventService {
     const withAnyType = new Set(ticketTypes.map(tt => tt.eventUuid));
 
     // Primera imagen de galería por evento = flyer principal (sortOrder ASC)
-    const coverByEvent = new Map<string, string>();
+    const flyerByEvent = new Map<string, string>();
     for (const row of galleryImages) {
-      if (!coverByEvent.has(row.eventUuid) && row.url) {
-        coverByEvent.set(row.eventUuid, row.url);
+      if (!flyerByEvent.has(row.eventUuid) && row.url) {
+        flyerByEvent.set(row.eventUuid, row.url);
       }
+    }
+
+    const mapByEvent = new Map<string, string | null>();
+    for (const row of maps) {
+      mapByEvent.set(row.eventUuid, row.baseImageUrl ?? null);
     }
 
     return events.map(event => ({
       ...event,
       soldOut: withAnyType.has(event.uuid) && !withStock.has(event.uuid),
-      coverUrl: coverByEvent.get(event.uuid) ?? null
+      eventImages: buildEventImages(
+        event,
+        flyerByEvent.get(event.uuid) ?? null,
+        mapByEvent.get(event.uuid) ?? null
+      )
     }));
+  }
+
+  /** Adjunta flyer (galería) + mapa al detalle del evento. */
+  private async withEventImages(event: TEventResponse): Promise<TEventDetailItem> {
+    const [flyerMedia, map] = await Promise.all([
+      this.dbRepository.findOne({
+        entity: 'event_media',
+        where: { eventUuid: event.uuid, isDeleted: IsNull(), kind: 'image' },
+        other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } },
+        select: { url: true }
+      }),
+      this.dbRepository.findOne({
+        entity: 'event_map',
+        where: { eventUuid: event.uuid },
+        select: { baseImageUrl: true }
+      })
+    ]);
+
+    return {
+      ...event,
+      eventImages: buildEventImages(event, flyerMedia?.url ?? null, map?.baseImageUrl ?? null)
+    };
   }
 
   /**
