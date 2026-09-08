@@ -32,14 +32,22 @@ export class EventImagesResponse implements TEventImages {
 
 /** Arma `eventImages` desde columnas persistidas + flyer/mapa resueltos aparte. */
 export function buildEventImages(
-  event: { bannerUrl?: string | null; bannerImages?: Record<string, string> | null },
+  event: { bannerUrl?: string | null; bannerImages?: Record<string, string> | string | null },
   flyer: string | null,
   mapEvent: string | null
 ): TEventImages {
-  const banners = (event.bannerImages ?? {}) as BannerImages;
+  let raw = event.bannerImages ?? null;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw) as Record<string, string>;
+    } catch {
+      raw = null;
+    }
+  }
+  const banners = (raw ?? {}) as BannerImages;
   return {
     flyer,
-    bannerDesktop: banners.desktop ?? event.bannerUrl ?? null,
+    bannerDesktop: banners.desktop ?? event.bannerUrl ?? banners.thumbnail ?? null,
     bannerMobile: banners.mobile ?? null,
     mapEvent
   };

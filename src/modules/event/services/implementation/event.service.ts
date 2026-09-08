@@ -729,7 +729,7 @@ export class EventService implements IEventService {
   }
 
   async deleteEventMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<void> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    const event = await this.assertOwnership(eventUuid, loggedUser);
 
     const media = await this.dbRepository.findOne({
       entity: 'event_media',
@@ -742,6 +742,19 @@ export class EventService implements IEventService {
       where: { uuid: mediaUuid },
       data: { isDeleted: new Date() }
     });
+
+    // Si el mismo archivo se usa como banner, no borrar el disco: quitar el flyer
+    // de la galería no debe dejar el banner roto.
+    const banners = (event.bannerImages as BannerImages) ?? {};
+    const bannerUrls = new Set(
+      [event.bannerUrl, banners.desktop, banners.mobile, banners.thumbnail].filter(
+        (url): url is string => Boolean(url?.trim())
+      )
+    );
+    const mediaUrl = media.url?.trim() ?? '';
+    if (mediaUrl && bannerUrls.has(mediaUrl)) {
+      return;
+    }
 
     if (media.url?.includes(`/static/${GALLERY_BASE_PATH}/${eventUuid}/`)) {
       const filename = media.url.split('/').pop();
