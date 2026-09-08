@@ -10,6 +10,7 @@ export interface SaveFileParams {
 }
 
 export interface SaveFileResult {
+  /** Path público relativo persistido en DB (`/static/...`), sin host. */
   url: string;
   absolutePath: string;
 }
@@ -53,12 +54,52 @@ export class StorageService implements OnModuleInit {
     await mkdir(absoluteDir, { recursive: true });
     await writeFile(absolutePath, buffer);
 
-    const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
-    const url = `${appUrl}/static/${relativePath}/${filename}`;
+    // Relativo: el host lo pone toPublicUrl() con el APP_URL del entorno actual
+    // (localhost / ngrok / prod). Si se persistía APP_URL de prod, en local 404.
+    const url = `/static/${relativePath.replace(/^\/+|\/+$/g, '')}/${filename}`;
 
     this.logger.log(`File saved: ${relativePath}/${filename}`);
 
     return { url, absolutePath };
+  }
+
+  /**
+   * Reescribe una URL de storage (absoluta de otro env o relativa `/static/...`)
+   * al origen de APP_URL actual. Así local/ngrok/prod sirven el mismo archivo.
+   */
+  toPublicUrl(stored: string | null | undefined): string | null {
+    if (!stored?.trim()) return null;
+    const pathname = this.staticPathname(stored);
+    if (!pathname) return stored.trim();
+
+    const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
+    return appUrl ? `${appUrl}${pathname}` : pathname;
+  }
+
+  /** Pathname `/static/...` si el valor apunta a un asset público nuestro. */
+  staticPathname(stored: string | null | undefined): string | null {
+    if (!stored?.trim()) return null;
+    const value = stored.trim();
+
+    try {
+      if (/^https?:\/\//i.test(value)) {
+        const parsed = new URL(value);
+        return parsed.pathname.startsWith('/static/') ? parsed.pathname : null;
+      }
+    } catch {
+      /* relative below */
+    }
+
+    if (value.startsWith('/static/')) return value.split('?')[0] ?? value;
+    if (value.startsWith('static/')) return `/${value.split('?')[0]}`;
+    return null;
+  }
+
+  /** Compara dos URLs de storage ignorando el host (prod vs local vs ngrok). */
+  sameStaticAsset(a: string | null | undefined, b: string | null | undefined): boolean {
+    const left = this.staticPathname(a);
+    const right = this.staticPathname(b);
+    return Boolean(left && right && left === right);
   }
 
   /** Guarda bajo STORAGE_PATH sin URL pública (docs fiscales, etc.). */
