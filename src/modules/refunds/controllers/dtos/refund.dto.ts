@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsIn, IsISO8601, IsOptional, IsUUID } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { ArrayMinSize, IsArray, IsUUID } from 'class-validator';
 import {
   REFUND_REQUEST_STATUSES,
   RefundRequestStatus
@@ -22,28 +22,6 @@ export class CreateRefundRequest {
       'ticket, no la compra (BR-REFUND-009).'
   })
   ticketUuids: string[];
-}
-
-export class RefundFiltersQuery {
-  @IsOptional()
-  @IsUUID()
-  @ApiPropertyOptional({ description: 'Filtrar por evento' })
-  eventUuid?: string;
-
-  @IsOptional()
-  @IsIn([...REFUND_REQUEST_STATUSES])
-  @ApiPropertyOptional({ enum: REFUND_REQUEST_STATUSES })
-  status?: RefundRequestStatus;
-
-  @IsOptional()
-  @IsISO8601()
-  @ApiPropertyOptional({ description: 'Fecha de solicitud desde. YYYY-MM-DD' })
-  dateFrom?: string;
-
-  @IsOptional()
-  @IsISO8601()
-  @ApiPropertyOptional({ description: 'Fecha de solicitud hasta. YYYY-MM-DD' })
-  dateTo?: string;
 }
 
 export class RefundableTicketResponse {

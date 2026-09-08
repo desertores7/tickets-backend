@@ -1,14 +1,17 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
+import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
+import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
+import { RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
 import { IRefundService } from '../services/contracts/irefund.service';
+import { refundFilters } from './const/refund.filters';
 import {
   CreateRefundRequest,
   RefundEligibilityResponse,
-  RefundFiltersQuery,
   RefundRequestResponse,
   RefundRequestsResponse
 } from './dtos/refund.dto';
@@ -92,19 +95,35 @@ export class RefundController {
   @ApiOperation({
     summary: 'Listar solicitudes de la productora',
     description:
-      'Solicitudes de los eventos de la organización, para el tab Reembolsos de Movimientos ' +
-      '(`29` §7). El Administrador ve todas.'
+      'Solicitudes de los eventos de la organización, para el tab Reembolsos.\n\n' +
+      '- `search`: comprador, email, número de orden, evento o número de entrada.\n' +
+      '- `status`: pending, approved, processing, refunded, rejected, failed.\n' +
+      '- `eventUuid`: acotar a un evento.\n' +
+      '- `dateFrom` / `dateTo`: fecha de solicitud (YYYY-MM-DD, inclusive).'
   })
+  @ApiSearch()
+  @ApiFilter(refundFilters)
   @ApiResponse({ status: 200, type: RefundRequestsResponse })
   @HttpCode(200)
   @ApiTags('Productora — Reembolsos')
   @Get()
   async listForProducer(
-    @Query() query: RefundFiltersQuery,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(refundFilters) filters: IFiltersParams<typeof refundFilters>,
     @User() loggedUser: string,
     @UserRole() role: string | null
   ): Promise<RefundRequestsResponse> {
-    const items = await this.refundService.listForProducer(query, loggedUser, role);
+    const items = await this.refundService.listForProducer(
+      {
+        eventUuid: filters.eventUuid?.[0],
+        status: filters.status?.[0] as RefundRequestStatus | undefined,
+        dateFrom: filters.dateFrom?.[0],
+        dateTo: filters.dateTo?.[0],
+        search: search.search
+      },
+      loggedUser,
+      role
+    );
     return new RefundRequestsResponse(items.map(i => new RefundRequestResponse(i)));
   }
 
