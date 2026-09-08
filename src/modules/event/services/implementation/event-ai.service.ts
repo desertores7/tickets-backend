@@ -59,7 +59,8 @@ const TRANSIENT_BASE_DELAY_MS = 2_500;
  * Size enviado a OpenAI para el mobile (múltiplos de 16, ~7:10).
  * Luego sharp lo lleva exactamente a 350×500.
  */
-const MOBILE_HERO_AI_SIZE = '704x1008';
+/** Portrait estándar de GPT Image (válido en gpt-image-1/1.5/2); sharp lo baja a 350×500. */
+const MOBILE_HERO_AI_SIZE = '1024x1536';
 const MOBILE_HERO_OUTPUT_WIDTH = 350;
 const MOBILE_HERO_OUTPUT_HEIGHT = 500;
 
@@ -202,10 +203,11 @@ export class EventAiService implements IEventAiService {
 
     const heroClient = this.createClient(apiKey.trim(), HERO_TIMEOUT_MS);
 
+    const format = this.envService.get('EVENT_AI_IMAGE_FORMAT');
     let heroImageBase64: string | null = null;
-    let heroMimeType: HeroImageMimeType = this.formatToMime(
-      this.envService.get('EVENT_AI_IMAGE_FORMAT')
-    );
+    let heroMimeType: HeroImageMimeType = this.formatToMime(format);
+    let heroMobileImageBase64: string | null = null;
+    let heroMobileMimeType: HeroImageMimeType = this.formatToMime(format);
     let heroWarning: string | null = null;
     let imageModelUsed: string | null = null;
     let generationQuality: HeroImageQuality | null = null;
@@ -213,8 +215,14 @@ export class EventAiService implements IEventAiService {
     let generationFormat: HeroImageFormat | null = null;
     let fallbackUsed = false;
     let heroUsage: HeroImageUsage | null = null;
-    try {
-      const hero = await this.generateHero(heroClient, flyers);
+
+    const [desktopOutcome, mobileOutcome] = await Promise.allSettled([
+      this.generateHero(heroClient, flyers),
+      this.generateHeroMobile(heroClient, flyers)
+    ]);
+
+    if (desktopOutcome.status === 'fulfilled') {
+      const hero = desktopOutcome.value;
       heroImageBase64 = hero.b64;
       heroMimeType = hero.mimeType;
       imageModelUsed = hero.imageModelUsed;
@@ -223,15 +231,31 @@ export class EventAiService implements IEventAiService {
       generationFormat = hero.generationFormat;
       fallbackUsed = hero.fallbackUsed;
       heroUsage = hero.usage;
-    } catch (err) {
-      // No tumbar la extracción: el productor puede seguir editando y subir banner a mano
+    } else {
+      const err = desktopOutcome.reason;
       const msg =
-        err instanceof Error ? err.message : 'No se pudo generar el hero con OpenAI.';
-      this.logger.warn(`Hero generation soft-fail: ${msg}`);
+        err instanceof Error ? err.message : 'No se pudo generar el hero desktop con OpenAI.';
+      this.logger.warn(`Hero desktop soft-fail: ${msg}`);
       heroWarning =
         msg.includes('aborted') || msg.includes('Abort') || msg.includes('timeout')
-          ? 'La generación del hero tardó demasiado. Los datos se completaron; subí el banner a mano o reintentá Analizar.'
-          : `Hero no generado: ${msg}. Los datos del flyer sí se aplicaron.`;
+          ? 'La generación del banner desktop tardó demasiado. Los datos se completaron; subí el banner a mano o reintentá Analizar.'
+          : `Banner desktop no generado: ${msg}. Los datos del flyer sí se aplicaron.`;
+    }
+
+    if (mobileOutcome.status === 'fulfilled') {
+      const mobile = mobileOutcome.value;
+      heroMobileImageBase64 = mobile.b64;
+      heroMobileMimeType = mobile.mimeType;
+    } else {
+      const err = mobileOutcome.reason;
+      const msg =
+        err instanceof Error ? err.message : 'No se pudo generar el hero móvil con OpenAI.';
+      this.logger.warn(`Hero mobile soft-fail: ${msg}`);
+      const mobileWarn =
+        msg.includes('aborted') || msg.includes('Abort') || msg.includes('timeout')
+          ? 'La generación del banner móvil tardó demasiado.'
+          : `Banner móvil no generado: ${msg}.`;
+      heroWarning = heroWarning ? `${heroWarning} ${mobileWarn}` : mobileWarn;
     }
 
     await this.consumeQuota(userId);
@@ -240,6 +264,8 @@ export class EventAiService implements IEventAiService {
       extraction,
       heroImageBase64,
       heroMimeType,
+      heroMobileImageBase64,
+      heroMobileMimeType,
       heroWarning,
       imageModelUsed,
       generationQuality,
@@ -761,6 +787,12 @@ export class EventAiService implements IEventAiService {
     const compression = this.envService.get('EVENT_AI_IMAGE_COMPRESSION');
     // Solo el flyer principal como referencia visual (NO el JSON de extracción)
     const primary = flyers[0];
+    const prompt =
+      `${HERO_FROM_FLYER_PROMPT}\n\n` +
+      'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.\n' +
+      'Reminder: TOP empty air is the reference — BOTTOM empty air under names/title MUST match it exactly (shift the whole block UP if names sit near the bottom). ' +
+      'RIGHT empty gap should be ~50% smaller: keep the cluster close to the right edge with only a small safe pad (~60–120px). ' +
+      'LEFT third stays dark empty space with ZERO logos/seals/venue marks.';
 
     const buildResult = (
       generated: { b64: string; usage: HeroImageUsage | null },
@@ -783,11 +815,11 @@ export class EventAiService implements IEventAiService {
           client,
           primary,
           primaryModel,
-          { quality, size, format, compression },
+          { quality, size, format, compression, prompt },
           'hero'
         );
         const result = buildResult(generated, primaryModel, false);
-        this.logHeroGeneration(result, compression);
+        this.logHeroGeneration(result, compression, 'desktop');
         return result;
       } catch (err) {
         if (
@@ -804,11 +836,11 @@ export class EventAiService implements IEventAiService {
           client,
           primary,
           fallbackModel.trim(),
-          { quality, size, format, compression },
+          { quality, size, format, compression, prompt },
           'hero-fallback'
         );
         const result = buildResult(generated, fallbackModel.trim(), true);
-        this.logHeroGeneration(result, compression);
+        this.logHeroGeneration(result, compression, 'desktop');
         return result;
       }
     } catch (err) {
@@ -821,16 +853,126 @@ export class EventAiService implements IEventAiService {
     }
   }
 
+  /**
+   * Banner móvil portrait: OpenAI ~7:10 y sharp a 350×500 exactos.
+   * Soft-fail independiente del desktop (Promise.allSettled en analyzeFromFlyers).
+   */
+  private async generateHeroMobile(
+    client: OpenAI,
+    flyers: Express.Multer.File[]
+  ): Promise<HeroGenerationResult> {
+    const primaryModel = this.envService.get('EVENT_AI_IMAGE_MODEL');
+    const fallbackModel = this.envService.get('EVENT_AI_IMAGE_FALLBACK_MODEL');
+    const quality = this.envService.get('EVENT_AI_IMAGE_QUALITY');
+    const format = this.envService.get('EVENT_AI_IMAGE_FORMAT');
+    const compression = this.envService.get('EVENT_AI_IMAGE_COMPRESSION');
+    const primary = flyers[0];
+    const prompt =
+      `${HERO_MOBILE_FROM_FLYER_PROMPT}\n\n` +
+      'Generate exactly ONE portrait mobile hero now. Do not ask questions. Do not produce extra variants.';
+
+    const buildResult = (
+      generated: { b64: string; usage: HeroImageUsage | null },
+      modelUsed: string,
+      usedFallback: boolean
+    ): HeroGenerationResult => ({
+      b64: generated.b64,
+      mimeType: this.formatToMime(format),
+      imageModelUsed: modelUsed,
+      generationQuality: quality,
+      generationSize: `${MOBILE_HERO_OUTPUT_WIDTH}x${MOBILE_HERO_OUTPUT_HEIGHT}`,
+      generationFormat: format,
+      fallbackUsed: usedFallback,
+      usage: generated.usage
+    });
+
+    const run = async (model: string, label: string) => {
+      const generated = await this.generateHeroWithModel(
+        client,
+        primary,
+        model,
+        {
+          quality,
+          size: MOBILE_HERO_AI_SIZE,
+          format,
+          compression,
+          prompt
+        },
+        label
+      );
+      const resizedB64 = await this.resizeHeroMobileToOutput(generated.b64, format);
+      return { b64: resizedB64, usage: generated.usage };
+    };
+
+    try {
+      try {
+        const generated = await run(primaryModel, 'hero-mobile');
+        const result = buildResult(generated, primaryModel, false);
+        this.logHeroGeneration(result, compression, 'mobile');
+        return result;
+      } catch (err) {
+        if (
+          !this.isTransientOpenAiError(err) ||
+          !fallbackModel?.trim() ||
+          fallbackModel.trim() === primaryModel
+        ) {
+          throw err;
+        }
+        this.logger.warn(
+          `Hero mobile primary model "${primaryModel}" saturado; intentando fallback "${fallbackModel}"`
+        );
+        const generated = await run(fallbackModel.trim(), 'hero-mobile-fallback');
+        const result = buildResult(generated, fallbackModel.trim(), true);
+        this.logHeroGeneration(result, compression, 'mobile');
+        return result;
+      }
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) throw err;
+      if (err instanceof HttpException) throw err;
+      this.logger.error(
+        'OpenAI hero mobile generation failed',
+        err instanceof Error ? err.stack : err
+      );
+      throw new ServiceUnavailableException(
+        this.friendlyOpenAiError(err, 'Error al generar el banner móvil con OpenAI.')
+      );
+    }
+  }
+
+  /** Recorta/escala el hero móvil al canvas fijo 350×500. */
+  private async resizeHeroMobileToOutput(
+    b64: string,
+    format: HeroImageFormat
+  ): Promise<string> {
+    let pipeline = sharp(Buffer.from(b64, 'base64')).resize(
+      MOBILE_HERO_OUTPUT_WIDTH,
+      MOBILE_HERO_OUTPUT_HEIGHT,
+      { fit: 'cover', position: 'centre' }
+    );
+    if (format === 'webp') {
+      pipeline = pipeline.webp({ quality: 85 });
+    } else if (format === 'jpeg') {
+      pipeline = pipeline.jpeg({ quality: 85 });
+    } else {
+      pipeline = pipeline.png();
+    }
+    return (await pipeline.toBuffer()).toString('base64');
+  }
+
   private formatToMime(format: HeroImageFormat): HeroImageMimeType {
     if (format === 'webp') return 'image/webp';
     if (format === 'jpeg') return 'image/jpeg';
     return 'image/png';
   }
 
-  private logHeroGeneration(result: HeroGenerationResult, compression: number): void {
+  private logHeroGeneration(
+    result: HeroGenerationResult,
+    compression: number,
+    kind: 'desktop' | 'mobile' = 'desktop'
+  ): void {
     const u = result.usage;
     this.logger.log(
-      `Hero generated model=${result.imageModelUsed} size=${result.generationSize} ` +
+      `Hero(${kind}) generated model=${result.imageModelUsed} size=${result.generationSize} ` +
         `quality=${result.generationQuality} format=${result.generationFormat} ` +
         `compression=${compression} fallback_used=${result.fallbackUsed} ` +
         `input_tokens=${u?.input_tokens ?? 'n/a'} ` +
@@ -886,17 +1028,12 @@ export class EventAiService implements IEventAiService {
       size: string;
       format: HeroImageFormat;
       compression: number;
+      prompt: string;
     },
     label: string
   ): Promise<{ b64: string; usage: HeroImageUsage | null }> {
     const mime = this.normalizeMime(flyer.mimetype);
     const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
-    const prompt =
-      `${HERO_FROM_FLYER_PROMPT}\n\n` +
-      'Generate exactly ONE hero image now. Do not ask questions. Do not produce extra variants.\n' +
-      'Reminder: TOP empty air is the reference — BOTTOM empty air under names/title MUST match it exactly (shift the whole block UP if names sit near the bottom). ' +
-      'RIGHT empty gap should be ~50% smaller: keep the cluster close to the right edge with only a small safe pad (~60–120px). ' +
-      'LEFT third stays dark empty space with ZERO logos/seals/venue marks.';
 
     const response = await this.withTransientRetry(label, async () => {
       // Flyer ORIGINAL como input visual del edit (no JSON de gpt-4o)
@@ -904,7 +1041,7 @@ export class EventAiService implements IEventAiService {
       return client.images.edit({
         model,
         image: imageFile,
-        prompt,
+        prompt: opts.prompt,
         size: opts.size,
         quality: opts.quality,
         output_format: opts.format,

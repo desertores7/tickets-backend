@@ -79,7 +79,7 @@ export class AnalyzeFlyersResponse {
   extraction: FlyerEventExtractionResponse;
 
   @ApiProperty({
-    description: 'PNG del hero en base64 (sin data: prefix). null si falló la generación.',
+    description: 'PNG/WebP del hero desktop en base64 (sin data: prefix). null si falló la generación.',
     nullable: true,
     required: false
   })
@@ -87,14 +87,28 @@ export class AnalyzeFlyersResponse {
 
   @ApiProperty({
     example: 'image/webp',
-    description: 'MIME del hero según EVENT_AI_IMAGE_FORMAT.'
+    description: 'MIME del hero desktop según EVENT_AI_IMAGE_FORMAT.'
   })
   heroMimeType: HeroImageMimeType;
 
   @ApiProperty({
+    description:
+      'Hero móvil vertical 350×500 en base64 (sin data: prefix). null si falló la generación.',
+    nullable: true,
+    required: false
+  })
+  heroMobileImageBase64: string | null;
+
+  @ApiProperty({
+    example: 'image/webp',
+    description: 'MIME del hero móvil.'
+  })
+  heroMobileMimeType: HeroImageMimeType;
+
+  @ApiProperty({
     required: false,
     nullable: true,
-    description: 'Aviso si el hero no se generó (p. ej. timeout) pero la extracción sí.'
+    description: 'Aviso si algún hero no se generó (p. ej. timeout) pero la extracción sí.'
   })
   heroWarning?: string | null;
 
