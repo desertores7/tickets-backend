@@ -8,6 +8,8 @@ import { User } from '@root/shared/auth/decorator/user.decorator';
 import { Swagger } from '@root/shared/decorators/swagger.decorator';
 import { IPaymentService } from '../services/contracts/ipayment.service';
 import { InitializePaymentResponse } from './dtos/initialize-payment/initialize-payment.response';
+import { CardPaymentRequest } from './dtos/card-payment/card-payment.request';
+import { CardPaymentResponse } from './dtos/card-payment/card-payment.response';
 import { GetPaymentResponse } from './dtos/get-payment/get-payment.response';
 import { MercadoPagoWebhookRequest } from './dtos/webhook/mercadopago-webhook.request';
 
@@ -54,6 +56,55 @@ export class PaymentController {
     const result = await this.paymentService.initializePayment(orderId, userId);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     return new InitializePaymentResponse({ ...result, expiresAt });
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/payments/card/:orderId
+  // ---------------------------------------------------------------------------
+
+  @UserAuth(CardPaymentRequest, CardPaymentResponse)
+  @ApiOperation({
+    summary: 'Pagar con tarjeta',
+    description:
+      'Cobra la orden con Checkout API, sin salir de la plataforma.\n\n' +
+      '**El número de tarjeta nunca llega a este endpoint.** El navegador lo entrega a los ' +
+      'iframes de Mercado Pago, que devuelven un `token` de un solo uso; eso es lo único que ' +
+      'viaja hasta acá. Mantenerlo así es lo que deja la integración fuera del alcance PCI-DSS.\n\n' +
+      'A diferencia de Checkout Pro, la respuesta es **sincrónica**: si Mercado Pago aprueba, ' +
+      'la orden se confirma en esta misma request y salen los tickets. El webhook llega ' +
+      'después con el mismo `payment_id` y se descarta por idempotencia.\n\n' +
+      'Un rechazo **no cancela la orden**: mientras la reserva siga viva, el comprador puede ' +
+      'reintentar con otra tarjeta. `retryable` dice si conviene reintentar con la misma.'
+  })
+  @ApiParam({ name: 'orderId', description: 'UUID de la orden a pagar.' })
+  @ApiResponse({ status: 200, type: CardPaymentResponse })
+  @ApiResponse({ status: 401, description: 'Token ausente, inválido o vencido.' })
+  @ApiResponse({ status: 404, description: 'La orden no existe o no es del usuario.' })
+  @ApiResponse({
+    status: 422,
+    description: 'La orden no está pendiente de pago, o la reserva ya venció.'
+  })
+  @HttpCode(200)
+  @Post('card/:orderId')
+  async payWithCard(
+    @Param('orderId') orderId: string,
+    @Body() body: CardPaymentRequest,
+    @User() userId: string
+  ): Promise<CardPaymentResponse> {
+    return new CardPaymentResponse(
+      await this.paymentService.payWithCard(orderId, userId, {
+        token: body.token,
+        paymentMethodId: body.paymentMethodId,
+        issuerId: body.issuerId ?? null,
+        installments: body.installments,
+        identificationType: body.identificationType,
+        identificationNumber: body.identificationNumber,
+        // Identifica el intento y no la orden: si la tarjeta se rechaza, el
+        // comprador tiene que poder reintentar con otra sin que MP le devuelva
+        // el pago fallido anterior.
+        idempotencyKey: crypto.randomUUID()
+      })
+    );
   }
 
   // ---------------------------------------------------------------------------

@@ -92,10 +92,16 @@ export class ProcessWebhookProcessor extends WorkerHost {
         this.logger.error(`confirmPayment failed for orderId=${result.orderId}`, err);
         throw err;
       }
-    } else if (
-      result.internalStatus === PaymentStatus.REJECTED ||
-      result.internalStatus === PaymentStatus.CANCELLED
-    ) {
+    } else if (result.internalStatus === PaymentStatus.REJECTED) {
+      // Un rechazo NO cancela la orden. Con tarjeta en la plataforma el
+      // comprador sigue en la pantalla y la mitad de los rechazos se arreglan
+      // reintentando (un CVV mal tipeado, un banco que pide autorización):
+      // soltarle el stock al primer "no" lo deja afuera de un evento con
+      // demanda por un error de tipeo. La reserva se libera sola al vencer.
+      this.logger.log(
+        `Payment rejected, order left open until the hold expires: orderId=${result.orderId}`
+      );
+    } else if (result.internalStatus === PaymentStatus.CANCELLED) {
       try {
         await this.orderService.expireOrder(result.orderId);
         this.logger.log(`Order expired: orderId=${result.orderId} reason=${result.internalStatus}`);

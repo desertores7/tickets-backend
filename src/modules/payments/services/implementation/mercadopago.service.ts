@@ -19,6 +19,34 @@ export interface MPPreferenceResult {
   preferenceId: string;
 }
 
+/** Lo que manda el navegador para cobrar con tarjeta. Nunca incluye el número. */
+export interface CardPaymentInput {
+  /** Token de un solo uso generado por el SDK de MP contra sus propios iframes. */
+  token: string;
+  paymentMethodId: string;
+  issuerId?: string | null;
+  installments: number;
+  identificationType: string;
+  identificationNumber: string;
+  /** Identifica el intento, no la orden: un rechazo se tiene que poder reintentar. */
+  idempotencyKey: string;
+}
+
+export interface CardPaymentResult {
+  mpPaymentId: string;
+  status: PaymentStatus;
+  mpStatus: string;
+  /** El motivo fino: es lo único que le permite al comprador corregir. */
+  statusDetail: string | null;
+  amount: number;
+  currency: string;
+  paymentMethod: string | null;
+  paymentType: string | null;
+  installments: number | null;
+  paidAt: Date | null;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface PaymentWebhookResult {
   orderId: string;
   internalStatus: PaymentStatus;
@@ -143,6 +171,94 @@ export class MercadoPagoService {
       };
     } catch (error) {
       this.logger.error('Failed to create MercadoPago preference', {
+        orderId: order.uuid,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Cobro con tarjeta — Checkout API (`payment.create`).
+   *
+   * A diferencia de la preferencia, acá **no hay ítems que cobrar**: se cobra un
+   * único `transaction_amount`. El costo de servicio va incluido igual, pero el
+   * desglose lo muestra nuestra pantalla, no Mercado Pago. Los ítems viajan en
+   * `additional_info` porque MP los usa para decidir si aprueba.
+   *
+   * El `token` viene del navegador y **nunca vemos el número de tarjeta**: lo
+   * tokeniza el SDK de MP contra sus propios iframes. Ese es el motivo de que
+   * este método reciba un token y no datos de tarjeta.
+   */
+  async createCardPayment(
+    order: OrderForMP,
+    user: User,
+    card: CardPaymentInput
+  ): Promise<CardPaymentResult> {
+    const mpClient = new MPPaymentClient(this.client);
+    const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
+
+    const additionalItems = order.items.map(item => ({
+      id: item.ticketTypeUuid,
+      title: `${order.eventName} - ${item.title}`,
+      description: 'Entrada',
+      quantity: item.quantity,
+      unit_price: Number(item.unitPrice)
+    }));
+
+    try {
+      const result = await mpClient.create({
+        body: {
+          transaction_amount: Number(order.total),
+          token: card.token,
+          installments: card.installments,
+          payment_method_id: card.paymentMethodId,
+          // El SDK del navegador devuelve el issuer como string y el de Node lo
+          // tipa como número: se convierte acá, en el borde.
+          ...(card.issuerId ? { issuer_id: Number(card.issuerId) } : {}),
+          description: `Entradas — ${order.eventName}`,
+          external_reference: order.uuid,
+          notification_url: `${appUrl}/api/v1/payments/webhook/mercadopago`,
+          statement_descriptor: 'TICKETERA',
+          payer: {
+            email: user.email,
+            first_name: user.firstName,
+            last_name: user.lastName,
+            identification: {
+              type: card.identificationType,
+              number: card.identificationNumber
+            }
+          },
+          additional_info: {
+            items: additionalItems
+          }
+        },
+        requestOptions: {
+          // Segunda red contra el doble cobro: si el comprador manda dos veces
+          // el mismo intento, MP devuelve el pago original en vez de cobrar de
+          // nuevo. La key es del intento, no de la orden: un rechazo tiene que
+          // poder reintentarse con otra tarjeta.
+          idempotencyKey: card.idempotencyKey
+        }
+      });
+
+      const mpStatus = result.status ?? '';
+
+      return {
+        mpPaymentId: String(result.id ?? ''),
+        status: MP_STATUS_MAP[mpStatus] ?? PaymentStatus.PENDING,
+        mpStatus,
+        statusDetail: result.status_detail ?? null,
+        amount: Number(result.transaction_amount ?? order.total),
+        currency: result.currency_id ?? order.currency,
+        paymentMethod: result.payment_method_id ?? null,
+        paymentType: result.payment_type_id ?? null,
+        installments: result.installments ?? card.installments,
+        paidAt: result.date_approved ? new Date(result.date_approved) : null,
+        rawResponse: result as unknown as Record<string, unknown>
+      };
+    } catch (error) {
+      this.logger.error('Failed to create MercadoPago card payment', {
         orderId: order.uuid,
         error: error instanceof Error ? error.message : String(error)
       });
