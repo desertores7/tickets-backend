@@ -12,6 +12,33 @@ if current < qty then return -1 end
 return redis.call('DECRBY', KEYS[1], qty)
 `;
 
+/**
+ * Reserva stock; si la clave no existe, la siembra desde el valor de MySQL y
+ * recién ahí reserva. Todo en un solo script para que sea atómico: dos compras
+ * simultáneas sobre una clave ausente no pueden sembrarla dos veces.
+ *
+ * Existe porque Redis es la fuente de verdad del stock disponible, pero no la
+ * única copia: cualquier Redis que no sea el que creó la tanda (despliegue
+ * nuevo, base restaurada, `FLUSHALL` de otra app en un Redis compartido) no
+ * tiene la clave, y sin esto la plataforma deja de vender en silencio.
+ *
+ * Devuelve -1 si de verdad no alcanza el stock, -2 si no hay clave ni valor de
+ * respaldo para sembrarla.
+ */
+const LUA_RESERVE_STOCK_OR_INIT = `
+local current = redis.call('GET', KEYS[1])
+if current == false then
+  local fallback = tonumber(ARGV[2])
+  if fallback == nil or fallback < 0 then return -2 end
+  redis.call('SET', KEYS[1], fallback)
+  current = fallback
+end
+current = tonumber(current)
+local qty = tonumber(ARGV[1])
+if current < qty then return -1 end
+return redis.call('DECRBY', KEYS[1], qty)
+`;
+
 // Lua script: increment stock atomically; returns new value
 const LUA_RELEASE_STOCK = `
 return tonumber(redis.call('INCRBY', KEYS[1], tonumber(ARGV[1])))
@@ -107,6 +134,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async reserveStock(stockKey: string, quantity: number): Promise<number> {
     const result = await this.redis.eval(LUA_RESERVE_STOCK, 1, stockKey, String(quantity));
+    return result as number;
+  }
+
+  /**
+   * Reserva, sembrando la clave desde MySQL si falta (ver
+   * `LUA_RESERVE_STOCK_OR_INIT`). -1 = sin stock, -2 = sin clave ni respaldo.
+   */
+  async reserveStockOrInit(
+    stockKey: string,
+    quantity: number,
+    fallbackQuantity: number
+  ): Promise<number> {
+    const result = await this.redis.eval(
+      LUA_RESERVE_STOCK_OR_INIT,
+      1,
+      stockKey,
+      String(quantity),
+      String(fallbackQuantity)
+    );
     return result as number;
   }
 

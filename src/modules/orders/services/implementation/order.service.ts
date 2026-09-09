@@ -186,16 +186,23 @@ export class OrderService implements IOrderService {
     const total = Math.round((discountedSubtotal + serviceFee) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails
-    const stockItems = dto.items.map(item => ({
+    const stockItems = dto.items.map((item, i) => ({
       ticketTypeId: item.ticketTypeUuid,
-      quantity: item.quantity
+      quantity: item.quantity,
+      // Respaldo por si Redis no tiene la clave: ver StockService.reserveStock.
+      fallbackQuantity: Number(ticketTypes[i]?.availableQuantity ?? 0)
     }));
 
     const reserveResult = await this.stockService.reserveStock(stockItems);
 
     if (!reserveResult.success) {
+      // Con el nombre y no con el uuid: el comprador tiene que reconocer cuál
+      // de las entradas que eligió se quedó sin lugar.
+      const agotada = ticketTypes.find(t => t?.uuid === reserveResult.failedItem);
       throw new ConflictException(
-        `Sin stock disponible para la entrada: ${reserveResult.failedItem}`
+        agotada
+          ? `Se agotaron las entradas "${agotada.name}"`
+          : "Se agotaron las entradas que elegiste"
       );
     }
 
