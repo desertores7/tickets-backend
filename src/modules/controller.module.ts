@@ -31,6 +31,7 @@ import { MpMovementController } from './event-cash/controllers/mp-movement.contr
 import { EventDashboardController } from './reporting/controllers/event-dashboard.controller';
 import { RefundController } from './refunds/controllers/refund.controller';
 import { EventMpAccountController } from './event-cash/controllers/event-mp-account.controller';
+import { FavoriteController } from './favorites/controllers/favorite.controller';
 
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
@@ -60,6 +61,7 @@ import { EventMpAccountController } from './event-cash/controllers/event-mp-acco
     PaymentController,
     CheckInController,
     UserNotificationController,
+    FavoriteController,
     SupportController
   ]
 })

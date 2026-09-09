@@ -47,6 +47,7 @@ import { UserNotificationEntityData } from '../entities/user/user_notification.e
 import { OrganizationProducerInviteEntityData } from '../entities/user/organization-producer-invite.entity';
 import { OrganizationRequestEntityData } from '../entities/user/organization_request.entity';
 import { UserEventCashierEntityData } from '../entities/tickets/user_event_cashier.entity';
+import { UserEventFavoriteEntityData } from '../entities/tickets/user_event_favorite.entity';
 
 export const entitiesData = [
   UserTokenSessionEntityData,
@@ -95,6 +96,7 @@ export const entitiesData = [
   EventIncomeProductEntityData,
   MpMovementEntityData,
   UserEventCashierEntityData,
+  UserEventFavoriteEntityData,
   OrganizationProducerInviteEntityData,
   OrganizationRequestEntityData
 ] as const;
