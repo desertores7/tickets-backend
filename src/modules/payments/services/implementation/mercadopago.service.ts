@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { MercadoPagoConfig, Preference, Payment as MPPaymentClient } from 'mercadopago';
 import { EnvService } from '@config/env/env.service';
 import { PaymentStatus } from '@config/db/entities/tickets/payment.entity';
@@ -76,6 +76,35 @@ const MP_STATUS_MAP: Record<string, PaymentStatus> = {
   refunded: PaymentStatus.REFUNDED,
   charged_back: PaymentStatus.REFUNDED
 };
+
+/**
+ * Lo que tira el SDK de Mercado Pago no es un `Error`: es un objeto con
+ * `message`, `status` y un array `cause` con el detalle real. Pasarlo por
+ * `String()` da "[object Object]" y se pierde justo lo único que sirve para
+ * saber qué pasó.
+ */
+function describeMpError(error: unknown): { message: string; status: number | null; detail: unknown } {
+  if (error instanceof Error) {
+    return { message: error.message, status: null, detail: null };
+  }
+
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, any>;
+    const causes: string[] = Array.isArray(e.cause)
+      ? e.cause
+          .map((c: any) => [c?.code, c?.description].filter(Boolean).join(': '))
+          .filter(Boolean)
+      : [];
+
+    return {
+      message: causes.length ? causes.join(' | ') : e.message ?? e.error ?? 'Error de Mercado Pago',
+      status: typeof e.status === 'number' ? e.status : null,
+      detail: error
+    };
+  }
+
+  return { message: String(error), status: null, detail: null };
+}
 
 @Injectable()
 export class MercadoPagoService {
@@ -268,10 +297,22 @@ export class MercadoPagoService {
         rawResponse: result as unknown as Record<string, unknown>
       };
     } catch (error) {
-      this.logger.error('Failed to create MercadoPago card payment', {
-        orderId: order.uuid,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      const { message, status, detail } = describeMpError(error);
+
+      this.logger.error(
+        `Failed to create MercadoPago card payment orderId=${order.uuid} status=${status ?? '-'} ` +
+          `message=${message}`
+      );
+      // El objeto completo aparte: ahí está el `cause` con el código de MP.
+      if (detail) this.logger.error(JSON.stringify(detail));
+
+      // Un 4xx de MP es un problema del intento (token vencido, datos que no
+      // cierran), no una falla nuestra: devolverlo como 500 le dice al
+      // comprador que se rompió el sistema cuando puede corregir y reintentar.
+      if (status !== null && status >= 400 && status < 500) {
+        throw new BadRequestException(`Mercado Pago rechazó el intento: ${message}`);
+      }
+
       throw error;
     }
   }
