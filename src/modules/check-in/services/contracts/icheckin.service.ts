@@ -7,6 +7,11 @@ export interface IValidatorEvent {
   startDate: Date;
   endDate: Date;
   venueName: string | null;
+  venueAddress: string | null;
+  venueCity: string | null;
+  description: string | null;
+  /** Flyer o banner para la card de la app. */
+  coverUrl: string | null;
   /** true si la ventana de check-in está abierta ahora mismo */
   checkInOpen: boolean;
 }
