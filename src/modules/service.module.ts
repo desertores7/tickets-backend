@@ -40,6 +40,7 @@ import { TokenCipher } from '@root/shared/crypto/token-cipher';
 import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
+import { FavoriteService } from './favorites/services/implementation/favorite.service';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'ICheckInService', useClass: CheckInService },
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
+    { provide: 'IFavoriteService', useClass: FavoriteService },
     MercadoPagoService,
     StockService,
     FeeSummaryService,
@@ -119,6 +121,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
     { provide: 'ICheckInService', useClass: CheckInService },
     { provide: 'IUserNotificationService', useClass: UserNotificationService },
     { provide: 'ISupportService', useClass: SupportService },
+    { provide: 'IFavoriteService', useClass: FavoriteService },
     MercadoPagoService,
     StockService,
     FeeSummaryService,

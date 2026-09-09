@@ -474,4 +474,9 @@ export const entityRelations = {
     event: 'event',
     organization: 'organization'
   },
+
+  user_event_favorite: {
+    user: 'user',
+    event: 'event'
+  },
 } as const;

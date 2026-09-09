@@ -205,6 +205,10 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Compra — Pagos', 'Inicialización de pago, webhook de Mercado Pago y consulta')
     .addTag('Compra — Tickets', 'Tickets del usuario autenticado: listado y detalle')
     .addTag(
+      'Compra — Favoritos',
+      'Eventos guardados del Cliente: listar, guardar y quitar'
+    )
+    .addTag(
       'Compra — Reembolsos',
       'Pedido de reembolso por cambio material del evento (BR-REFUND-001)'
     )
