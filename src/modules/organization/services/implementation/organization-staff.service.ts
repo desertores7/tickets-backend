@@ -22,11 +22,9 @@ import { EmailService } from '@root/shared/auth/services/email.service';
 import { EnvService } from '@config/env/env.service';
 import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 import {
-  CAJA_ROLE_UUID,
   CREATE_STAFF_ROLES,
   PASSWORD_POLICY,
   PRODUCER_INVITE_TTL_DAYS,
-  PRODUCTOR_ROLE_UUID,
   STAFF_ROLE_NAMES,
   type CreateStaffRole,
   type StaffKind
@@ -225,7 +223,9 @@ export class OrganizationStaffService {
     }
 
     const email = data.email.trim().toLowerCase();
-    const roleUuid = data.role === 'validator' ? this.roleUuidFor('Validador') : this.roleUuidFor('Caja');
+    const roleUuid = await this.roleUuidFor(
+      data.role === 'validator' ? STAFF_ROLE_NAMES.Validador : STAFF_ROLE_NAMES.Caja
+    );
     const staffKind: StaffKind = data.role === 'validator' ? 'validator' : 'cashier';
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -594,11 +594,26 @@ export class OrganizationStaffService {
     return null;
   }
 
-  private roleUuidFor(name: string): string {
-    if (name === STAFF_ROLE_NAMES.Productor) return PRODUCTOR_ROLE_UUID;
-    if (name === STAFF_ROLE_NAMES.Validador) return '3e7a1c52-88f4-4b0d-a9e6-51c2d47b9a03';
-    if (name === STAFF_ROLE_NAMES.Caja) return CAJA_ROLE_UUID;
-    throw new BadRequestException(`Rol desconocido: ${name}`);
+  /**
+   * Resuelve el UUID real del rol por nombre. No hardcodear UUIDs de seed:
+   * en DBs ya sembradas el uuid de `Validador`/`Administrador` puede diferir
+   * del de las migraciones y la FK de `user_role` falla con 500.
+   */
+  private async roleUuidFor(name: string): Promise<string> {
+    if (!Object.values(STAFF_ROLE_NAMES).includes(name as (typeof STAFF_ROLE_NAMES)[keyof typeof STAFF_ROLE_NAMES])) {
+      throw new BadRequestException(`Rol desconocido: ${name}`);
+    }
+
+    const role = await this.dbRepository.findOne({
+      entity: 'role',
+      where: { name, isDeleted: IsNull() } as any
+    });
+
+    if (!role) {
+      throw new BadRequestException(`No existe el rol ${name} en el sistema`);
+    }
+
+    return (role as { uuid: string }).uuid;
   }
 
   private async getStaffUserInOrg(userUuid: string, orgUuid: string): Promise<UserWithRoles> {
