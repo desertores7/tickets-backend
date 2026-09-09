@@ -63,4 +63,14 @@ export class CardPaymentRequest {
     example: '30123456'
   })
   identificationNumber: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  @ApiPropertyOptional({
+    description:
+      'Huella del dispositivo (`MP_DEVICE_SESSION_ID`), del SDK de Mercado Pago. Mejora la ' +
+      'tasa de aprobación. Opcional: si el script no cargó, el cobro igual se intenta.'
+  })
+  deviceId?: string;
 }

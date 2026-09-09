@@ -30,6 +30,12 @@ export interface CardPaymentInput {
   identificationNumber: string;
   /** Identifica el intento, no la orden: un rechazo se tiene que poder reintentar. */
   idempotencyKey: string;
+  /**
+   * Huella del dispositivo del comprador (`MP_DEVICE_SESSION_ID`). Mercado Pago
+   * la usa para el scoring antifraude: sin ella rechaza más pagos legítimos.
+   * Opcional porque el script puede fallar y eso no debe impedir cobrar.
+   */
+  deviceId?: string | null;
 }
 
 export interface CardPaymentResult {
@@ -238,7 +244,11 @@ export class MercadoPagoService {
           // el mismo intento, MP devuelve el pago original en vez de cobrar de
           // nuevo. La key es del intento, no de la orden: un rechazo tiene que
           // poder reintentarse con otra tarjeta.
-          idempotencyKey: card.idempotencyKey
+          idempotencyKey: card.idempotencyKey,
+          // Viaja como `X-Meli-Session-Id`. La tokenización ya lleva el device
+          // id por su cuenta, pero este cobro sale del backend: si no se
+          // reenvía acá, MP puntúa el pago sin saber desde dónde se hizo.
+          ...(card.deviceId ? { meliSessionId: card.deviceId } : {})
         }
       });
 

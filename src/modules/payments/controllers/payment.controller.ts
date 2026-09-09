@@ -99,6 +99,7 @@ export class PaymentController {
         installments: body.installments,
         identificationType: body.identificationType,
         identificationNumber: body.identificationNumber,
+        deviceId: body.deviceId ?? null,
         // Identifica el intento y no la orden: si la tarjeta se rechaza, el
         // comprador tiene que poder reintentar con otra sin que MP le devuelva
         // el pago fallido anterior.
