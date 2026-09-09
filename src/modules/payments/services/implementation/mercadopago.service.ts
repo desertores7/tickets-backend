@@ -5,6 +5,7 @@ import { PaymentStatus } from '@config/db/entities/tickets/payment.entity';
 import { MercadoPagoWebhookRequest } from '@modules/payments/controllers/dtos/webhook/mercadopago-webhook.request';
 import { IOrderItem, Order } from '@modules/orders/services/core/order';
 import { User } from '@modules/user/services/core/user';
+import { describeApiError } from '../core/card-rejection';
 
 export type MPOrderItem = IOrderItem & { title: string };
 export type OrderForMP = Omit<Order, 'items'> & {
@@ -310,7 +311,7 @@ export class MercadoPagoService {
       // cierran), no una falla nuestra: devolverlo como 500 le dice al
       // comprador que se rompió el sistema cuando puede corregir y reintentar.
       if (status !== null && status >= 400 && status < 500) {
-        throw new BadRequestException(`Mercado Pago rechazó el intento: ${message}`);
+        throw new BadRequestException(describeApiError(message));
       }
 
       throw error;
