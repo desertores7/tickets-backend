@@ -26,13 +26,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : String(exception);
     const stack = exception instanceof Error ? (exception.stack ?? '') : '';
 
-    if (isHttpException && exception instanceof BadRequestException) {
-      this.logger.error(`${request.method} ${request.url} ${status}`);
+    // Una ruta inexistente no es una falla del servidor: alcanza con una línea.
+    // Con stack completo, un sondeo cada 30 segundos vuelve ilegible el log.
+    if (status === 404) {
+      this.logger.warn(`${request.method} ${request.url} 404`);
     } else {
-      this.logger.error(`${request.method} ${request.url} ${status}\n${stack || message}`);
+      if (isHttpException && exception instanceof BadRequestException) {
+        this.logger.error(`${request.method} ${request.url} ${status}`);
+      } else {
+        this.logger.error(`${request.method} ${request.url} ${status}\n${stack || message}`);
+      }
+      this.logger.error(`Message: ${message}`);
+      if (request.body && Object.keys(request.body).length) {
+        this.logger.error(redactSensitive(request.body));
+      }
     }
-    this.logger.error(`Message: ${message}`);
-    if (request.body && Object.keys(request.body).length) this.logger.error(redactSensitive(request.body));
 
     if (status >= 500) {
       const description = message.slice(0, 1024);

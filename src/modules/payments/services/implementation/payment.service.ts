@@ -8,9 +8,17 @@ import { RedisService } from '@config/redis/redis.service';
 import { QUEUE_NAMES, ProcessWebhookJobData } from '@config/redis/bull-jobs.types';
 import { PaymentProvider, PaymentStatus } from '@config/db/entities/tickets/payment.entity';
 import { OrderStatus } from '@modules/orders/services/core/order';
-import { MercadoPagoService, MPOrderItem } from './mercadopago.service';
+import { IOrderService } from '@modules/orders/services/contracts/iorder.service';
+import {
+  CardPaymentInput,
+  CardPaymentResult,
+  MercadoPagoService,
+  MPOrderItem,
+  OrderForMP
+} from './mercadopago.service';
 import { IPaymentService } from '../contracts/ipayment.service';
-import { Payment, PaymentInitResponse } from '../core/payment';
+import { CardPaymentOutcome, Payment, PaymentInitResponse } from '../core/payment';
+import { describeCardRejection, describeInProcess } from '../core/card-rejection';
 import { MercadoPagoWebhookRequest } from '../../controllers/dtos/webhook/mercadopago-webhook.request';
 
 const WEBHOOK_IDEMPOTENCY_TTL = 86400;
@@ -24,10 +32,20 @@ export class PaymentService implements IPaymentService {
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
     private readonly mercadoPagoService: MercadoPagoService,
-    @InjectQueue(QUEUE_NAMES.PAYMENTS) private readonly paymentsQueue: Queue
+    @InjectQueue(QUEUE_NAMES.PAYMENTS) private readonly paymentsQueue: Queue,
+    // Con tarjeta el pago se resuelve en la misma request: si se aprueba, la
+    // orden se confirma acá y no en el processor del webhook.
+    @Inject('IOrderService') private readonly orderService: IOrderService
   ) {}
 
-  async initializePayment(orderId: string, userId: string): Promise<PaymentInitResponse> {
+  /**
+   * Carga la orden y arma lo que Mercado Pago necesita, con las mismas
+   * validaciones para los dos caminos de pago: Checkout Pro y tarjeta.
+   */
+  private async loadForMercadoPago(
+    orderId: string,
+    userId: string
+  ): Promise<{ order: any; orderForMP: OrderForMP; userForMP: any }> {
     const order = await this.dbRepository.findOne({
       entity: 'orders',
       where: { uuid: orderId },
@@ -96,7 +114,8 @@ export class PaymentService implements IPaymentService {
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       items: enrichedItems,
-      eventName: event?.name ?? 'Evento'
+      eventName: event?.name ?? 'Evento',
+      eventSlug: event?.slug ?? null
     };
 
     const userForMP = {
@@ -115,6 +134,12 @@ export class PaymentService implements IPaymentService {
       createdBy: user.createdBy,
       updatedBy: user.updatedBy
     };
+
+    return { order, orderForMP, userForMP };
+  }
+
+  async initializePayment(orderId: string, userId: string): Promise<PaymentInitResponse> {
+    const { order, orderForMP, userForMP } = await this.loadForMercadoPago(orderId, userId);
 
     const { checkoutUrl, preferenceId } = await this.mercadoPagoService.initializePreference(
       orderForMP,
@@ -175,6 +200,133 @@ export class PaymentService implements IPaymentService {
       preferenceId,
       paymentId: paymentUuid
     };
+  }
+
+  /**
+   * Cobro con tarjeta en la plataforma — Checkout API (`BR-PAY-006`).
+   *
+   * A diferencia de Checkout Pro, **la respuesta llega en el acto**: acá mismo
+   * se sabe si el pago se aprobó, y si se aprobó se confirma la orden sin
+   * esperar al webhook. El webhook igual llega después con el mismo
+   * `payment_id`, y `confirmPayment` lo descarta por idempotencia.
+   *
+   * Un rechazo **no cancela la orden**: el comprador sigue en la pantalla y
+   * puede reintentar con otra tarjeta mientras el hold de stock siga vivo.
+   */
+  async payWithCard(
+    orderId: string,
+    userId: string,
+    card: CardPaymentInput
+  ): Promise<CardPaymentOutcome> {
+    const { order, orderForMP, userForMP } = await this.loadForMercadoPago(orderId, userId);
+
+    // El hold de stock ya venció: cobrar acá sería cobrarle por entradas que
+    // ya volvieron a la venta.
+    if (order.expiresAt && new Date(order.expiresAt).getTime() <= Date.now()) {
+      throw new UnprocessableEntityException(
+        'La reserva venció. Volvé a elegir tus entradas.'
+      );
+    }
+
+    const result = await this.mercadoPagoService.createCardPayment(
+      orderForMP,
+      userForMP as any,
+      card
+    );
+
+    await this.persistCardPayment(order, result);
+
+    if (result.status === PaymentStatus.APPROVED) {
+      await this.orderService.confirmPayment(order.uuid, {
+        paymentProvider: 'mercadopago',
+        paymentId: result.mpPaymentId,
+        paymentMethod: result.paymentMethod ?? 'card',
+        paidAt: result.paidAt ?? new Date()
+      });
+    }
+
+    return {
+      paymentId: result.mpPaymentId,
+      status: result.status,
+      statusDetail: result.statusDetail,
+      message: this.describeOutcome(result),
+      retryable:
+        result.status === PaymentStatus.REJECTED
+          ? describeCardRejection(result.statusDetail).retryable
+          : false,
+      installments: result.installments,
+      paymentMethod: result.paymentMethod
+    };
+  }
+
+  private describeOutcome(result: CardPaymentResult): string {
+    if (result.status === PaymentStatus.APPROVED) {
+      return 'Pago aprobado. Ya te estamos generando las entradas.';
+    }
+    if (result.status === PaymentStatus.IN_PROCESS || result.status === PaymentStatus.PENDING) {
+      return describeInProcess(result.statusDetail);
+    }
+    return describeCardRejection(result.statusDetail).message;
+  }
+
+  /**
+   * Deja la fila de `payment` reflejando el último intento. Se pisa la anterior
+   * en vez de acumular: la orden tiene un solo pago, y los intentos fallidos
+   * quedan en `rawResponse` del que quedó.
+   */
+  private async persistCardPayment(order: any, result: CardPaymentResult): Promise<void> {
+    const existing = await this.dbRepository.findOne({
+      entity: 'payment',
+      where: { orderUuid: order.uuid }
+    });
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.manager.save('payment', {
+        ...((existing as any) ?? { uuid: uuidv4(), orderUuid: order.uuid }),
+        provider: PaymentProvider.MERCADOPAGO,
+        providerPaymentId: result.mpPaymentId,
+        providerStatus: result.statusDetail
+          ? `${result.mpStatus}:${result.statusDetail}`
+          : result.mpStatus,
+        status: result.status,
+        amount: result.amount,
+        currency: result.currency,
+        paymentMethod: result.paymentMethod,
+        paymentType: result.paymentType,
+        installments: result.installments,
+        rawResponse: result.rawResponse
+      });
+
+      await queryRunner.manager.save('orders', {
+        uuid: order.uuid,
+        orderNumber: order.orderNumber,
+        userUuid: order.userUuid,
+        eventUuid: order.eventUuid,
+        status: order.status,
+        subtotal: order.subtotal,
+        serviceFee: order.serviceFee,
+        total: order.total,
+        currency: order.currency,
+        paymentProvider: PaymentProvider.MERCADOPAGO,
+        paymentId: result.mpPaymentId,
+        paymentMethod: result.paymentMethod,
+        paidAt: order.paidAt,
+        expiresAt: order.expiresAt,
+        metadata: order.metadata
+      });
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('payWithCard transaction failed', err);
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async processWebhook(provider: string, payload: unknown): Promise<void> {

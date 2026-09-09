@@ -5,6 +5,12 @@ import { RedisService } from '@config/redis/redis.service';
 
 type StockItem = { ticketTypeId: string; quantity: number };
 
+/**
+ * Item a reservar, con el stock de MySQL como respaldo por si la clave de
+ * Redis no existe.
+ */
+type StockItemToReserve = StockItem & { fallbackQuantity: number };
+
 const stockKey = (ticketTypeId: string) => `stock:${ticketTypeId}`;
 
 @Injectable()
@@ -21,17 +27,42 @@ export class StockService {
     await this.redisService.setStock(stockKey(ticketTypeId), quantity);
   }
 
-  async reserveStock(items: StockItem[]): Promise<{ success: boolean; failedItem?: string }> {
+  /**
+   * Reserva el stock de todos los items, o de ninguno.
+   *
+   * Si la clave de Redis no existe se siembra con `availableQuantity` de MySQL
+   * dentro del mismo script atómico. **Es una reconstrucción aproximada**: MySQL
+   * solo se descuenta al confirmar el pago, así que las reservas en curso no
+   * están reflejadas ahí y podrían volver a ofrecerse — como mucho, las de los
+   * 10 minutos del hold. Se acepta ese riesgo acotado porque la alternativa es
+   * que un Redis sin la clave deje de vender por completo y sin aviso.
+   */
+  async reserveStock(
+    items: StockItemToReserve[]
+  ): Promise<{ success: boolean; failedItem?: string }> {
     const reserved: StockItem[] = [];
 
     for (const item of items) {
-      const result = await this.redisService.reserveStock(stockKey(item.ticketTypeId), item.quantity);
-      if (result === -1) {
+      const result = await this.redisService.reserveStockOrInit(
+        stockKey(item.ticketTypeId),
+        item.quantity,
+        item.fallbackQuantity
+      );
+
+      if (result < 0) {
+        if (result === -2) {
+          // Sin clave y sin respaldo utilizable: es un dato roto, no una tanda
+          // agotada. Queda en el log porque al comprador se le dice lo mismo.
+          this.logger.error(
+            `Sin stock en Redis ni respaldo en MySQL para ticketType=${item.ticketTypeId}`
+          );
+        }
         if (reserved.length > 0) {
           await this.releaseStock(reserved);
         }
         return { success: false, failedItem: item.ticketTypeId };
       }
+
       reserved.push(item);
     }
 

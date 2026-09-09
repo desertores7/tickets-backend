@@ -182,20 +182,33 @@ export class OrderService implements IOrderService {
     const discountAmount = coupon?.discountAmount ?? 0;
     const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
 
-    const serviceFee = Math.round(discountedSubtotal * SERVICE_FEE_RATE * 100) / 100;
-    const total = Math.round((discountedSubtotal + serviceFee) * 100) / 100;
+    // El total se redondea al peso hacia arriba y el costo de servicio absorbe
+    // la diferencia, para que `subtotal + serviceFee === total` siga siendo
+    // exacto. Sin esto el 15% deja centavos ($50 → $57,50) que las pantallas
+    // muestran redondeados, y el comprador ve un importe distinto al que se le
+    // cobra. Hacia arriba y no hacia abajo: el redondeo no puede salir del
+    // bolsillo de la plataforma.
+    const total = Math.ceil(discountedSubtotal * (1 + SERVICE_FEE_RATE));
+    const serviceFee = Math.round((total - discountedSubtotal) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails
-    const stockItems = dto.items.map(item => ({
+    const stockItems = dto.items.map((item, i) => ({
       ticketTypeId: item.ticketTypeUuid,
-      quantity: item.quantity
+      quantity: item.quantity,
+      // Respaldo por si Redis no tiene la clave: ver StockService.reserveStock.
+      fallbackQuantity: Number(ticketTypes[i]?.availableQuantity ?? 0)
     }));
 
     const reserveResult = await this.stockService.reserveStock(stockItems);
 
     if (!reserveResult.success) {
+      // Con el nombre y no con el uuid: el comprador tiene que reconocer cuál
+      // de las entradas que eligió se quedó sin lugar.
+      const agotada = ticketTypes.find(t => t?.uuid === reserveResult.failedItem);
       throw new ConflictException(
-        `Sin stock disponible para la entrada: ${reserveResult.failedItem}`
+        agotada
+          ? `Se agotaron las entradas "${agotada.name}"`
+          : "Se agotaron las entradas que elegiste"
       );
     }
 
