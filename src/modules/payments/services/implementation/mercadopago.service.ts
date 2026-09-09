@@ -7,7 +7,12 @@ import { IOrderItem, Order } from '@modules/orders/services/core/order';
 import { User } from '@modules/user/services/core/user';
 
 export type MPOrderItem = IOrderItem & { title: string };
-export type OrderForMP = Omit<Order, 'items'> & { items: MPOrderItem[]; eventName: string };
+export type OrderForMP = Omit<Order, 'items'> & {
+  items: MPOrderItem[];
+  eventName: string;
+  /** Slug del evento: las pantallas de resultado del pago viven dentro del evento. */
+  eventSlug: string | null;
+};
 
 export interface MPPreferenceResult {
   checkoutUrl: string;
@@ -57,9 +62,17 @@ export class MercadoPagoService {
     const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
     // back_urls son páginas que ve el comprador → frontend. notification_url es el webhook → backend.
     const frontendUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
-    const backUrlSuccess = `${frontendUrl}/payment/success`;
-    const backUrlFailure = `${frontendUrl}/payment/failure`;
-    const backUrlPending = `${frontendUrl}/payment/pending`;
+    // Las pantallas de resultado viven dentro del evento
+    // (`/events/<slug>/payment/...`): el comprador vuelve a un lugar que
+    // reconoce, con el evento a la vista. Sin slug no hay a dónde volver, así
+    // que se cae a "Mis compras", que sirve para los tres resultados.
+    const resultBase = order.eventSlug
+      ? `${frontendUrl}/events/${encodeURIComponent(order.eventSlug)}/payment`
+      : null;
+    const fallbackUrl = `${frontendUrl}/client/payments`;
+    const backUrlSuccess = resultBase ? `${resultBase}/success` : fallbackUrl;
+    const backUrlFailure = resultBase ? `${resultBase}/failure` : fallbackUrl;
+    const backUrlPending = resultBase ? `${resultBase}/pending` : fallbackUrl;
     const notificationUrl = `${appUrl}/api/v1/payments/webhook/mercadopago`;
 
     // Trabajar en centavos (enteros) evita errores de punto flotante al sumar.

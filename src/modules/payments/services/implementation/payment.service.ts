@@ -96,7 +96,8 @@ export class PaymentService implements IPaymentService {
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       items: enrichedItems,
-      eventName: event?.name ?? 'Evento'
+      eventName: event?.name ?? 'Evento',
+      eventSlug: event?.slug ?? null
     };
 
     const userForMP = {
