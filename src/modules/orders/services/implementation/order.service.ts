@@ -182,8 +182,14 @@ export class OrderService implements IOrderService {
     const discountAmount = coupon?.discountAmount ?? 0;
     const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
 
-    const serviceFee = Math.round(discountedSubtotal * SERVICE_FEE_RATE * 100) / 100;
-    const total = Math.round((discountedSubtotal + serviceFee) * 100) / 100;
+    // El total se redondea al peso hacia arriba y el costo de servicio absorbe
+    // la diferencia, para que `subtotal + serviceFee === total` siga siendo
+    // exacto. Sin esto el 15% deja centavos ($50 → $57,50) que las pantallas
+    // muestran redondeados, y el comprador ve un importe distinto al que se le
+    // cobra. Hacia arriba y no hacia abajo: el redondeo no puede salir del
+    // bolsillo de la plataforma.
+    const total = Math.ceil(discountedSubtotal * (1 + SERVICE_FEE_RATE));
+    const serviceFee = Math.round((total - discountedSubtotal) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails
     const stockItems = dto.items.map((item, i) => ({
