@@ -102,3 +102,35 @@ export function describeInProcess(statusDetail: string | null | undefined): stri
     'Estamos procesando el pago. Te avisamos por email en cuanto se acredite.'
   );
 }
+
+/**
+ * Errores de la API al **crear** el pago, distintos de un rechazo del banco.
+ *
+ * Casi todos son de integración o de datos, y sus textos vienen en inglés con
+ * códigos internos. Al comprador se le dice qué puede hacer; el código crudo
+ * queda en el log, que es donde sirve.
+ */
+const API_ERRORS: Record<string, string> = {
+  // El comprador está usando el mismo email que la cuenta que cobra.
+  '4390': 'No podés pagar con la misma cuenta de Mercado Pago que recibe el pago.',
+  // Token de tarjeta vencido o ya usado: se genera uno nuevo al reintentar.
+  '2062': 'La operación tardó demasiado. Volvé a cargar la tarjeta e intentá otra vez.',
+  '3001': 'Faltan datos de la tarjeta. Revisá el formulario e intentá de nuevo.',
+  '3003': 'Los datos de la tarjeta no son válidos.',
+  '3034': 'Los datos de la tarjeta no son válidos.',
+  '2002': 'No encontramos esa tarjeta. Cargala de nuevo.',
+  '4037': 'El importe no es válido.',
+  '4050': 'Falta el email del comprador.'
+};
+
+/**
+ * Traduce el error de creación. `raw` es el texto que devolvió MP, del que se
+ * extrae el código numérico si viene.
+ */
+export function describeApiError(raw: string): string {
+  const code = raw.match(/\b(\d{4})\b/)?.[1];
+  return (
+    (code ? API_ERRORS[code] : undefined) ??
+    'No pudimos procesar el pago. Probá con otra tarjeta o pagá con Mercado Pago.'
+  );
+}
