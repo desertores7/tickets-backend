@@ -5,6 +5,7 @@ import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { OrganizationProducerInviteEntity } from '@config/db/entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntity } from '@config/db/entities/tickets/user_event_cashier.entity';
+import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import {
   BadRequestException,
@@ -22,11 +23,9 @@ import { EmailService } from '@root/shared/auth/services/email.service';
 import { EnvService } from '@config/env/env.service';
 import { organizationStatusName } from '@modules/organization/const/organization-fiscal.const';
 import {
-  CAJA_ROLE_UUID,
   CREATE_STAFF_ROLES,
   PASSWORD_POLICY,
   PRODUCER_INVITE_TTL_DAYS,
-  PRODUCTOR_ROLE_UUID,
   STAFF_ROLE_NAMES,
   type CreateStaffRole,
   type StaffKind
@@ -87,8 +86,7 @@ export class OrganizationStaffService {
       const staffKind = this.resolveStaffKind(user);
       if (!staffKind || staffKind === 'producer_invite_pending') continue;
 
-      const assignedEvents =
-        staffKind === 'cashier' ? await this.loadCashierEvents(user.uuid, org.uuid) : [];
+      const assignedEvents = await this.loadAssignedEvents(staffKind, user.uuid, org.uuid);
 
       items.push(
         new StaffMemberResponse({
@@ -225,7 +223,9 @@ export class OrganizationStaffService {
     }
 
     const email = data.email.trim().toLowerCase();
-    const roleUuid = data.role === 'validator' ? this.roleUuidFor('Validador') : this.roleUuidFor('Caja');
+    const roleUuid = await this.roleUuidFor(
+      data.role === 'validator' ? STAFF_ROLE_NAMES.Validador : STAFF_ROLE_NAMES.Caja
+    );
     const staffKind: StaffKind = data.role === 'validator' ? 'validator' : 'cashier';
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -264,8 +264,7 @@ export class OrganizationStaffService {
 
       await queryRunner.commitTransaction();
 
-      const assignedEvents =
-        staffKind === 'cashier' ? await this.loadCashierEvents(user.uuid, org.uuid) : [];
+      const assignedEvents = await this.loadAssignedEvents(staffKind, user.uuid, org.uuid);
 
       return new StaffMemberResponse({
         staffKind,
@@ -480,8 +479,7 @@ export class OrganizationStaffService {
     }
 
     const refreshed = await this.getStaffUserInOrg(targetUserUuid, org.uuid);
-    const assignedEvents =
-      staffKind === 'cashier' ? await this.loadCashierEvents(targetUserUuid, org.uuid) : [];
+    const assignedEvents = await this.loadAssignedEvents(staffKind, targetUserUuid, org.uuid);
 
     return new StaffMemberResponse({
       staffKind,
@@ -594,11 +592,26 @@ export class OrganizationStaffService {
     return null;
   }
 
-  private roleUuidFor(name: string): string {
-    if (name === STAFF_ROLE_NAMES.Productor) return PRODUCTOR_ROLE_UUID;
-    if (name === STAFF_ROLE_NAMES.Validador) return '3e7a1c52-88f4-4b0d-a9e6-51c2d47b9a03';
-    if (name === STAFF_ROLE_NAMES.Caja) return CAJA_ROLE_UUID;
-    throw new BadRequestException(`Rol desconocido: ${name}`);
+  /**
+   * Resuelve el UUID real del rol por nombre. No hardcodear UUIDs de seed:
+   * en DBs ya sembradas el uuid de `Validador`/`Administrador` puede diferir
+   * del de las migraciones y la FK de `user_role` falla con 500.
+   */
+  private async roleUuidFor(name: string): Promise<string> {
+    if (!Object.values(STAFF_ROLE_NAMES).includes(name as (typeof STAFF_ROLE_NAMES)[keyof typeof STAFF_ROLE_NAMES])) {
+      throw new BadRequestException(`Rol desconocido: ${name}`);
+    }
+
+    const role = await this.dbRepository.findOne({
+      entity: 'role',
+      where: { name, isDeleted: IsNull() } as any
+    });
+
+    if (!role) {
+      throw new BadRequestException(`No existe el rol ${name} en el sistema`);
+    }
+
+    return (role as { uuid: string }).uuid;
   }
 
   private async getStaffUserInOrg(userUuid: string, orgUuid: string): Promise<UserWithRoles> {
@@ -783,6 +796,16 @@ export class OrganizationStaffService {
     }
   }
 
+  private async loadAssignedEvents(
+    staffKind: StaffKind,
+    userUuid: string,
+    orgUuid: string
+  ): Promise<StaffAssignedEventResponse[]> {
+    if (staffKind === 'cashier') return this.loadCashierEvents(userUuid, orgUuid);
+    if (staffKind === 'validator') return this.loadValidatorEvents(userUuid, orgUuid);
+    return [];
+  }
+
   private async loadCashierEvents(
     userUuid: string,
     orgUuid: string
@@ -801,6 +824,29 @@ export class OrganizationStaffService {
             uuid: r.eventUuid,
             name: (r.event as EventEntity).name,
             isHidden: r.isHidden
+          })
+      );
+  }
+
+  /** Asignaciones de puerta (`event_validator`) limitadas a eventos de la productora. */
+  private async loadValidatorEvents(
+    userUuid: string,
+    orgUuid: string
+  ): Promise<StaffAssignedEventResponse[]> {
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_validator',
+      where: { userUuid } as any,
+      relations: { event: true } as any
+    });
+
+    return (rows as EventValidatorEntity[])
+      .filter(r => r.event && (r.event as EventEntity).organizationUuid === orgUuid)
+      .map(
+        r =>
+          new StaffAssignedEventResponse({
+            uuid: r.eventUuid,
+            name: (r.event as EventEntity).name,
+            isHidden: false
           })
       );
   }

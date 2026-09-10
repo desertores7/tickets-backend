@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException
 } from '@nestjs/common';
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
@@ -354,6 +354,10 @@ export class CheckInService implements ICheckInService {
       .addSelect('e.startDate', 'startDate')
       .addSelect('e.endDate', 'endDate')
       .addSelect('e.venueName', 'venueName')
+      .addSelect('e.venueAddress', 'venueAddress')
+      .addSelect('e.venueCity', 'venueCity')
+      .addSelect('e.description', 'description')
+      .addSelect('e.bannerUrl', 'bannerUrl')
       .from('event_validator', 'ev')
       .innerJoin('event', 'e', 'e.uuid = ev.eventUuid')
       .where('ev.userUuid = :userUuid', { userUuid })
@@ -367,7 +371,26 @@ export class CheckInService implements ICheckInService {
         startDate: Date;
         endDate: Date;
         venueName: string | null;
+        venueAddress: string | null;
+        venueCity: string | null;
+        description: string | null;
+        bannerUrl: string | null;
       }>();
+
+    const flyerByEvent = new Map<string, string>();
+    if (rows.length > 0) {
+      const gallery = await this.dbRepository.findMany({
+        entity: 'event_media',
+        where: { eventUuid: In(rows.map(r => r.uuid)), isDeleted: IsNull(), kind: 'image' },
+        other: { order: { sortOrder: 'ASC', createdAt: 'ASC' } },
+        select: { eventUuid: true, url: true }
+      });
+      for (const media of gallery) {
+        if (!flyerByEvent.has(media.eventUuid) && media.url) {
+          flyerByEvent.set(media.eventUuid, media.url);
+        }
+      }
+    }
 
     return rows.map(r => {
       const start = new Date(r.startDate);
@@ -378,6 +401,10 @@ export class CheckInService implements ICheckInService {
         startDate: start,
         endDate: end,
         venueName: r.venueName,
+        venueAddress: r.venueAddress,
+        venueCity: r.venueCity,
+        description: r.description,
+        coverUrl: flyerByEvent.get(r.uuid) ?? r.bannerUrl ?? null,
         // Misma ventana que aplica `validateQr`, para que la UI no ofrezca
         // escanear algo que el backend va a rechazar.
         checkInOpen: now >= start && now <= end
