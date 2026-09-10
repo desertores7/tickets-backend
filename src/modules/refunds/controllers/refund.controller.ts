@@ -1,12 +1,12 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { UserRole } from '@root/shared/auth/decorator/user-role.decorator';
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
-import { RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
+import { REFUND_KINDS, RefundKind, RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
 import { IRefundService } from '../services/contracts/irefund.service';
 import { refundFilters } from './const/refund.filters';
 import {
@@ -16,8 +16,17 @@ import {
   RefundRequestsResponse
 } from './dtos/refund.dto';
 
+/** Un `kind` desconocido cae al canal de siempre en vez de romper la request. */
+function normalizeKind(value: string | undefined): RefundKind {
+  return REFUND_KINDS.includes(value as RefundKind) ? (value as RefundKind) : 'material_change';
+}
+
 /**
- * Reembolsos por cambio material (`BR-REFUND-001` a `011`).
+ * Reembolsos (`BR-REFUND-001` a `011`).
+ *
+ * Dos canales sobre la misma tabla: política propia por cambio material del
+ * evento, y el botón de arrepentimiento, que es un derecho legal y no depende
+ * de que el productor haya cambiado nada (`BR-REFUND-007`).
  *
  * El pedido nace **siempre desde la cuenta del comprador**, nunca por email a
  * soporte (`BR-REFUND-002`). Después lo resuelve un cron, sin cola humana.
@@ -31,12 +40,22 @@ export class RefundController {
     summary: 'Obtener elegibilidad de una orden',
     description:
       'Qué entradas se pueden reembolsar y hasta cuándo. Solo el comprador original.\n\n' +
-      'Solo hay reembolso si el evento tuvo un cambio material comunicado y la ventana sigue ' +
-      'abierta (`BR-REFUND-010`): no hay reembolso "porque sí".\n\n' +
+      'Hay **dos canales** y se evalúan por separado, según `kind`:\n' +
+      '- `material_change` (default): política propia. Solo si el evento tuvo un cambio material ' +
+      'comunicado y la ventana sigue abierta (`BR-REFUND-010`).\n' +
+      '- `withdrawal`: botón de arrepentimiento (`BR-REFUND-007`). No depende del productor, ' +
+      'pero exige estar dentro de los 10 días corridos desde la compra **y** a más de 24 horas ' +
+      'del inicio del evento.\n\n' +
       'Cada entrada trae su `blockedReason` cuando no se puede pedir — usada, transferida, o ya ' +
       'con una solicitud en curso.'
   })
   @ApiParam({ name: 'orderUuid', description: 'UUID de la orden.' })
+  @ApiQuery({
+    name: 'kind',
+    required: false,
+    enum: REFUND_KINDS,
+    description: 'Canal a evaluar. Por defecto `material_change`.'
+  })
   @ApiResponse({ status: 200, type: RefundEligibilityResponse })
   @ApiResponse({ status: 403, description: 'No sos el comprador de esta orden' })
   @HttpCode(200)
@@ -44,10 +63,11 @@ export class RefundController {
   @Get('orders/:orderUuid/eligibility')
   async getEligibility(
     @Param('orderUuid') orderUuid: string,
-    @User() loggedUser: string
+    @User() loggedUser: string,
+    @Query('kind') kind?: string
   ): Promise<RefundEligibilityResponse> {
     return new RefundEligibilityResponse(
-      await this.refundService.getEligibility(orderUuid, loggedUser)
+      await this.refundService.getEligibility(orderUuid, loggedUser, normalizeKind(kind))
     );
   }
 
@@ -57,8 +77,9 @@ export class RefundController {
     description:
       'Pide el reembolso de una o varias entradas de la orden. Queda en cola para el cron, que ' +
       'aprueba o rechaza y avisa por email (`BR-REFUND-004`).\n\n' +
-      'El monto es la suma del valor de esas entradas: **el costo de servicio nunca se devuelve** ' +
-      '(`BR-REFUND-006`).\n\n' +
+      'El monto es la suma del valor de esas entradas: **el costo de servicio nunca se devuelve**, ' +
+      'tampoco en el arrepentimiento (`BR-REFUND-006`). `kind` elige el canal; por defecto ' +
+      '`material_change`.\n\n' +
       'Se puede pedir más de una vez sobre la misma orden mientras queden entradas disponibles.'
   })
   @ApiParam({ name: 'orderUuid', description: 'UUID de la orden.' })
@@ -73,7 +94,12 @@ export class RefundController {
     @User() loggedUser: string
   ): Promise<RefundRequestResponse> {
     return new RefundRequestResponse(
-      await this.refundService.createRequest(orderUuid, body.ticketUuids, loggedUser)
+      await this.refundService.createRequest(
+        orderUuid,
+        body.ticketUuids,
+        loggedUser,
+        normalizeKind(body.kind)
+      )
     );
   }
 

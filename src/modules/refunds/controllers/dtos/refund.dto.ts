@@ -1,7 +1,9 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsUUID } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ArrayMinSize, IsArray, IsIn, IsOptional, IsUUID } from 'class-validator';
 import {
+  REFUND_KINDS,
   REFUND_REQUEST_STATUSES,
+  RefundKind,
   RefundRequestStatus
 } from '@config/db/entities/tickets/refund_request.entity';
 import {
@@ -22,6 +24,18 @@ export class CreateRefundRequest {
       'ticket, no la compra (BR-REFUND-009).'
   })
   ticketUuids: string[];
+
+  @IsOptional()
+  @IsIn([...REFUND_KINDS])
+  @ApiPropertyOptional({
+    enum: REFUND_KINDS,
+    default: 'material_change',
+    description:
+      'Canal del pedido. `material_change`: política propia, exige un cambio del evento ' +
+      '(BR-REFUND-001). `withdrawal`: botón de arrepentimiento, derecho legal con su propio ' +
+      'plazo (BR-REFUND-007).'
+  })
+  kind?: RefundKind;
 }
 
 export class RefundableTicketResponse {
@@ -53,6 +67,9 @@ export class RefundEligibilityResponse {
   @ApiProperty() eventUuid: string;
   @ApiProperty() eventName: string;
 
+  @ApiProperty({ enum: REFUND_KINDS, description: 'Canal que se evaluó' })
+  kind: RefundKind;
+
   @ApiProperty({ description: 'Si hoy se puede pedir el reembolso de esta orden' })
   canRequest: boolean;
 
@@ -73,6 +90,7 @@ export class RefundEligibilityResponse {
   @ApiProperty({ example: 'ARS' }) currency: string;
 
   constructor(data: TRefundEligibility) {
+    this.kind = data.kind;
     this.orderUuid = data.orderUuid;
     this.eventUuid = data.eventUuid;
     this.eventName = data.eventName;
@@ -101,6 +119,9 @@ export class RefundRequestResponse {
   buyerName: string;
 
   @ApiProperty() buyerEmail: string;
+
+  @ApiProperty({ enum: REFUND_KINDS, description: 'Canal por el que se pidió' })
+  kind: RefundKind;
 
   @ApiProperty({
     enum: REFUND_REQUEST_STATUSES,
@@ -149,6 +170,7 @@ export class RefundRequestResponse {
     this.buyerName = data.buyerName;
     this.buyerEmail = data.buyerEmail;
     this.status = data.status;
+    this.kind = data.kind;
     this.amount = data.amount;
     this.currency = data.currency;
     this.resolutionReason = data.resolutionReason;

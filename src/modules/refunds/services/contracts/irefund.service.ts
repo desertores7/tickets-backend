@@ -1,4 +1,4 @@
-import { RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
+import { RefundKind, RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
 
 /** Una entrada que el comprador puede incluir en una solicitud. */
 export type TRefundableTicket = {
@@ -16,7 +16,9 @@ export type TRefundEligibility = {
   orderUuid: string;
   eventUuid: string;
   eventName: string;
-  /** Si hubo un cambio material comunicado y la ventana sigue abierta. */
+  /** Canal evaluado: cada uno valida cosas distintas. */
+  kind: RefundKind;
+  /** Si el canal evaluado habilita el pedido hoy. */
   canRequest: boolean;
   /** Por qué no puede, cuando `canRequest` es false. */
   reason: string | null;
@@ -41,6 +43,8 @@ export type TRefundRequest = {
   buyerName: string;
   buyerEmail: string;
   status: RefundRequestStatus;
+  /** Canal por el que se pidió: decide qué se revalida en el cron. */
+  kind: RefundKind;
   amount: number;
   currency: string;
   /** Pago de MP sobre el que se ejecuta el reintegro. Uso interno: no va al cliente. */
@@ -82,7 +86,11 @@ export interface IRefundService {
    * Qué entradas de una orden se pueden pedir y hasta cuándo. Solo el comprador
    * original (`BR-REFUND-001`).
    */
-  getEligibility(orderUuid: string, loggedUser: string): Promise<TRefundEligibility>;
+  getEligibility(
+    orderUuid: string,
+    loggedUser: string,
+    kind?: RefundKind
+  ): Promise<TRefundEligibility>;
 
   /**
    * Crea la solicitud. Reserva los tickets marcándolos, así dos pedidos
@@ -91,7 +99,8 @@ export interface IRefundService {
   createRequest(
     orderUuid: string,
     ticketUuids: string[],
-    loggedUser: string
+    loggedUser: string,
+    kind?: RefundKind
   ): Promise<TRefundRequest>;
 
   /** Las solicitudes del comprador. */
