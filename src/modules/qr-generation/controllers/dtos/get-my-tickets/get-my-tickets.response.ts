@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TicketStatus } from '@config/db/entities/tickets/ticket.entity';
+import {
+  REFUND_REQUEST_STATUSES,
+  RefundRequestStatus
+} from '@config/db/entities/tickets/refund_request.entity';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 
 export interface TicketSummaryData {
@@ -19,6 +23,8 @@ export interface TicketSummaryData {
   ticketTypePrice: number | null;
   orderUuid: string | null;
   orderNumber: string | null;
+  /** Estado del reembolso de esta entrada, si tiene una solicitud viva. */
+  refundStatus?: RefundRequestStatus | null;
   createdAt: Date;
 }
 
@@ -39,6 +45,17 @@ export class TicketSummaryResponse {
   @ApiProperty({ nullable: true, description: 'Precio pagado por esta entrada.' }) ticketTypePrice: number | null;
   @ApiProperty({ nullable: true }) orderUuid: string | null;
   @ApiProperty({ nullable: true }) orderNumber: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    enum: REFUND_REQUEST_STATUSES,
+    description:
+      'Estado del reembolso de esta entrada, si tiene una solicitud. Null si nunca se pidió o si ' +
+      'la última terminó rechazada. Va aparte del `status` porque la entrada sigue siendo válida ' +
+      'mientras el reembolso está en curso.'
+  })
+  refundStatus: RefundRequestStatus | null;
+
   @ApiProperty() createdAt: Date;
 
   constructor(data: TicketSummaryData) {
@@ -56,6 +73,7 @@ export class TicketSummaryResponse {
     this.venueCity = data.venueCity;
     this.ticketTypeName = data.ticketTypeName;
     this.ticketTypePrice = data.ticketTypePrice;
+    this.refundStatus = data.refundStatus ?? null;
     this.orderUuid = data.orderUuid;
     this.orderNumber = data.orderNumber;
     this.createdAt = data.createdAt;

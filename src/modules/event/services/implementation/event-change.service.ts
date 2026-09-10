@@ -50,6 +50,37 @@ export type TEventChangesResult = {
   openRefundWindowEndsAt: string | null;
 };
 
+const AR_TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+/**
+ * Fecha legible para el comprador, en hora argentina.
+ *
+ * El historial guarda ISO en UTC. Mandárselo así ("2026-09-17T23:00:00.000Z")
+ * no solo es ilegible: además muestra una hora que no es la del show.
+ */
+function formatDateTimeAr(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('es-AR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: AR_TIMEZONE
+  }).format(date);
+}
+
+/** ISO-8601 con hora: es como el historial guarda las fechas. */
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** Formatea solo si el valor es una fecha; el resto (venue, lineup) va tal cual. */
+function humanizeChangeValue(value: string | null): string {
+  if (!value) return '—';
+  return ISO_DATETIME.test(value) ? formatDateTimeAr(value) : value;
+}
+
 @Injectable()
 export class EventChangeService {
   private readonly logger = new Logger(EventChangeService.name);
@@ -273,7 +304,7 @@ export class EventChangeService {
 
   /** Tras un update de evento: persiste grupos detectados y notifica si hay ventas. */
   async recordUpdateChanges(
-    eventBefore: EventSnapshotForChange & { uuid: string; organizationUuid: string },
+    eventBefore: EventSnapshotForChange & { uuid: string; organizationUuid: string; name: string },
     patch: EventUpdateForChange,
     loggedUser: string
   ): Promise<void> {
@@ -509,10 +540,16 @@ export class EventChangeService {
     const buyers = await this.findPaidBuyers(params.event.uuid);
     if (!buyers.length) return 0;
 
-    const appUrl = this.envService.get('APP_URL') ?? '';
-    const changeSummary = params.changes
-      .map(c => `${c.label}: ${c.before ?? '—'} → ${c.after ?? '—'}`)
-      .join('\n');
+    // El link va al frontend, no a la API: es una pantalla que ve el comprador.
+    const frontendUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
+
+    // Filas en vez de un bloque de texto: el email las muestra como tabla y el
+    // comprador ve de un vistazo qué cambió y a qué.
+    const changeRows = params.changes.map(c => ({
+      label: c.label,
+      before: humanizeChangeValue(c.before),
+      after: humanizeChangeValue(c.after)
+    }));
 
     const typeLabel: Record<EventChangeType, string> = {
       reschedule: 'Reprogramación',
@@ -536,11 +573,14 @@ export class EventChangeService {
             firstName: buyer.firstName,
             eventName: params.event.name,
             changeType: typeLabel[params.type],
-            changeSummary,
+            changeRows,
             reason: params.reason,
-            refundWindowEndsAt: params.refundWindowEndsAt.toISOString(),
-            ticketsUrl: appUrl ? `${appUrl.replace(/\/$/, '')}/client/tickets` : null,
-            preheader: `Hubo un cambio en ${params.event.name}`
+            refundWindowEndsAt: formatDateTimeAr(params.refundWindowEndsAt),
+            // El reembolso se pide desde la compra, no desde la entrada
+            // (`BR-REFUND-002`): el link tiene que dejarlo ahí.
+            purchasesUrl: frontendUrl ? `${frontendUrl}/client/payments` : null,
+            isCancellation: params.type === 'cancellation',
+            preheader: `${typeLabel[params.type]} en ${params.event.name}`
           }
         });
         sent++;
@@ -669,10 +709,13 @@ export class EventChangeService {
 export function toEventSnapshot(event: EventEntity): EventSnapshotForChange & {
   uuid: string;
   organizationUuid: string;
+  name: string;
 } {
   return {
     uuid: event.uuid,
     organizationUuid: event.organizationUuid,
+    // Va en el asunto y en el cuerpo del aviso a compradores.
+    name: event.name,
     startDate: event.startDate,
     endDate: event.endDate,
     venueName: event.venueName,

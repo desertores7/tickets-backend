@@ -24,6 +24,10 @@ import { StorageService } from '@root/shared/services/storage.service';
 import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
 import { TicketEntity, TicketStatus } from '@config/db/entities/tickets/ticket.entity';
 import {
+  REFUND_ACTIVE_STATUSES,
+  RefundRequestStatus
+} from '@config/db/entities/tickets/refund_request.entity';
+import {
   MY_TICKET_STATUS,
   MY_TICKET_TIMEFRAME,
   myTicketFilters,
@@ -79,6 +83,36 @@ export class TicketController {
     private readonly storageService: StorageService,
     @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue
   ) {}
+
+  /**
+   * Estado del reembolso por entrada, para las que lo tengan.
+   *
+   * Va en una consulta aparte y no como join del listado: es una relación
+   * uno-a-muchos (un ticket puede haber sido pedido y rechazado antes de
+   * volver a pedirse) y meterla en el `findAndCount` rompería la paginación.
+   *
+   * Solo interesan los estados **vivos**: un pedido rechazado deja la entrada
+   * como estaba, así que no tiene nada que mostrar.
+   */
+  private async loadRefundStatuses(
+    ticketUuids: string[]
+  ): Promise<Map<string, RefundRequestStatus>> {
+    const map = new Map<string, RefundRequestStatus>();
+    if (!ticketUuids.length) return map;
+
+    const rows = await this.dataSource
+      .createQueryBuilder()
+      .select('rrt.ticketUuid', 'ticketUuid')
+      .addSelect('rr.status', 'status')
+      .from('refund_request_ticket', 'rrt')
+      .innerJoin('refund_request', 'rr', 'rr.uuid = rrt.refundRequestUuid')
+      .where('rrt.ticketUuid IN (:...ticketUuids)', { ticketUuids })
+      .andWhere('rr.status IN (:...statuses)', { statuses: REFUND_ACTIVE_STATUSES })
+      .getRawMany<{ ticketUuid: string; status: RefundRequestStatus }>();
+
+    for (const row of rows) map.set(row.ticketUuid, row.status);
+    return map;
+  }
 
   // ---------------------------------------------------------------------------
   // GET /api/tickets/me
@@ -137,6 +171,8 @@ export class TicketController {
       take: limit
     });
 
+    const refundByTicket = await this.loadRefundStatuses(tickets.map(t => t.uuid));
+
     const items = tickets.map(t => {
       const data: TicketSummaryData = {
         uuid: t.uuid,
@@ -156,6 +192,7 @@ export class TicketController {
         // La orden ya viene en la relacion: se usa para linkear la compra.
         orderUuid: t.orderItem?.order?.uuid ?? null,
         orderNumber: t.orderItem?.order?.orderNumber ?? null,
+        refundStatus: refundByTicket.get(t.uuid) ?? null,
         createdAt: t.createdAt
       };
       return new TicketSummaryResponse(data);
