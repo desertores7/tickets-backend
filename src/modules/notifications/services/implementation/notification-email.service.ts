@@ -4,7 +4,7 @@ import type { Transporter } from 'nodemailer';
 import { EnvService } from '@config/env/env.service';
 import { renderEmailTemplate } from '@root/shared/email/compile-template';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
-import { EMAIL_BRAND } from '@root/shared/auth/const/email-brand';
+import { EMAIL_BRAND, emailLogoUrl } from '@root/shared/auth/const/email-brand';
 
 export interface EmailAttachment {
   filename: string;
@@ -75,6 +75,7 @@ export class NotificationEmailService {
 
     const html = renderEmailTemplate(templateName, {
       appName: EMAIL_BRAND.appName,
+      logoUrl: emailLogoUrl(this.envService.get('APP_URL')),
       year: new Date().getFullYear(),
       ...templateData
     });

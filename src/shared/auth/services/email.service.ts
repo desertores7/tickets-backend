@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { EmailConfig, SendEmailOptions } from '../const/email';
-import { EMAIL_BRAND } from '../const/email-brand';
+import { EMAIL_BRAND, emailLogoUrl } from '../const/email-brand';
 import { EnvService } from '@config/env/env.service';
 import { DBRepository } from '@config/db/db.repository';
 import { IsNull } from 'typeorm';
@@ -213,6 +213,7 @@ export class EmailService {
     return {
       appName: EMAIL_BRAND.appName,
       appTagline: EMAIL_BRAND.appTagline,
+      logoUrl: emailLogoUrl(this.envService.get('APP_URL')),
       supportEmail: EMAIL_BRAND.supportEmail,
       frontendUrl: this.getFrontendUrl(),
       year: new Date().getFullYear(),

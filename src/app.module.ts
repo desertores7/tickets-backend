@@ -52,6 +52,13 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
             serveStaticOptions: { index: false, fallthrough: false }
           },
           {
+            // Los clientes de correo no cargan SVG ni data URIs: el logo tiene
+            // que ser un PNG accesible por URL pública.
+            rootPath: join(process.cwd(), 'public', 'brand'),
+            serveRoot: '/brand',
+            serveStaticOptions: { index: false, fallthrough: false }
+          },
+          {
             rootPath: join(process.cwd(), 'public', 'scanner'),
             serveRoot: '/scanner',
             serveStaticOptions: {
