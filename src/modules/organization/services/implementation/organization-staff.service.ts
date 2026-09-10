@@ -5,6 +5,7 @@ import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { OrganizationProducerInviteEntity } from '@config/db/entities/user/organization-producer-invite.entity';
 import { UserEventCashierEntity } from '@config/db/entities/tickets/user_event_cashier.entity';
+import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import {
   BadRequestException,
@@ -85,8 +86,7 @@ export class OrganizationStaffService {
       const staffKind = this.resolveStaffKind(user);
       if (!staffKind || staffKind === 'producer_invite_pending') continue;
 
-      const assignedEvents =
-        staffKind === 'cashier' ? await this.loadCashierEvents(user.uuid, org.uuid) : [];
+      const assignedEvents = await this.loadAssignedEvents(staffKind, user.uuid, org.uuid);
 
       items.push(
         new StaffMemberResponse({
@@ -264,8 +264,7 @@ export class OrganizationStaffService {
 
       await queryRunner.commitTransaction();
 
-      const assignedEvents =
-        staffKind === 'cashier' ? await this.loadCashierEvents(user.uuid, org.uuid) : [];
+      const assignedEvents = await this.loadAssignedEvents(staffKind, user.uuid, org.uuid);
 
       return new StaffMemberResponse({
         staffKind,
@@ -480,8 +479,7 @@ export class OrganizationStaffService {
     }
 
     const refreshed = await this.getStaffUserInOrg(targetUserUuid, org.uuid);
-    const assignedEvents =
-      staffKind === 'cashier' ? await this.loadCashierEvents(targetUserUuid, org.uuid) : [];
+    const assignedEvents = await this.loadAssignedEvents(staffKind, targetUserUuid, org.uuid);
 
     return new StaffMemberResponse({
       staffKind,
@@ -798,6 +796,16 @@ export class OrganizationStaffService {
     }
   }
 
+  private async loadAssignedEvents(
+    staffKind: StaffKind,
+    userUuid: string,
+    orgUuid: string
+  ): Promise<StaffAssignedEventResponse[]> {
+    if (staffKind === 'cashier') return this.loadCashierEvents(userUuid, orgUuid);
+    if (staffKind === 'validator') return this.loadValidatorEvents(userUuid, orgUuid);
+    return [];
+  }
+
   private async loadCashierEvents(
     userUuid: string,
     orgUuid: string
@@ -816,6 +824,29 @@ export class OrganizationStaffService {
             uuid: r.eventUuid,
             name: (r.event as EventEntity).name,
             isHidden: r.isHidden
+          })
+      );
+  }
+
+  /** Asignaciones de puerta (`event_validator`) limitadas a eventos de la productora. */
+  private async loadValidatorEvents(
+    userUuid: string,
+    orgUuid: string
+  ): Promise<StaffAssignedEventResponse[]> {
+    const rows = await this.dbRepository.findMany({
+      entity: 'event_validator',
+      where: { userUuid } as any,
+      relations: { event: true } as any
+    });
+
+    return (rows as EventValidatorEntity[])
+      .filter(r => r.event && (r.event as EventEntity).organizationUuid === orgUuid)
+      .map(
+        r =>
+          new StaffAssignedEventResponse({
+            uuid: r.eventUuid,
+            name: (r.event as EventEntity).name,
+            isHidden: false
           })
       );
   }
