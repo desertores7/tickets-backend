@@ -11,6 +11,8 @@ import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
+import { OrderEntity } from '@config/db/entities/tickets/order.entity';
+import { OrderItemEntity } from '@config/db/entities/tickets/order_item.entity';
 import { RedisService } from '@config/redis/redis.service';
 import {
   GenerateQrJobData,
@@ -19,10 +21,12 @@ import {
   SendOrderTicketsEmailJobData
 } from '@config/redis/bull-jobs.types';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
+import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { StockService } from './stock.service';
 import { FeeSummaryService } from './fee-summary.service';
 import { IOrderService, PaginatedResult } from '../contracts/iorder.service';
+import { USER_ORDER_LIST_COLUMNS } from '../../const/user-order-list.const';
 import {
   ICreateOrder,
   IOrderItem,
@@ -294,33 +298,66 @@ export class OrderService implements IOrderService {
   async getUserOrders(
     userId: string,
     pagination: IPaginationParams,
-    status?: string
+    opts?: {
+      status?: string;
+      search?: string;
+      order?: IOrderParams<typeof USER_ORDER_LIST_COLUMNS>;
+    }
   ): Promise<PaginatedResult<Order>> {
-    // El listado no necesita las entradas de cada orden (QR y PDF incluidos):
-    // alcanza con los items para sumar cantidades, y el evento para el titulo.
-    const { items, count } = await this.dbRepository.findManyAndCount({
-      entity: 'orders',
-      where: {
-        userUuid: userId,
-        ...(status ? { status: status as OrderStatus } : {})
-      },
-      relations: { items: true, event: true },
-      other: {
-        skip: (pagination.page - 1) * pagination.limit,
-        take: pagination.limit,
-        order: { createdAt: 'DESC' }
-      }
+    // Sin join a items en el listado: si no, skip/take se aplica sobre filas
+    // duplicadas y el order_by/paginación salen rotos.
+    const qb = this.dataSource
+      .getRepository(OrderEntity)
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.event', 'event')
+      .where('o.userUuid = :userId', { userId });
+
+    if (opts?.status) {
+      qb.andWhere('o.status = :status', { status: opts.status });
+    }
+
+    const searchTerm = opts?.search?.trim();
+    if (searchTerm) {
+      qb.andWhere('(o.orderNumber LIKE :q OR event.name LIKE :q)', {
+        q: `%${searchTerm}%`
+      });
+    }
+
+    const order = resolveListOrder(opts?.order, USER_ORDER_LIST_COLUMNS, {
+      createdAt: 'DESC'
     });
+    for (const [col, dir] of Object.entries(order)) {
+      qb.addOrderBy(`o.${col}`, dir);
+    }
+    qb.addOrderBy('o.uuid', 'ASC');
+
+    const [rows, count] = await qb
+      .skip((pagination.page - 1) * pagination.limit)
+      .take(pagination.limit)
+      .getManyAndCount();
+
+    const itemCountByOrder = new Map<string, number>();
+    if (rows.length > 0) {
+      const itemRows = await this.dataSource
+        .getRepository(OrderItemEntity)
+        .createQueryBuilder('i')
+        .select('i.orderUuid', 'orderUuid')
+        .addSelect('COALESCE(SUM(i.quantity), 0)', 'qty')
+        .where('i.orderUuid IN (:...ids)', { ids: rows.map(r => r.uuid) })
+        .groupBy('i.orderUuid')
+        .getRawMany<{ orderUuid: string; qty: string }>();
+
+      for (const row of itemRows) {
+        itemCountByOrder.set(row.orderUuid, Number(row.qty) || 0);
+      }
+    }
 
     return {
-      items: items.map(o => {
+      items: rows.map(o => {
         const order = this.mapToOrder(o);
-        order.eventName = (o as any).event?.name ?? null;
-        order.eventStartDate = (o as any).event?.startDate ?? null;
-        order.itemCount = ((o as any).items ?? []).reduce(
-          (sum: number, item: any) => sum + Number(item.quantity ?? 0),
-          0
-        );
+        order.eventName = o.event?.name ?? null;
+        order.eventStartDate = o.event?.startDate ?? null;
+        order.itemCount = itemCountByOrder.get(o.uuid) ?? 0;
         return order;
       }),
       meta: new PaginationMetaResponse({

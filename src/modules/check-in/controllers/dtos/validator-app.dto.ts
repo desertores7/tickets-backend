@@ -41,6 +41,11 @@ export class ValidatorEventResponse {
   @ApiProperty({ description: 'ISO-8601' }) startDate: string;
   @ApiProperty({ description: 'ISO-8601' }) endDate: string;
   @ApiProperty({ nullable: true }) venueName: string | null;
+  @ApiProperty({ nullable: true }) venueAddress: string | null;
+  @ApiProperty({ nullable: true }) venueCity: string | null;
+  @ApiProperty({ nullable: true }) description: string | null;
+  @ApiProperty({ nullable: true, description: 'Flyer o banner para la card' })
+  coverUrl: string | null;
 
   @ApiProperty({ description: 'true si la ventana de check-in está abierta ahora' })
   checkInOpen: boolean;
@@ -51,6 +56,10 @@ export class ValidatorEventResponse {
     this.startDate = data.startDate.toISOString();
     this.endDate = data.endDate.toISOString();
     this.venueName = data.venueName;
+    this.venueAddress = data.venueAddress;
+    this.venueCity = data.venueCity;
+    this.description = data.description;
+    this.coverUrl = data.coverUrl;
     this.checkInOpen = data.checkInOpen;
   }
 }
