@@ -9,7 +9,15 @@ export class DatabaseConnectionManager {
     return {
       type: 'mysql' as const,
       connectorPackage: 'mysql2' as const,
+      // Todo en UTC, igual que el servidor MySQL. Tiene que coincidir con
+      // `data-source.ts`: si el runtime y las migraciones leen con zonas
+      // distintas, la mitad de las fechas sale corrida. Ver la migración
+      // NormalizeTimestampsToUtc.
+      timezone: 'Z',
       extra: {
+        // Las columnas `date` no tienen hora: convertirlas a Date les aplica
+        // una zona y les corre el día. Como string viajan intactas.
+        dateStrings: ['DATE'],
         connectionLimit: 10,
         reconnect: true,
         keepAliveInitialDelay: 0,
