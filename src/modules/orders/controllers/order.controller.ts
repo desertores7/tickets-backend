@@ -14,6 +14,9 @@ import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
+import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
+import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
+import { USER_ORDER_LIST_COLUMNS } from '../const/user-order-list.const';
 import { IOrderService } from '../services/contracts/iorder.service';
 import { OrderStatus } from '../services/core/order';
 import { CreateOrderRequest } from './dtos/create-order/create-order.request';
@@ -65,13 +68,15 @@ export class OrderController {
   @ApiOperation({
     summary: 'Listar mis órdenes',
     description:
-      'Returns a paginated list of all orders belonging to the authenticated user, sorted by ' +
-      'creation date descending. Each item includes a summary with status, total and item count.'
+      'Devuelve el listado paginado de órdenes del usuario autenticado. ' +
+      'Permite filtrar por estado, buscar por evento o número de orden, y ordenar por fecha o monto.'
   })
   @ApiResponse({ status: 200, type: GetUserOrdersResponse, description: 'Paginated list of orders.' })
   @ApiResponse({ status: 400, description: 'Invalid pagination parameters.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiPagination()
+  @ApiSearch()
+  @ApiOrder(USER_ORDER_LIST_COLUMNS)
   @HttpCode(200)
   @ApiQuery({
     name: 'status',
@@ -83,13 +88,19 @@ export class OrderController {
   async getUserOrders(
     @PaginationParams() pagination: IPaginationParams,
     @User() userId: string,
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @SearchParams() search?: ISearchParams,
+    @OrderParams() order?: IOrderParams<typeof USER_ORDER_LIST_COLUMNS>
   ): Promise<GetUserOrdersResponse> {
     if (status && !Object.values(OrderStatus).includes(status as OrderStatus)) {
       throw new BadRequestException(`status debe ser uno de: ${Object.values(OrderStatus).join(', ')}`);
     }
 
-    const result = await this._orderService.getUserOrders(userId, pagination, status);
+    const result = await this._orderService.getUserOrders(userId, pagination, {
+      status,
+      search: search?.search,
+      order
+    });
     return new GetUserOrdersResponse(
       result.items.map(o => new OrderSummaryResponse(o)),
       result.meta
