@@ -352,12 +352,33 @@ export class OrderService implements IOrderService {
       }
     }
 
+    // Reembolsos por orden, en consulta aparte por el mismo motivo que los
+    // items: unirlo al listado duplicaría filas y rompería la paginación.
+    const refundedByOrder = new Map<string, number>();
+    if (rows.length > 0) {
+      const refundRows = await this.dataSource
+        .createQueryBuilder()
+        .select('oi.orderUuid', 'orderUuid')
+        .addSelect('COUNT(*)', 'qty')
+        .from('ticket', 't')
+        .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')
+        .where('oi.orderUuid IN (:...ids)', { ids: rows.map(r => r.uuid) })
+        .andWhere("t.status = 'refunded'")
+        .groupBy('oi.orderUuid')
+        .getRawMany<{ orderUuid: string; qty: string }>();
+
+      for (const row of refundRows) {
+        refundedByOrder.set(row.orderUuid, Number(row.qty) || 0);
+      }
+    }
+
     return {
       items: rows.map(o => {
         const order = this.mapToOrder(o);
         order.eventName = o.event?.name ?? null;
         order.eventStartDate = o.event?.startDate ?? null;
         order.itemCount = itemCountByOrder.get(o.uuid) ?? 0;
+        order.refundedCount = refundedByOrder.get(o.uuid) ?? 0;
         return order;
       }),
       meta: new PaginationMetaResponse({
