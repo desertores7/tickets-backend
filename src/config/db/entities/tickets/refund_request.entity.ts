@@ -37,6 +37,21 @@ export const REFUND_REQUEST_STATUSES = [
 ] as const;
 export type RefundRequestStatus = (typeof REFUND_REQUEST_STATUSES)[number];
 
+/**
+ * Canal por el que se pidió el reembolso.
+ *
+ * No es una etiqueta descriptiva: **decide qué se valida**. El de política
+ * propia exige un cambio material del evento; el legal no exige nada del
+ * productor, pero tiene su propio plazo.
+ */
+export const REFUND_KINDS = [
+  /** Política propia por cambio material del evento (`BR-REFUND-001`). */
+  'material_change',
+  /** Botón de arrepentimiento, Ley 24.240 / Disp. 954/2025 (`BR-REFUND-007`). */
+  'withdrawal'
+] as const;
+export type RefundKind = (typeof REFUND_KINDS)[number];
+
 /** Estados en los que el ticket sigue comprometido y no se puede volver a pedir. */
 export const REFUND_ACTIVE_STATUSES: RefundRequestStatus[] = [
   'pending',
@@ -72,6 +87,9 @@ export class RefundRequestEntity {
 
   @Column({ type: 'enum', enum: REFUND_REQUEST_STATUSES, default: 'pending' })
   status: RefundRequestStatus;
+
+  @Column({ type: 'enum', enum: REFUND_KINDS, default: 'material_change' })
+  kind: RefundKind;
 
   @Column({ type: 'decimal', precision: 14, scale: 2 })
   amount: number;
