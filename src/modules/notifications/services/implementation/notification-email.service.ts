@@ -4,7 +4,7 @@ import type { Transporter } from 'nodemailer';
 import { EnvService } from '@config/env/env.service';
 import { renderEmailTemplate } from '@root/shared/email/compile-template';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
-import { EMAIL_BRAND, emailLogoUrl } from '@root/shared/auth/const/email-brand';
+import { EMAIL_BRAND, emailBrandVars } from '@root/shared/auth/const/email-brand';
 
 export interface EmailAttachment {
   filename: string;
@@ -62,7 +62,7 @@ export class NotificationEmailService {
 
   private getFromAddress(): string {
     const { user } = this.getSmtpConfig();
-    const fromName = this.envService.get('SMTP_FROM_NAME') ?? 'Ticketera';
+    const fromName = this.envService.get('SMTP_FROM_NAME') ?? EMAIL_BRAND.appName;
     const fromEmail = this.envService.get('SMTP_FROM_EMAIL') ?? user;
     return `"${fromName}" <${fromEmail}>`;
   }
@@ -74,9 +74,10 @@ export class NotificationEmailService {
     const { to, subject, templateData, attachments } = params;
 
     const html = renderEmailTemplate(templateName, {
-      appName: EMAIL_BRAND.appName,
-      logoUrl: emailLogoUrl(this.envService.get('APP_URL')),
-      year: new Date().getFullYear(),
+      ...emailBrandVars(
+        this.envService.get('APP_URL'),
+        this.envService.get('FRONTEND_URL') || 'http://localhost:3000'
+      ),
       ...templateData
     });
 

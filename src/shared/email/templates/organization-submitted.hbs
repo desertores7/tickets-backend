@@ -1,55 +1,54 @@
-{{!-- organization-submitted: productora envió validación fiscal --}}
+{{!-- organization-submitted: acuse de recibo de los datos fiscales enviados a validación --}}
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Solicitud recibida</title>
-  {{> styles}}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>Solicitud recibida</title>
+{{> styles}}
 </head>
-<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
-  <div style="display:none; max-height:0; overflow:hidden;">{{preheader}}</div>
+<body class="body" style="margin:0; padding:0; background-color:#050409; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">{{preheader}}</div>
 
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:24px 0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#050409;">
     <tr>
-      <td align="center">
-        <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+      <td align="center" style="padding:32px 12px;">
+
+        <table role="presentation" class="email-container" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px; max-width:560px; background-color:#0d0b12; border-radius:14px; overflow:hidden;">
+
           {{> header}}
 
           <tr>
-            <td class="mobile-padding" style="padding:32px 40px;">
-              <h1 style="margin:0 0 12px; color:#0f172a; font-size:24px; font-weight:800;">
-                Solicitud recibida
-              </h1>
-              <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-                Hola {{firstName}},
-              </p>
-              <p style="margin:0 0 16px; color:#334155; font-size:15px; line-height:1.7;">
-                Recibimos los datos fiscales de <strong>{{organizationName}}</strong> para validación.
-              </p>
-              <p style="margin:0 0 24px; color:#334155; font-size:15px; line-height:1.7;">
-                En las próximas horas vas a recibir una confirmación cuando un administrador revise la solicitud.
-                Es una verificación de rutina para ofrecerte un mejor servicio.
-              </p>
+            <td class="px" style="padding:34px 40px;">
+              <p style="margin:0 0 10px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; line-height:1.6; color:#a8a4b3;">Hola, {{firstName}}</p>
 
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:8px auto 20px;">
+              <h1 class="h1" style="margin:0 0 18px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:28px; font-weight:800; line-height:1.15; color:#ffffff; letter-spacing:-0.2px; text-transform:uppercase;">Recibimos tu solicitud</h1>
+
+              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Ya tenemos los datos fiscales de <strong style="color:#ffffff;">{{organizationName}}</strong> y quedaron en revisión.</p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 0px; background-color:#120f18; border:1px solid #241f2e; border-radius:12px;">
                 <tr>
-                  <td align="center" style="border-radius:12px; background-color:#ff2bd6;">
-                    <a href="{{fiscalUrl}}" target="_blank" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px;">
-                      Ver estado de mi productora
-                    </a>
+                  <td style="padding:18px 20px;">
+                    <p style="margin:0 0 4px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:12px; font-weight:700; color:#6a6673; letter-spacing:0.08em; text-transform:uppercase;">Estado</p>
+                    <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.5; color:#ffffff;">En revisión</p>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin:0; color:#64748b; font-size:13px; line-height:1.6;">
-                Si el botón no funciona: <a href="{{fiscalUrl}}" style="color:#ff2bd6; word-break:break-all;">{{fiscalUrl}}</a>
-              </p>
+              <p style="margin:0 0 0px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Un administrador los valida en las próximas horas y te avisamos por este mismo medio. Es una verificación de rutina antes de habilitar la venta.</p>
+
+              {{> button url=fiscalUrl label="Ver estado de mi productora"}}
+
+              {{> fallback-link url=fiscalUrl}}
             </td>
           </tr>
 
-          {{> footer}}
+          {{#> footer}}Recibiste este correo porque enviaste los datos fiscales de {{organizationName}} a validación.{{/footer}}
+
         </table>
+
       </td>
     </tr>
   </table>
