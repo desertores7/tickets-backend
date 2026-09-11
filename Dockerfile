@@ -22,6 +22,8 @@ RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
+# prepare = "husky || true" (package.json): husky no está en --prod.
+# pnpm.onlyBuiltDependencies permite el postinstall de sharp.
 RUN pnpm install --prod --frozen-lockfile
 
 # ── Production ───────────────────────────────────────────────────────────────
