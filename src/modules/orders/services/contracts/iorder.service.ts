@@ -29,4 +29,5 @@ export interface IOrderService {
   confirmPayment(orderId: string, paymentData: PaymentConfirmationData): Promise<Order>;
 
   expireOrder(orderId: string): Promise<void>;
+  sweepExpiredOrders(batchSize?: number): Promise<number>;
 }

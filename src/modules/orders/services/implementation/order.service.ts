@@ -573,6 +573,55 @@ export class OrderService implements IOrderService {
     return this.fetchOrderInternal(orderId);
   }
 
+  /**
+   * Barrido de órdenes vencidas que el job con delay no alcanzó a expirar.
+   *
+   * El vencimiento normal lo dispara un job con delay de 10 minutos encolado
+   * al crear la orden. Ese job vive **solo en Redis**: si el Redis se cambia,
+   * se vacía o lo limpia otra de las apps que lo comparten, el job desaparece
+   * sin dejar rastro. La orden queda `pending_payment` para siempre y —lo
+   * grave— su stock queda reservado, así que esa entrada no se puede vender.
+   *
+   * Este barrido es la red: mira la base, que es la fuente de verdad del
+   * `expiresAt`, y no depende de que ningún job haya sobrevivido.
+   *
+   * Devuelve cuántas expiró.
+   */
+  async sweepExpiredOrders(batchSize = 100): Promise<number> {
+    const vencidas = await this.dataSource
+      .createQueryBuilder()
+      .select('o.uuid', 'uuid')
+      .from('orders', 'o')
+      .where('o.status = :status', { status: OrderStatus.PENDING_PAYMENT })
+      .andWhere('o.expiresAt IS NOT NULL')
+      .andWhere('o.expiresAt < NOW()')
+      .orderBy('o.expiresAt', 'ASC')
+      .limit(batchSize)
+      .getRawMany<{ uuid: string }>();
+
+    let expiradas = 0;
+    for (const { uuid } of vencidas) {
+      try {
+        // `expireOrder` revalida el estado: si el job con delay llegó primero,
+        // esta pasada no hace nada.
+        await this.expireOrder(uuid);
+        expiradas += 1;
+      } catch (error) {
+        // Una orden que falla no puede frenar al resto del barrido.
+        this.logger.error(
+          `sweepExpiredOrders: no se pudo expirar la orden ${uuid}`,
+          error instanceof Error ? error.stack : String(error)
+        );
+      }
+    }
+
+    if (expiradas > 0) {
+      this.logger.log(`sweepExpiredOrders: ${expiradas} órdenes vencidas expiradas`);
+    }
+
+    return expiradas;
+  }
+
   async expireOrder(orderId: string): Promise<void> {
     // 1. Verify order is still pending_payment
     const order = await this.dbRepository.findOne({

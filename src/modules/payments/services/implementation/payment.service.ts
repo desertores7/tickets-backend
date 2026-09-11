@@ -146,7 +146,17 @@ export class PaymentService implements IPaymentService {
       userForMP as any
     );
 
-    const paymentUuid = uuidv4();
+    // `payment.orderUuid` es UNIQUE: una orden tiene como mucho una fila de
+    // pago. Reintentar el checkout (volver de Mercado Pago sin pagar y tocar
+    // "Pagar" de nuevo) tiene que reescribir la preferencia sobre esa misma
+    // fila; insertando otra, MySQL responde ER_DUP_ENTRY y el comprador ve un
+    // "Internal server error" en vez del checkout.
+    const existingPayment = await this.dbRepository.findOne({
+      entity: 'payment',
+      where: { orderUuid: orderId }
+    });
+
+    const paymentUuid = existingPayment?.uuid ?? uuidv4();
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
