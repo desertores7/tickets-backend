@@ -6,6 +6,7 @@ import { DBModule } from '../config/db/db.module';
 import { UserService } from './user/services/implementation/user.service';
 import { RoleService } from './role/services/implementation/role.service';
 import { AuthService } from './auth/services/implementation/auth.service';
+import { GoogleOAuthService } from './auth/services/implementation/google-oauth.service';
 import { UserFileService } from './user-file/services/implementation/user-file.service';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { OrganizationService } from './organization/services/implementation/organization.service';
@@ -89,6 +90,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     EmailService,
     ImageCompressionService,
     AuthService,
+    GoogleOAuthService,
     RoleGuard,
     InternalTokenGuard,
     UserPermissionService,
@@ -128,6 +130,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     EmailService,
     ImageCompressionService,
     AuthService,
+    GoogleOAuthService,
     RoleGuard,
     InternalTokenGuard,
     UserPermissionService,

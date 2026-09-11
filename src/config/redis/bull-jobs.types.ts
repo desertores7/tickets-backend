@@ -43,6 +43,11 @@ export interface ReleaseExpiredStockJobData {
   expiredAt: string;
 }
 
+export interface SweepExpiredOrdersJobData {
+  /** Cuántas órdenes vencidas toma por corrida. */
+  batchSize?: number;
+}
+
 export interface ProcessWaitingRoomJobData {
   eventId: string;
   batchSize: number;

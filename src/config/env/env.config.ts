@@ -7,7 +7,8 @@ const stringToObj = (schema: z.ZodObject<ZodRawShape, UnknownKeysParam, ZodTypeA
       try {
         return JSON.parse(obj);
       } catch (e) {
-        console.error('Invalid DB_CONNECTION_DATA', e);
+        // Sin el error: el mensaje de JSON.parse incluye el texto crudo, con la contrasena.
+        console.error('Invalid DB_CONNECTION_DATA: no se pudo parsear el JSON');
         return z.NEVER;
       }
     })
@@ -30,7 +31,8 @@ export const envSchema = z.object({
         }
         return parsed;
       } catch (e) {
-        console.error('Invalid DB_CONNECTION_DATA', e);
+        // Sin el error: el mensaje de JSON.parse incluye el texto crudo, con la contrasena.
+        console.error('Invalid DB_CONNECTION_DATA: no se pudo parsear el JSON');
         return undefined;
       }
     }),
@@ -75,6 +77,16 @@ export const envSchema = z.object({
   /** Secreto para cifrar los tokens MP de las productoras (BR-CASH-001). */
   MP_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   APP_URL: z.string().url().optional(),
+
+  // OAuth de Google (`BR-AUTH-005`). Sin credenciales el login con Google queda
+  // apagado y el endpoint responde 503: no se rompe nada del resto del auth.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /**
+   * URI de retorno que se declara en Google Cloud Console. Tiene que coincidir
+   * carácter por carácter con la de allá. Si no está, se arma con `APP_URL`.
+   */
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
 
   STORAGE_PATH: z.string().default('./storage'),
 

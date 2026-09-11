@@ -16,10 +16,14 @@ export class ImageCompressionService {
     mkdirSync(this.userMediaDir, { recursive: true });
   }
 
-  private buildPublicUrl(filename: string): string {
+  private buildPublicUrl(filename: string, version?: number): string {
     // Path relativo: el frontend antepone el origen de NEXT_PUBLIC_API_URL.
     // Si se guarda BASE_URL de prod, en local el avatar apunta a gemdam y 404.
-    return `/api/multimedia/user/${filename}`;
+    //
+    // El archivo se llama siempre igual (el uuid del usuario), así que sin el
+    // `?v=` el navegador sigue mostrando la foto vieja: misma URL, misma cache.
+    const base = `/api/multimedia/user/${filename}`;
+    return version ? `${base}?v=${version}` : base;
   }
 
   assertImageMimeType(mimetype: string): void {
@@ -37,7 +41,7 @@ export class ImageCompressionService {
     await sharp(file.buffer).webp({ quality: 80 }).toFile(filepath);
 
     return {
-      path: this.buildPublicUrl(filename),
+      path: this.buildPublicUrl(filename, Date.now()),
       type: WEBP_MIME
     };
   }

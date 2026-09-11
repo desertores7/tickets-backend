@@ -18,8 +18,9 @@ import { DatabaseKeepaliveService } from './db-keepalive.service';
           const baseConfig = DatabaseConnectionManager.getConnectionConfig();
 
           // Configuración de base de datos
+          // Nunca loguear este objeto: trae la contraseña de la base. Los campos
+          // útiles ya salen abajo, en el log de conexión.
           const dbConnectionData = envService.get('DB_CONNECTION_DATA');
-          console.log('DB_CONNECTION_DATA:', dbConnectionData);
 
           if (!dbConnectionData) {
             throw new Error('DB_CONNECTION_DATA is required');
@@ -28,7 +29,14 @@ import { DatabaseKeepaliveService } from './db-keepalive.service';
           const { database, host, port, username, password } = dbConnectionData;
 
           if (!database || !host || !port || !username || !password) {
-            console.log('DB_CONNECTION_DATA issue', dbConnectionData);
+            // Solo qué falta, no los valores.
+            console.log('DB_CONNECTION_DATA issue', {
+              database: Boolean(database),
+              host: Boolean(host),
+              port: Boolean(port),
+              username: Boolean(username),
+              password: Boolean(password)
+            });
             throw new Error('DB_CONNECTION_DATA issue');
           }
 
