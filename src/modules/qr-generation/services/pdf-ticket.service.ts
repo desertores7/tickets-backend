@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
+import { EMAIL_BRAND } from '@root/shared/auth/const/email-brand';
 
 // A6 portrait en puntos (72dpi): 105mm × 148mm
 const PAGE_WIDTH = 298;
@@ -58,7 +59,7 @@ export class PdfTicketService {
       info: {
         Title: `Ticket ${data.ticketNumber}`,
         Subject: data.eventName,
-        Author: 'Ticketera'
+        Author: EMAIL_BRAND.appName
       }
     });
 

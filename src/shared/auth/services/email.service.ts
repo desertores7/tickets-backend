@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { EmailConfig, SendEmailOptions } from '../const/email';
-import { EMAIL_BRAND, emailLogoUrl } from '../const/email-brand';
+import { EMAIL_BRAND, emailBrandVars, emailHeroUrl } from '../const/email-brand';
 import { EnvService } from '@config/env/env.service';
 import { DBRepository } from '@config/db/db.repository';
 import { IsNull } from 'typeorm';
@@ -209,14 +209,21 @@ export class EmailService {
     return (this.envService.get('FRONTEND_URL') || 'http://localhost:3000').replace(/\/$/, '');
   }
 
+  /**
+   * Portada + franja de los emails que llevan imagen. Los templates la tratan
+   * como opcional, así que un `APP_URL` sin configurar no rompe nada.
+   */
+  private heroData(): Record<string, unknown> {
+    return {
+      heroUrl: emailHeroUrl(this.envService.get('APP_URL')),
+      heroAlt: EMAIL_BRAND.appName,
+      heroKicker: EMAIL_BRAND.heroKicker
+    };
+  }
+
   private withBrand(data: Record<string, unknown>): Record<string, unknown> {
     return {
-      appName: EMAIL_BRAND.appName,
-      appTagline: EMAIL_BRAND.appTagline,
-      logoUrl: emailLogoUrl(this.envService.get('APP_URL')),
-      supportEmail: EMAIL_BRAND.supportEmail,
-      frontendUrl: this.getFrontendUrl(),
-      year: new Date().getFullYear(),
+      ...emailBrandVars(this.envService.get('APP_URL'), this.getFrontendUrl()),
       ...data
     };
   }
@@ -227,16 +234,17 @@ export class EmailService {
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.welcomeNewUser,
       {
-        preheader: `Bienvenido a Ticketera, ${data.firstName}. Tu cuenta ya está activa.`,
+        preheader: `Bienvenido a ${EMAIL_BRAND.appName}, ${data.firstName}. Tu cuenta ya está activa.`,
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
-        loginUrl
+        loginUrl,
+        ...this.heroData()
       },
       {
         to: data.email,
-        subject: `¡Bienvenido a Ticketera, ${data.firstName}!`,
-        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en Ticketera ya está activa. Ingresá en: ${loginUrl}`
+        subject: `¡Bienvenido a ${EMAIL_BRAND.appName}, ${data.firstName}!`,
+        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en ${EMAIL_BRAND.appName} ya está activa. Ingresá en: ${loginUrl}`
       }
     );
   }
@@ -251,7 +259,7 @@ export class EmailService {
       },
       {
         to: data.email,
-        subject: 'Restablecer contraseña — Ticketera',
+        subject: `Restablecer contraseña — ${EMAIL_BRAND.appName}`,
         text: `Hola ${data.firstName}, tu código para restablecer la contraseña es ${data.code}. Expira en 15 minutos.`
       }
     );
@@ -261,13 +269,13 @@ export class EmailService {
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.login2faCode,
       {
-        preheader: `Tu código de acceso a Ticketera es ${data.code}`,
+        preheader: `Tu código de acceso a ${EMAIL_BRAND.appName} es ${data.code}`,
         firstName: data.firstName,
         code: data.code
       },
       {
         to: data.email,
-        subject: 'Código de validación de acceso — Ticketera',
+        subject: `Código de validación de acceso — ${EMAIL_BRAND.appName}`,
         text: `Hola ${data.firstName}, tu código de acceso es ${data.code}. Expira en 5 minutos.`
       }
     );
@@ -277,14 +285,16 @@ export class EmailService {
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.registrationWelcome,
       {
-        preheader: 'Gracias por registrarte en Ticketera. Verificá tu email para empezar.',
+        preheader: `Gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email para empezar.`,
         firstName: data.firstName,
-        validationUrl: data.validationUrl
+        email: data.email,
+        validationUrl: data.validationUrl,
+        ...this.heroData()
       },
       {
         to: data.email,
-        subject: 'Bienvenido a Ticketera — verificá tu email',
-        text: `Hola ${data.firstName}, gracias por registrarte en Ticketera. Verificá tu email en: ${data.validationUrl}`
+        subject: `Bienvenido a ${EMAIL_BRAND.appName} — verificá tu email`,
+        text: `Hola ${data.firstName}, gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email en: ${data.validationUrl}`
       }
     );
   }
@@ -295,13 +305,15 @@ export class EmailService {
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.emailVerified,
       {
-        preheader: 'Tu correo fue verificado correctamente en Ticketera.',
+        preheader: `Tu correo fue verificado correctamente en ${EMAIL_BRAND.appName}.`,
         firstName: data.firstName,
-        loginUrl
+        email: data.email,
+        loginUrl,
+        ...this.heroData()
       },
       {
         to: data.email,
-        subject: 'Correo verificado correctamente — Ticketera',
+        subject: `Correo verificado correctamente — ${EMAIL_BRAND.appName}`,
         text: `Hola ${data.firstName}, tu correo fue verificado. Iniciá sesión en: ${loginUrl}`
       }
     );

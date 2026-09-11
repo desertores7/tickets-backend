@@ -1,12 +1,25 @@
-{{!-- Estilos base compartidos. Cada template puede omitir este partial y definir los suyos. --}}
+{{!--
+  Estilos base compartidos por todos los templates.
+
+  Los emails de Showpass son dark por diseño: los colores van inline en cada
+  celda (Gmail y Outlook descartan casi todo el <style>), y acá queda solo lo
+  que necesita un selector: reset, media query y el bloqueo del dark mode
+  automático de iOS/Outlook, que invertiría un fondo que ya es oscuro.
+--}}
 <style>
   body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
   table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
   img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
-  body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  body { margin: 0 !important; padding: 0 !important; width: 100% !important; background-color: #050409; }
   a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; }
-  @media only screen and (max-width: 620px) {
-    .email-container { width: 100% !important; }
-    .mobile-padding { padding-left: 20px !important; padding-right: 20px !important; }
+  :root { color-scheme: dark; supported-color-schemes: dark; }
+  u + .body .email-container { width: 100% !important; }
+
+  /* Proporciones: el contenedor es 560px y el gutter lateral 40px en todos
+     los templates. En mobile baja a 24px y el ancho pasa a ser fluido. */
+  @media only screen and (max-width: 600px) {
+    .email-container { width: 100% !important; border-radius: 0 !important; }
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+    .h1 { font-size: 24px !important; }
   }
 </style>

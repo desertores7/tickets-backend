@@ -103,8 +103,12 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
         ticketNumber: t.ticketNumber,
         ticketTypeName: t.ticketType?.name ?? 'Entrada'
       })),
-      appName: 'Ticketera',
-      year: new Date().getFullYear()
+      ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
+      // Portada: el banner del evento si lo hay. El template la trata como
+      // opcional, así que un evento sin banner manda el email igual.
+      heroUrl: order.event.bannerUrl ?? order.event.bannerImages?.desktop ?? null,
+      heroAlt: order.event.name,
+      heroKicker: order.event.name
     };
 
     // 6. Enviar UN email con todos los PDFs de la orden
