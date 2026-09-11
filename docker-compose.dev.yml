@@ -2,3 +2,4 @@ services:
   api:
     volumes:
       - ./storage:/app/storage
+      - ./multimedia:/app/multimedia
