@@ -1,5 +1,6 @@
 # Despliega únicamente ticketera-api en el servidor (compose multi-servicio).
 # No reconstruye otros servicios del mismo docker-compose.yml.
+# Se dispara al mergear un PR a main (push a main) o manualmente.
 
 name: Deploy ticketera-api
 
