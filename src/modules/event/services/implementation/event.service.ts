@@ -1907,6 +1907,10 @@ export class EventService implements IEventService {
     } else if (status === 'sales_closed') {
       c['salesClosedAt'] = Not(IsNull());
     } else if (status === 'finished') {
+      // Publicado, además de pasado: un borrador con fecha vieja nunca llegó a
+      // ocurrir, así que no "finalizó" — sigue siendo un borrador. Sin esta
+      // condición aparecía en Finalizados con el cartel de Borrador encima.
+      c['isPublished'] = true;
       c['endDate'] = LessThan(new Date());
       c['cancelledAt'] = IsNull();
     }

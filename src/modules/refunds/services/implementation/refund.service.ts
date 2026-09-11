@@ -846,7 +846,10 @@ export class RefundService implements IRefundService {
           firstName: request.buyerName.split(' ')[0] ?? '',
           eventName: request.eventName,
           approved: status === 'refunded',
-          amount: request.amount,
+          // Lo que MP dice que volvió, si ya lo confirmó; si no, lo aprobado.
+          // No suelen diferir, pero cuando difieren manda el número de MP: es
+          // el que el comprador va a ver en su cuenta.
+          amount: request.amountRefundedToPayer ?? request.amount,
           currency: request.currency,
           reason: motivo,
           // El plural se arma acá: Handlebars no trae un helper de comparación.

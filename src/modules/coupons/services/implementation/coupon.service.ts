@@ -530,7 +530,14 @@ export class CouponService implements ICouponService {
 
     // El tope es el subtotal ELEGIBLE, no el total: un cupón fijo de $5000
     // limitado a una tanda de $500 descuenta $500, no toca el resto del carrito.
-    const discountAmount = Math.round(Math.min(rawDiscount, eligibleSubtotal) * 100) / 100;
+    //
+    // El piso en cero es defensa en profundidad: hoy el `value` no puede ser
+    // negativo (`@Min(0.01)` en el request), pero si una fila llegara así por
+    // un seed o un UPDATE a mano, un descuento negativo **subiría** el precio y
+    // el fee del 15% se calcularía sobre ese subtotal inflado. Un cupón puede
+    // dejar la compra en cero; nunca puede encarecerla.
+    const discountAmount =
+      Math.round(Math.min(Math.max(rawDiscount, 0), eligibleSubtotal) * 100) / 100;
     const discountedSubtotal = Math.round((subtotal - discountAmount) * 100) / 100;
 
     return {

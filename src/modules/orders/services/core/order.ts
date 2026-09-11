@@ -77,6 +77,14 @@ export class Order implements IOrder {
   eventStartDate?: Date | null;
   /** Solo en el listado: suma de cantidades, calculada en SQL. */
   itemCount?: number;
+  /**
+   * Entradas de la orden ya reembolsadas.
+   *
+   * Va aparte de `status`: un reembolso puede ser parcial (`BR-REFUND-009`) y la
+   * orden sigue siendo una compra pagada. Sin este dato el comprador ve
+   * "Pagada" en una compra que le devolvieron.
+   */
+  refundedCount?: number;
 }
 
 export interface ICreateOrderItem {

@@ -13,6 +13,13 @@ export class OrderSummaryResponse {
   @ApiProperty() total: number;
   @ApiProperty() currency: string;
   @ApiProperty() itemCount: number;
+
+  @ApiProperty({
+    description:
+      'Entradas ya reembolsadas de esta orden. Igual a itemCount cuando se devolvió todo, ' +
+      'menor cuando fue un reembolso parcial (BR-REFUND-009).'
+  })
+  refundedCount: number;
   @ApiProperty() expiresAt: Date;
   @ApiProperty({ nullable: true }) paidAt: Date | null;
   @ApiProperty() createdAt: Date;
@@ -28,6 +35,7 @@ export class OrderSummaryResponse {
     this.currency = data.currency;
     this.itemCount =
       data.itemCount ?? (data.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
+    this.refundedCount = data.refundedCount ?? 0;
     this.expiresAt = data.expiresAt;
     this.paidAt = data.paidAt;
     this.createdAt = data.createdAt;
