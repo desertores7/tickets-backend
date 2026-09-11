@@ -39,6 +39,14 @@ if current < qty then return -1 end
 return redis.call('DECRBY', KEYS[1], qty)
 `;
 
+// Lua script: lee un valor y lo borra en el mismo paso (canje de un solo uso)
+const LUA_TAKE_EPHEMERAL = `
+local v = redis.call('GET', KEYS[1])
+if v == false then return nil end
+redis.call('DEL', KEYS[1])
+return v
+`;
+
 // Lua script: increment stock atomically; returns new value
 const LUA_RELEASE_STOCK = `
 return tonumber(redis.call('INCRBY', KEYS[1], tonumber(ARGV[1])))
@@ -244,5 +252,26 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async deleteKey(key: string): Promise<void> {
     await this.redis.del(key);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Valores efímeros de un solo uso (tickets del OAuth de Google)
+  // ---------------------------------------------------------------------------
+
+  /** Guarda un valor con TTL. Se usa para canjes de un solo uso. */
+  async setEphemeral(key: string, value: string, ttlSeconds: number): Promise<void> {
+    await this.redis.set(key, value, 'EX', ttlSeconds);
+  }
+
+  /**
+   * Lee y borra en la misma operación: el valor se consume una sola vez.
+   *
+   * Va por Lua y no por `GETDEL` porque ese comando recién existe desde Redis
+   * 6.2 y este Redis se comparte con otras apps del host: no controlamos su
+   * versión. Devuelve `null` si la clave venció o ya se consumió.
+   */
+  async takeEphemeral(key: string): Promise<string | null> {
+    const value = await this.redis.eval(LUA_TAKE_EPHEMERAL, 1, key);
+    return typeof value === 'string' ? value : null;
   }
 }

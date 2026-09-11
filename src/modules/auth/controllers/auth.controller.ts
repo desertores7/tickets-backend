@@ -9,9 +9,12 @@ import {
   ParseFilePipeBuilder,
   Patch,
   Post,
+  Query,
+  Res,
   UploadedFile,
   UseInterceptors
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
@@ -40,6 +43,8 @@ import { ResendEmailVerificationRequest } from './requests/resend-email-verifica
 import { VerifyTwoFactorRequest } from './requests/verify-two-factor.request';
 import { ResendTwoFactorRequest } from './requests/resend-two-factor.request';
 import { CONTENT_TYPE } from '@root/shared/const/content-type.contant';
+import { GoogleExchangeRequest } from './requests/google-exchange.request';
+import { GoogleOAuthService } from '../services/implementation/google-oauth.service';
 
 /** Tope de la foto de perfil: se reescala a webp, no hace falta mas. */
 const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -48,7 +53,10 @@ const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 // del usuario logueado a 'Perfil'. Las rutas no cambian.
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject('IAuthService') public authService: IAuthService) {}
+  constructor(
+    @Inject('IAuthService') public authService: IAuthService,
+    private readonly googleOAuthService: GoogleOAuthService
+  ) {}
 
   private toLoginAuthResponse(result: TLoginAuthResult): LoginAuthResponse {
     return new LoginAuthResponse(result);
@@ -118,6 +126,53 @@ export class AuthController {
   @Post('login')
   async loginAuth(@Body() request: LoginAuthRequest): Promise<LoginAuthResponse> {
     const result = await this.authService.userLoginAuth(request.email, request.password);
+    return this.toLoginAuthResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Iniciar sesión con Google',
+    description:
+      'Redirige a la pantalla de Google (OAuth 2.0, authorization code). `next` es la ruta interna a la que volver ' +
+      'después de entrar. No devuelve JSON: es un redirect para el navegador.'
+  })
+  @ApiTags('Auth')
+  @Get('google')
+  async googleStart(@Query('next') next: string | undefined, @Res() res: Response): Promise<void> {
+    const url = await this.googleOAuthService.buildAuthorizationUrl(next ?? null);
+    res.redirect(url);
+  }
+
+  @ApiOperation({
+    summary: 'Registrar retorno de Google',
+    description:
+      'URI de retorno declarada en Google Cloud Console. Canjea el código, resuelve el usuario y redirige al ' +
+      'frontend con un ticket de un solo uso (2 minutos) que se canjea en `/auth/google/exchange`. ' +
+      'Los errores también vuelven como redirect al login.'
+  })
+  @ApiTags('Auth')
+  @Get('google/callback')
+  async googleCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Res() res: Response
+  ): Promise<void> {
+    const url = await this.googleOAuthService.handleCallback({ code, state, error });
+    res.redirect(url);
+  }
+
+  @ApiOperation({
+    summary: 'Canjear ticket de Google',
+    description:
+      'Cambia el ticket de un solo uso por los tokens de sesión. Mismo cuerpo de respuesta que `/auth/login`. ' +
+      'El ticket se consume en el primer canje y vence a los 2 minutos.'
+  })
+  @Swagger(GoogleExchangeRequest, LoginAuthResponse)
+  @HttpCode(200)
+  @ApiTags('Auth')
+  @Post('google/exchange')
+  async googleExchange(@Body() request: GoogleExchangeRequest): Promise<LoginAuthResponse> {
+    const result = await this.googleOAuthService.exchangeTicket(request.ticket);
     return this.toLoginAuthResponse(result);
   }
 

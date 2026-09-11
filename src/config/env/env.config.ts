@@ -78,6 +78,16 @@ export const envSchema = z.object({
   MP_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   APP_URL: z.string().url().optional(),
 
+  // OAuth de Google (`BR-AUTH-005`). Sin credenciales el login con Google queda
+  // apagado y el endpoint responde 503: no se rompe nada del resto del auth.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /**
+   * URI de retorno que se declara en Google Cloud Console. Tiene que coincidir
+   * carácter por carácter con la de allá. Si no está, se arma con `APP_URL`.
+   */
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
+
   STORAGE_PATH: z.string().default('./storage'),
 
   QR_SECRET: z.string().default('change-this-to-a-random-secret-32chars'),

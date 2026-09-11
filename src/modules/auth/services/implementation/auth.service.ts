@@ -447,6 +447,130 @@ export class AuthService implements IAuthService {
     return (this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000').replace(/\/$/, '');
   }
 
+  /**
+   * Resuelve el usuario detrás de una identidad de Google (`BR-AUTH-005`).
+   *
+   * Tres caminos, en orden: ya venía con `googleId` (login normal), existe una
+   * cuenta con ese email y se le vincula Google, o se crea una cuenta nueva.
+   *
+   * **Vincular por email solo si Google confirmó el email.** Si no, cualquiera
+   * que registre un dominio propio y declare `email` sin verificar entra a la
+   * cuenta ajena. Google manda `email_verified: false` para algunas cuentas de
+   * Workspace, así que el caso es real.
+   *
+   * No crea documento ni teléfono: no los da Google. El usuario los completa
+   * desde el perfil cuando los necesite.
+   */
+  async resolveGoogleUser(profile: {
+    googleId: string;
+    email: string;
+    emailVerified: boolean;
+    firstName: string;
+    lastName: string;
+  }): Promise<string> {
+    const email = profile.email.trim().toLowerCase();
+
+    const byGoogleId = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { googleId: profile.googleId, isDeleted: IsNull() }
+    });
+
+    if (byGoogleId) {
+      if (!byGoogleId.active) throw new UnauthorizedException('La cuenta está desactivada');
+      return byGoogleId.uuid;
+    }
+
+    if (!profile.emailVerified) {
+      throw new UnauthorizedException('Google no confirmó tu email. Entrá con email y contraseña.');
+    }
+
+    const byEmail = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { email, isDeleted: IsNull() }
+    });
+
+    if (byEmail) {
+      if (!byEmail.active) throw new UnauthorizedException('La cuenta está desactivada');
+
+      await this.dbRepository.update({
+        entity: 'user',
+        where: { uuid: byEmail.uuid },
+        data: {
+          googleId: profile.googleId,
+          // Google ya lo verificó: no tiene sentido pedirle el mail de siempre.
+          emailVerified: true,
+          emailVerifiedAt: byEmail.emailVerifiedAt ?? new Date()
+        }
+      });
+
+      this.logger.log(`Google vinculado a la cuenta existente ${byEmail.uuid}`);
+      return byEmail.uuid;
+    }
+
+    const user = new UserEntity();
+    user.uuid = uuidv4();
+    user.firstName = profile.firstName.trim() || 'Usuario';
+    user.lastName = profile.lastName.trim() || '';
+    user.email = email;
+    user.googleId = profile.googleId;
+    // `password` es NOT NULL y nunca se va a usar: se guarda un hash de un
+    // secreto aleatorio, que no coincide con ninguna contraseña posible. Si la
+    // persona quiere una, la pone por "olvidé mi contraseña".
+    user.password = await this.hash(uuidv4() + uuidv4());
+    user.active = 1;
+    user.emailVerified = true;
+    user.emailVerifiedAt = new Date();
+    user.termsAcceptedAt = new Date();
+    user.twoAuthentication = false;
+    user.isDeleted = null;
+    await this.dbRepository.create({ entity: 'user', data: user });
+
+    const userRole = new UserRoleEntity();
+    userRole.uuid = uuidv4();
+    userRole.userUuid = user.uuid;
+    userRole.roleUuid = this.roleUserUuid;
+    userRole.createdBy = user.uuid;
+    userRole.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'user_role', data: userRole });
+
+    try {
+      await this.userNotificationService.create(
+        user.uuid,
+        'Bienvenido a ShowPass',
+        'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
+      );
+    } catch (error) {
+      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
+    }
+
+    this.logger.log(`Cuenta creada desde Google: ${user.uuid}`);
+    return user.uuid;
+  }
+
+  /**
+   * Emite la sesión de un usuario ya autenticado por un tercero.
+   *
+   * No pasa por 2FA a propósito: Google ya autenticó, y su segundo factor es
+   * mejor que un código de 6 dígitos por email.
+   */
+  async loginByUserUuid(userUuid: string): Promise<TUserLoginAuthResponse> {
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() },
+      relations: {
+        files: true,
+        userTokenSessions: true,
+        userRoles: { role: true }
+      }
+    });
+
+    if (!user || !user.active) {
+      throw new UnauthorizedException('Usuario inactivo o no encontrado');
+    }
+
+    return this.buildLoginResponse(user);
+  }
+
   private async signEmailVerificationToken(userUuid: string, email: string): Promise<string> {
     return this.jwt.signAsync(
       { sub: userUuid, email, purpose: 'email-verification' },
