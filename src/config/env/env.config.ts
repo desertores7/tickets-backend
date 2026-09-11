@@ -7,7 +7,8 @@ const stringToObj = (schema: z.ZodObject<ZodRawShape, UnknownKeysParam, ZodTypeA
       try {
         return JSON.parse(obj);
       } catch (e) {
-        console.error('Invalid DB_CONNECTION_DATA', e);
+        // Sin el error: el mensaje de JSON.parse incluye el texto crudo, con la contrasena.
+        console.error('Invalid DB_CONNECTION_DATA: no se pudo parsear el JSON');
         return z.NEVER;
       }
     })
@@ -30,7 +31,8 @@ export const envSchema = z.object({
         }
         return parsed;
       } catch (e) {
-        console.error('Invalid DB_CONNECTION_DATA', e);
+        // Sin el error: el mensaje de JSON.parse incluye el texto crudo, con la contrasena.
+        console.error('Invalid DB_CONNECTION_DATA: no se pudo parsear el JSON');
         return undefined;
       }
     }),
