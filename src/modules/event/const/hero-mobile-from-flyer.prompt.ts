@@ -1,5 +1,5 @@
 /**
- * Hero vertical para banner móvil (salida final 350×500 vía sharp).
+ * Hero vertical para banner móvil (salida final 1080×1543 vía sharp).
  * Composición distinta al desktop 16:9: el sujeto ocupa el centro/vertical,
  * sin reserva de columna izquierda para HTML.
  */

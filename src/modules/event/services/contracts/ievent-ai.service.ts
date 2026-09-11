@@ -35,7 +35,7 @@ export type AnalyzeFlyersResult = {
   /** null si la generación del hero falló/timeout; la extracción igual se aplica */
   heroImageBase64: string | null;
   heroMimeType: HeroImageMimeType;
-  /** Hero vertical móvil (350×500). null si falló la generación. */
+  /** Hero vertical móvil (1080×1543). null si falló la generación. */
   heroMobileImageBase64: string | null;
   heroMobileMimeType: HeroImageMimeType;
   heroWarning?: string | null;
