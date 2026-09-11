@@ -56,13 +56,18 @@ const HOUR_TTL_SEC = 60 * 60;
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BASE_DELAY_MS = 2_500;
 /**
- * Size enviado a OpenAI para el mobile (múltiplos de 16, ~7:10).
- * Luego sharp lo lleva exactamente a 350×500.
+ * Size enviado a OpenAI para el mobile (portrait GPT Image).
+ * Luego sharp lo lleva al canvas de salida (~7:10) a resolución retina
+ * para full-bleed en móvil (~360–430 CSS × 2–3 DPR) sin pixelar.
+ *
+ * Desktop es independiente: usa EVENT_AI_IMAGE_SIZE (default 2048×1152) y
+ * se guarda tal cual, sin este downscale. No tocar el pipeline desktop acá.
  */
-/** Portrait estándar de GPT Image (válido en gpt-image-1/1.5/2); sharp lo baja a 350×500. */
 const MOBILE_HERO_AI_SIZE = '1024x1536';
-const MOBILE_HERO_OUTPUT_WIDTH = 350;
-const MOBILE_HERO_OUTPUT_HEIGHT = 500;
+/** Ancho suficiente para object-cover a 3× en phones típicos. */
+const MOBILE_HERO_OUTPUT_WIDTH = 1080;
+/** 7:10 respecto de 1080 (misma composición que el antiguo 350×500). */
+const MOBILE_HERO_OUTPUT_HEIGHT = 1543;
 
 type HeroImageQuality = 'low' | 'medium' | 'high';
 type HeroImageFormat = 'png' | 'webp' | 'jpeg';
@@ -854,7 +859,7 @@ export class EventAiService implements IEventAiService {
   }
 
   /**
-   * Banner móvil portrait: OpenAI ~7:10 y sharp a 350×500 exactos.
+   * Banner móvil portrait: OpenAI 1024×1536 y sharp a 1080×1543 (~7:10).
    * Soft-fail independiente del desktop (Promise.allSettled en analyzeFromFlyers).
    */
   private async generateHeroMobile(
@@ -939,7 +944,7 @@ export class EventAiService implements IEventAiService {
     }
   }
 
-  /** Recorta/escala el hero móvil al canvas fijo 350×500. */
+  /** Recorta/escala el hero móvil al canvas fijo 1080×1543 (retina mobile). */
   private async resizeHeroMobileToOutput(
     b64: string,
     format: HeroImageFormat
@@ -947,14 +952,14 @@ export class EventAiService implements IEventAiService {
     let pipeline = sharp(Buffer.from(b64, 'base64')).resize(
       MOBILE_HERO_OUTPUT_WIDTH,
       MOBILE_HERO_OUTPUT_HEIGHT,
-      { fit: 'cover', position: 'centre' }
+      { fit: 'cover', position: 'centre', kernel: sharp.kernel.lanczos3 }
     );
     if (format === 'webp') {
-      pipeline = pipeline.webp({ quality: 85 });
+      pipeline = pipeline.webp({ quality: 90 });
     } else if (format === 'jpeg') {
-      pipeline = pipeline.jpeg({ quality: 85 });
+      pipeline = pipeline.jpeg({ quality: 90, mozjpeg: true });
     } else {
-      pipeline = pipeline.png();
+      pipeline = pipeline.png({ compressionLevel: 6 });
     }
     return (await pipeline.toBuffer()).toString('base64');
   }

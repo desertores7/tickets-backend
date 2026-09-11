@@ -93,7 +93,7 @@ export class AnalyzeFlyersResponse {
 
   @ApiProperty({
     description:
-      'Hero móvil vertical 350×500 en base64 (sin data: prefix). null si falló la generación.',
+      'Hero móvil vertical 1080×1543 en base64 (sin data: prefix). null si falló la generación.',
     nullable: true,
     required: false
   })
