@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+# Bloquea push directo a main. Trabaja en una rama y abri un PR.
+
+protected_branch="main"
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$current_branch" = "$protected_branch" ]; then
+  echo ""
+  echo "ERROR: no se permite push directo a '$protected_branch'."
+  echo "Crea una rama (git checkout -b feature/...), pusheala y abri un PR a main."
+  echo ""
+  exit 1
+fi
+
+while read local_ref local_sha remote_ref remote_sha
+do
+  if [ "$remote_ref" = "refs/heads/$protected_branch" ]; then
+    echo ""
+    echo "ERROR: no se permite pushear a '$protected_branch' (ref remota)."
+    echo "Abri un Pull Request hacia main desde tu rama."
+    echo ""
+    exit 1
+  fi
+done
