@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Despliega solo el servicio ticketera-api del compose del proyecto padre.
+# Despliega solo el servicio showpass-api del compose del proyecto padre.
 # No toca otros servicios del mismo docker-compose.yml.
 #
 # Variables (en el servidor o en el workflow de GitHub Actions):
-#   DEPLOY_PATH      Ruta del proyecto con docker-compose.yml (ej. /docker/gemdam)
-#   COMPOSE_SERVICE  Nombre del servicio en compose (default: ticketera-api)
+#   DEPLOY_PATH      Ruta del proyecto con docker-compose.yml (ej. /docker/showpass)
+#   COMPOSE_SERVICE  Nombre del servicio en compose (default: showpass-api)
 #
 # Uso manual en el servidor:
-#   export DEPLOY_PATH=/docker/gemdam
-#   bash ticketera-api/tickets-backend/scripts/deploy-tickets-backend.sh
+#   export DEPLOY_PATH=/docker/showpass
+#   bash showpass-api/tickets-backend/scripts/deploy-tickets-backend.sh
 
 set -euo pipefail
 
 DEPLOY_PATH="${DEPLOY_PATH:?Define DEPLOY_PATH (directorio que contiene docker-compose.yml)}"
-COMPOSE_SERVICE="${COMPOSE_SERVICE:-ticketera-api}"
-TICKETS_DIR="${DEPLOY_PATH}/ticketera-api/tickets-backend"
+COMPOSE_SERVICE="${COMPOSE_SERVICE:-showpass-api}"
+TICKETS_DIR="${DEPLOY_PATH}/showpass-api/tickets-backend"
 COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.yml"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
