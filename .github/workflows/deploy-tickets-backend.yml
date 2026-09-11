@@ -1,8 +1,8 @@
-# Despliega únicamente ticketera-api en el servidor (compose multi-servicio).
+# Despliega únicamente showpass-api en el servidor (compose multi-servicio).
 # No reconstruye otros servicios del mismo docker-compose.yml.
 # Se dispara al mergear un PR a main (push a main) o manualmente.
 
-name: Deploy ticketera-api
+name: Deploy showpass-api
 
 on:
   push:
@@ -11,17 +11,17 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-ticketera-api
+  group: deploy-showpass-api
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: SSH → build ticketera-api
+    name: SSH → build showpass-api
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: git pull + deploy ticketera-api
+      - name: git pull + deploy showpass-api
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -32,6 +32,6 @@ jobs:
           script: |
             set -euo pipefail
             export DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
-            export COMPOSE_SERVICE='ticketera-api'
-            # 1) git pull en ticketera-api/tickets-backend  2) docker compose build/up solo ticketera-api
-            bash "${DEPLOY_PATH}/ticketera-api/tickets-backend/scripts/deploy-tickets-backend.sh"
+            export COMPOSE_SERVICE='showpass-api'
+            # 1) git pull en showpass-api/tickets-backend  2) docker compose build/up solo showpass-api
+            bash "${DEPLOY_PATH}/showpass-api/tickets-backend/scripts/deploy-tickets-backend.sh"
