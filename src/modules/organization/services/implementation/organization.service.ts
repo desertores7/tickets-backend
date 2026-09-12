@@ -937,6 +937,7 @@ export class OrganizationService implements IOrganizationService {
     if (!org.taxId?.trim()) missing.push('CUIT/CUIL');
     if (!org.taxCondition) missing.push('condición fiscal');
     if (!org.contactEmail?.trim()) missing.push('email de contacto');
+    if (!org.contactPhone?.trim()) missing.push('teléfono');
     if (!org.bankName?.trim()) missing.push('banco');
     if (!org.cbu?.trim() || !isValidCbu(org.cbu)) missing.push('CBU (22 dígitos)');
     if (!org.bankAlias?.trim()) missing.push('alias');
@@ -947,7 +948,7 @@ export class OrganizationService implements IOrganizationService {
 
     const docs = await this.listActiveFiscalDocuments(org.uuid);
     if (docs.length < ORGANIZATION_FISCAL_MIN_DOCS) {
-      throw new BadRequestException('Subí al menos un documento de respaldo');
+      throw new BadRequestException('Subí al menos la constancia de inscripción (mínimo 1 archivo)');
     }
 
     await this.dbRepository.update({
@@ -988,6 +989,7 @@ export class OrganizationService implements IOrganizationService {
     const name = data.name.trim();
     const legalName = data.legalName.trim();
     const contactEmail = data.contactEmail.trim();
+    const contactPhone = data.contactPhone.trim();
     const taxCondition = data.taxCondition;
     const normalizedTaxId = data.taxId.replace(/\D/g, '');
 
@@ -1002,6 +1004,9 @@ export class OrganizationService implements IOrganizationService {
     }
     if (!contactEmail) {
       throw new BadRequestException('Indicá el email de contacto');
+    }
+    if (!contactPhone || contactPhone.length < 8) {
+      throw new BadRequestException('Indicá el teléfono de contacto');
     }
 
     const duplicate = await this.dbRepository.findOne({
@@ -1027,7 +1032,7 @@ export class OrganizationService implements IOrganizationService {
       throw new BadRequestException(`Máximo ${ORGANIZATION_FISCAL_DOC_MAX_FILES} archivos por productora`);
     }
     if (remainingAfterDelete + files.length < ORGANIZATION_FISCAL_MIN_DOCS) {
-      throw new BadRequestException('Dejá al menos un documento de respaldo');
+      throw new BadRequestException('Dejá al menos un archivo de constancia de inscripción');
     }
 
     const identityChanged =
@@ -1035,7 +1040,8 @@ export class OrganizationService implements IOrganizationService {
       (org.legalName ?? '').trim() !== legalName ||
       (org.taxId ?? '') !== normalizedTaxId ||
       (org.taxCondition ?? null) !== taxCondition ||
-      (org.contactEmail ?? '').trim().toLowerCase() !== contactEmail.toLowerCase();
+      (org.contactEmail ?? '').trim().toLowerCase() !== contactEmail.toLowerCase() ||
+      (org.contactPhone ?? '').trim() !== contactPhone;
 
     const pendingPayload =
       existingPending && isFiscalChangePayload(existingPending.type, existingPending.payload)
@@ -1047,7 +1053,8 @@ export class OrganizationService implements IOrganizationService {
       pendingPayload.legalName !== legalName ||
       pendingPayload.taxId !== normalizedTaxId ||
       pendingPayload.taxCondition !== taxCondition ||
-      pendingPayload.contactEmail.trim().toLowerCase() !== contactEmail.toLowerCase();
+      pendingPayload.contactEmail.trim().toLowerCase() !== contactEmail.toLowerCase() ||
+      (pendingPayload.contactPhone ?? '').trim() !== contactPhone;
 
     const docsChanged = deleteUuids.length > 0 || files.length > 0;
     if (!identityChanged && !docsChanged) {
@@ -1077,7 +1084,8 @@ export class OrganizationService implements IOrganizationService {
             legalName,
             taxId: normalizedTaxId,
             taxCondition,
-            contactEmail
+            contactEmail,
+            contactPhone
           },
           updatedBy: userUuid,
           updatedAt: new Date()
@@ -1092,7 +1100,8 @@ export class OrganizationService implements IOrganizationService {
           legalName,
           taxId: normalizedTaxId,
           taxCondition,
-          contactEmail
+          contactEmail,
+          contactPhone
         },
         userUuid
       );
@@ -1124,7 +1133,7 @@ export class OrganizationService implements IOrganizationService {
       throw new BadRequestException('No hay un cambio de información fiscal pendiente');
     }
 
-    const { name, legalName, taxId, taxCondition, contactEmail } = pending.payload;
+    const { name, legalName, taxId, taxCondition, contactEmail, contactPhone } = pending.payload;
     if (!legalName || !taxId) {
       throw new BadRequestException('No hay un cambio de información fiscal pendiente');
     }
@@ -1138,6 +1147,7 @@ export class OrganizationService implements IOrganizationService {
         taxId,
         taxCondition,
         contactEmail,
+        contactPhone: contactPhone || org.contactPhone,
         updatedBy: adminUuid
       }
     });

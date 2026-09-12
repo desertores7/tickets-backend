@@ -60,6 +60,14 @@ export class RequestFiscalChangeRequest {
   @MaxLength(255)
   contactEmail: string;
 
+  @ApiProperty({
+    description: 'Teléfono de la productora (código de área + número, unido; ej. +541112345678)'
+  })
+  @IsString()
+  @MinLength(8)
+  @MaxLength(50)
+  contactPhone: string;
+
   @ApiPropertyOptional({
     type: [String],
     description: 'UUIDs de documentos a eliminar al enviar la solicitud (multipart: JSON o CSV)'
@@ -67,7 +75,7 @@ export class RequestFiscalChangeRequest {
   @IsOptional()
   @Transform(({ value }) => parseUuidList(value))
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(2)
   @IsUUID('4', { each: true })
   deleteDocumentUuids?: string[];
 }
