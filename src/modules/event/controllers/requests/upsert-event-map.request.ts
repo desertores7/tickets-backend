@@ -88,6 +88,16 @@ export class UpsertEventMapSectorDto {
   @IsString()
   name: string;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Piso impreso en el plano ("1ER PISO"). La unicidad del nombre se evalúa ' +
+      'por (nivel, nombre): sin esto, dos pisos que numeran desde 1 chocan.'
+  })
+  @IsOptional()
+  @IsString()
+  level?: string | null;
+
   @ApiProperty({ type: EventMapSectorGeometryDto })
   @ValidateNested()
   @Type(() => EventMapSectorGeometryDto)

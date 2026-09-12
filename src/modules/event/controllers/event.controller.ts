@@ -6,6 +6,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   ParseFilePipeBuilder,
   Patch,
@@ -76,6 +77,10 @@ import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.re
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
 import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
+import {
+  MapAnalysisQueuedResponse,
+  MapAnalysisStatusResponse
+} from './responses/map-analysis-job.response';
 import { EventMapResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import {
@@ -83,6 +88,11 @@ import {
   UpsertEventMapRequest
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
+import { MapAnalysisJobStore } from '../services/implementation/map-analysis-job.store';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { randomUUID } from 'crypto';
+import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 
 // Sin @ApiTags a nivel de clase: este controller cubre siete secciones
 // distintas del Swagger y cada metodo declara la suya. Las rutas no cambian.
@@ -90,7 +100,9 @@ import { IEventAiService } from '../services/contracts/ievent-ai.service';
 export class EventController {
   constructor(
     @Inject('IEventService') private readonly _eventService: IEventService,
-    @Inject('IEventAiService') private readonly _eventAiService: IEventAiService
+    @Inject('IEventAiService') private readonly _eventAiService: IEventAiService,
+    @InjectQueue(QUEUE_NAMES.EVENT_AI) private readonly _eventAiQueue: Queue,
+    private readonly _mapJobStore: MapAnalysisJobStore
   ) {}
 
   @UserAuth(CreateEventRequest, null)
@@ -149,15 +161,17 @@ export class EventController {
     return new AnalyzeFlyersResponse(result);
   }
 
-  @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
+  @UserAuth(null, MapAnalysisQueuedResponse, 'multipart/form-data')
   @ApiOperation({
-    summary: 'Analizar mapa de sala desde imagen (IA)',
+    summary: 'Analizar mapa de sala desde imagen (IA) — encola',
     description:
-      'Accepts 1 sales map image (multipart field `mapImage`). Returns an abstract venue layout: ' +
-      'stage (semantic position), commercial categories, and structural groups (column/row/grid/zone) ' +
-      'with every visible label. No per-element x/y geometry — the frontend renders SVG. ' +
+      'Accepts 1 sales map image (multipart field `mapImage`) and QUEUES the analysis. ' +
+      'Returns `{ jobId, status }` immediately; poll `GET /events/ai/from-map/{jobId}` for the result.\n\n' +
+      'The analysis runs vision → deterministic verification → targeted repair when something is ' +
+      'missing, which takes one to two minutes — well past what a proxy keeps an HTTP request open. ' +
       'Uses EVENT_AI_MAP_MODEL exclusively (never EVENT_AI_EXTRACT_MODEL) with optional ' +
-      'EVENT_AI_MAP_REASONING_EFFORT for GPT-5 family. Requires OPENIA_API_KEY. Max 8MB. Counts toward hourly AI quota.'
+      'EVENT_AI_MAP_REASONING_EFFORT for GPT-5 family. Requires OPENIA_API_KEY. Max 8MB. ' +
+      'One analysis at a time per user; a second upload returns the one already running.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -173,24 +187,96 @@ export class EventController {
       required: ['mapImage']
     }
   })
-  @ApiResponse({ status: 200, type: AnalyzeFromMapResponse })
+  @ApiResponse({ status: 202, type: MapAnalysisQueuedResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid file.' })
   @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
-  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
+  @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing.' })
   @UseInterceptors(
     FileInterceptor('mapImage', {
       limits: { fileSize: 8 * 1024 * 1024 }
     })
   )
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiTags('Productora — Eventos')
   @Post('ai/from-map')
   async analyzeFromMap(
     @UploadedFile() file: Express.Multer.File,
     @User() loggedUser: string
-  ): Promise<AnalyzeFromMapResponse> {
-    const result = await this._eventAiService.analyzeFromMapImage(file, loggedUser);
-    return new AnalyzeFromMapResponse(result);
+  ): Promise<MapAnalysisQueuedResponse> {
+    // La imagen y la cuota se validan acá, en el request: un archivo inválido
+    // tiene que fallar al instante y no dos minutos después dentro de un job.
+    const mapFile = this._eventAiService.validateMapRequest(file);
+    await this._eventAiService.assertMapQuota(loggedUser);
+
+    const jobId = randomUUID();
+    const acquired = await this._mapJobStore.acquireUserLock(loggedUser, jobId);
+
+    // Un doble clic, o el productor que sube otra imagen sin esperar: en vez de
+    // lanzar un segundo análisis se devuelve el que ya está corriendo.
+    if (!acquired) {
+      const runningId = await this._mapJobStore.currentJobId(loggedUser);
+      if (runningId) {
+        return new MapAnalysisQueuedResponse({
+          jobId: runningId,
+          status: 'processing',
+          alreadyRunning: true
+        });
+      }
+      // El lock existe pero perdimos el id: se libera y se sigue de largo.
+      await this._mapJobStore.releaseUserLock(loggedUser);
+      await this._mapJobStore.acquireUserLock(loggedUser, jobId);
+    }
+
+    await this._mapJobStore.save({
+      jobId,
+      userId: loggedUser,
+      status: 'processing',
+      startedAt: new Date().toISOString()
+    });
+
+    await this._eventAiQueue.add('analyze-map', {
+      jobId,
+      userId: loggedUser,
+      imageBase64: mapFile.buffer.toString('base64'),
+      imageName: mapFile.originalname,
+      imageMime: mapFile.mimetype,
+      imageSize: mapFile.size
+    });
+
+    return new MapAnalysisQueuedResponse({ jobId, status: 'processing', alreadyRunning: false });
+  }
+
+  @UserAuth(null, MapAnalysisStatusResponse)
+  @ApiOperation({
+    summary: 'Estado del análisis de mapa (IA)',
+    description:
+      'Devuelve `processing`, `done` (con el mapa) o `failed` (con el motivo). ' +
+      'El estado vive una hora: alcanza de sobra para que el productor cierre la ' +
+      'pestaña y vuelva. Sondear cada 2–3 segundos.'
+  })
+  @ApiResponse({ status: 200, type: MapAnalysisStatusResponse })
+  @ApiResponse({ status: 404, description: 'El análisis no existe o ya venció.' })
+  @HttpCode(200)
+  @ApiTags('Productora — Eventos')
+  @Get('ai/from-map/:jobId')
+  async mapAnalysisStatus(
+    @Param('jobId') jobId: string,
+    @User() loggedUser: string
+  ): Promise<MapAnalysisStatusResponse> {
+    const state = await this._mapJobStore.get(jobId);
+
+    // Mismo 404 para el que no existe y para el de otro usuario: nadie puede
+    // averiguar qué analiza otra productora probando ids.
+    if (!state || state.userId !== loggedUser) {
+      throw new NotFoundException('El análisis no existe o ya venció. Volvé a subir la imagen.');
+    }
+
+    return new MapAnalysisStatusResponse({
+      status: state.status,
+      startedAt: state.startedAt,
+      result: state.result ? new AnalyzeFromMapResponse(state.result) : null,
+      error: state.error ?? null
+    });
   }
 
   @OptionalUserAuth(null, GetAllEventResponse)

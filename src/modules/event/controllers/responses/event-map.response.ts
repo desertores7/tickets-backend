@@ -6,6 +6,8 @@ import type { TEventMap } from '@modules/event/services/contracts/ievent.service
 export class EventMapSectorResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() name: string;
+  @ApiProperty({ nullable: true, description: 'Piso impreso; null en salas de un nivel.' })
+  level: string | null;
   @ApiProperty() geometry: EventMapSectorGeometry;
   @ApiProperty() sortOrder: number;
   @ApiProperty() isNumbered: boolean;
@@ -15,6 +17,7 @@ export class EventMapSectorResponse {
   constructor(data: {
     uuid: string;
     name: string;
+    level: string | null;
     geometry: EventMapSectorGeometry;
     sortOrder: number;
     isNumbered: boolean;
@@ -23,6 +26,7 @@ export class EventMapSectorResponse {
   }) {
     this.uuid = data.uuid;
     this.name = data.name;
+    this.level = data.level;
     this.geometry = data.geometry;
     this.sortOrder = data.sortOrder;
     this.isNumbered = data.isNumbered;

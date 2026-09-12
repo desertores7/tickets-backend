@@ -264,6 +264,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Lee sin consumir. Para valores que se consultan muchas veces antes de
+   * vencer, como el estado de un análisis que el frontend va sondeando.
+   */
+  async getEphemeral(key: string): Promise<string | null> {
+    return this.redis.get(key);
+  }
+
+  /**
    * Lee y borra en la misma operación: el valor se consume una sola vez.
    *
    * Va por Lua y no por `GETDEL` porque ese comando recién existe desde Redis
