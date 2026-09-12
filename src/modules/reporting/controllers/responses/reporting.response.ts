@@ -6,6 +6,7 @@ import {
   IEventDashboard,
   ISaleDetail,
   ISaleDetailItem,
+  ISaleTicket,
   ISalesRow
 } from '../../services/contracts/ireporting.service';
 
@@ -72,6 +73,26 @@ export class SaleDetailItemResponse {
   }
 }
 
+export class SaleTicketResponse {
+  @ApiProperty() uuid: string;
+  @ApiProperty({ example: 'TKT-1789243917576-5B299D3B' }) ticketNumber: string;
+  @ApiProperty({ example: 'Preventa 1' }) ticketTypeName: string;
+  @ApiProperty({ example: 'active' }) status: string;
+  @ApiProperty({ nullable: true }) qrUrl: string | null;
+  @ApiProperty({ nullable: true }) pdfUrl: string | null;
+  @ApiProperty({ nullable: true }) refundStatus: string | null;
+
+  constructor(data: ISaleTicket) {
+    this.uuid = data.uuid;
+    this.ticketNumber = data.ticketNumber;
+    this.ticketTypeName = data.ticketTypeName;
+    this.status = data.status;
+    this.qrUrl = data.qrUrl;
+    this.pdfUrl = data.pdfUrl;
+    this.refundStatus = data.refundStatus;
+  }
+}
+
 export class SaleDetailResponse {
   @ApiProperty() orderUuid: string;
   @ApiProperty({ example: 'ORD-20260828-000142' }) orderNumber: string;
@@ -92,6 +113,9 @@ export class SaleDetailResponse {
   @ApiProperty({ nullable: true }) eventVenueName: string | null;
   @ApiProperty({ nullable: true }) eventVenueCity: string | null;
   @ApiProperty({ type: [SaleDetailItemResponse] }) items: SaleDetailItemResponse[];
+  @ApiProperty({ type: [SaleTicketResponse], description: 'Las entradas una por una.' })
+  tickets: SaleTicketResponse[];
+
   @ApiProperty() ticketsCount: number;
 
   @ApiProperty({
@@ -133,6 +157,7 @@ export class SaleDetailResponse {
     this.eventVenueName = data.eventVenueName;
     this.eventVenueCity = data.eventVenueCity;
     this.items = data.items.map(i => new SaleDetailItemResponse(i));
+    this.tickets = (data.tickets ?? []).map(t => new SaleTicketResponse(t));
     this.ticketsCount = data.ticketsCount;
     this.ticketsRefunded = data.ticketsRefunded;
     this.ticketsAmount = data.ticketsAmount;

@@ -49,6 +49,18 @@ export interface ISaleDetailItem {
   refundedQuantity: number;
 }
 
+/** Una entrada concreta de la orden. */
+export interface ISaleTicket {
+  uuid: string;
+  ticketNumber: string;
+  ticketTypeName: string;
+  status: string;
+  qrUrl: string | null;
+  pdfUrl: string | null;
+  /** Reembolso activo sobre esta entrada, si lo hay. */
+  refundStatus: string | null;
+}
+
 /**
  * Detalle completo de una orden para la vista Ventas del productor.
  *
@@ -76,6 +88,8 @@ export interface ISaleDetail {
   eventVenueName: string | null;
   eventVenueCity: string | null;
   items: ISaleDetailItem[];
+  /** Las entradas una por una, para operar sobre cada una (regenerar QR/PDF). */
+  tickets: ISaleTicket[];
   ticketsCount: number;
   /** Entradas de la orden ya reembolsadas. */
   ticketsRefunded: number;

@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
+import { StorageService } from '@root/shared/services/storage.service';
 import { OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
@@ -13,6 +14,7 @@ import {
   IReportingService,
   ISaleDetail,
   ISaleDetailItem,
+  ISaleTicket,
   ISalesFilters,
   ISalesRow
 } from '../contracts/ireporting.service';
@@ -34,7 +36,8 @@ export class ReportingService implements IReportingService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly dataSource: DataSource,
-    @Inject('IEventCashService') private readonly eventCashService: IEventCashService
+    @Inject('IEventCashService') private readonly eventCashService: IEventCashService,
+    private readonly storageService: StorageService
   ) {}
 
   // ── Ventas (BR-REPORT-002) ──────────────────────────────────────────────────
@@ -145,6 +148,44 @@ export class ReportingService implements IReportingService {
       refundedQuantity: Number(r.refundedQuantity ?? 0)
     }));
 
+    // Las entradas una por una. El detalle agrupa por tanda para mostrar
+    // precios, pero para operar sobre una entrada concreta —regenerar su QR
+    // cuando el PDF quedó roto— hace falta la fila individual.
+    const ticketRows = await this.dataSource
+      .createQueryBuilder()
+      .select([
+        't.uuid AS uuid',
+        't.ticketNumber AS ticketNumber',
+        't.status AS status',
+        't.qrUrl AS qrUrl',
+        't.pdfUrl AS pdfUrl',
+        'tt.name AS ticketTypeName'
+      ])
+      .addSelect(
+        `(SELECT rr.status FROM refund_request_ticket rrt
+            INNER JOIN refund_request rr ON rr.uuid = rrt.refundRequestUuid
+           WHERE rrt.ticketUuid = t.uuid
+             AND rr.status IN ('pending','approved','processing','refunded')
+           LIMIT 1)`,
+        'refundStatus'
+      )
+      .from('ticket', 't')
+      .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')
+      .innerJoin('ticket_type', 'tt', 'tt.uuid = t.ticketTypeUuid')
+      .where('oi.orderUuid = :orderUuid', { orderUuid })
+      .orderBy('t.createdAt', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    const ticketsDetalle: ISaleTicket[] = ticketRows.map(r => ({
+      uuid: String(r.uuid),
+      ticketNumber: String(r.ticketNumber),
+      ticketTypeName: String(r.ticketTypeName),
+      status: String(r.status),
+      qrUrl: this.storageService.toPublicUrl(r.qrUrl as string | null),
+      pdfUrl: this.storageService.toPublicUrl(r.pdfUrl as string | null),
+      refundStatus: (r.refundStatus as string | null) ?? null
+    }));
+
     const isAdmin = role === 'Administrador';
 
     return {
@@ -167,6 +208,7 @@ export class ReportingService implements IReportingService {
       eventVenueName: raw.eventVenueName ?? null,
       eventVenueCity: raw.eventVenueCity ?? null,
       items,
+      tickets: ticketsDetalle,
       ticketsCount: items.reduce((sum, i) => sum + i.quantity, 0),
       ticketsRefunded: items.reduce((sum, i) => sum + i.refundedQuantity, 0),
       ticketsAmount: this.round(items.reduce((sum, i) => sum + i.subtotal, 0)),
