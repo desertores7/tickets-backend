@@ -217,7 +217,13 @@ export class ReportingService implements IReportingService {
         'e.name AS eventName',
         'tt.name AS ticketTypeName',
         'oi.quantity AS quantity',
-        'oi.subtotal AS amount'
+        'oi.subtotal AS amount',
+        // Cuántas entradas de ESTA tanda en ESTA orden volvieron. `orders.status`
+        // no lo cuenta: una orden con un reembolso parcial sigue siendo `paid`
+        // —y está bien, porque se cobró—, pero sin este dato el backoffice ve
+        // "Pagada" en una venta que ya se devolvió entera.
+        `(SELECT COUNT(*) FROM ticket t
+           WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded') AS refundedQuantity`
       ])
       .from('order_item', 'oi')
       .innerJoin('orders', 'o', 'o.uuid = oi.orderUuid')
@@ -266,7 +272,8 @@ export class ReportingService implements IReportingService {
       amount: Number(raw.amount),
       currency: String(raw.currency ?? 'ARS'),
       purchasedAt: new Date(raw.purchasedAt as string),
-      status: String(raw.status)
+      status: String(raw.status),
+      refundedQuantity: Number(raw.refundedQuantity ?? 0)
     };
   }
 

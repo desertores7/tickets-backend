@@ -29,6 +29,14 @@ export class SalesRowResponse {
   @ApiProperty() purchasedAt: Date;
   @ApiProperty({ example: 'paid' }) status: string;
 
+  @ApiProperty({
+    description:
+      'Entradas de este renglón ya reembolsadas. `status` sigue siendo `paid` en una orden con ' +
+      'reembolso parcial: el cobro existió. Este número es el que dice cuánto volvió.',
+    example: 0
+  })
+  refundedQuantity: number;
+
   constructor(data: ISalesRow) {
     this.orderUuid = data.orderUuid;
     this.orderNumber = data.orderNumber;
@@ -42,6 +50,7 @@ export class SalesRowResponse {
     this.currency = data.currency;
     this.purchasedAt = data.purchasedAt;
     this.status = data.status;
+    this.refundedQuantity = data.refundedQuantity;
   }
 }
 

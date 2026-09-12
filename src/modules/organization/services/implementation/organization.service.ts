@@ -24,6 +24,7 @@ import { OrganizationRequestEntity } from '@config/db/entities/user/organization
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
 import type { OrgRequestView } from '../../controllers/dtos/organization-me/organization-me.response';
 import {
@@ -76,7 +77,8 @@ export class OrganizationService implements IOrganizationService {
     private readonly storageService: StorageService,
     @Inject('IUserNotificationService')
     private readonly userNotificationService: IUserNotificationService,
-    readonly dataSource: DataSource
+    readonly dataSource: DataSource,
+    private readonly adminNotifier: AdminNotifierService
   ) {}
 
   async getOrganizations(
@@ -1507,6 +1509,102 @@ export class OrganizationService implements IOrganizationService {
     return updated as OrganizationEntity;
   }
 
+  /**
+   * Suspende una productora (`BR-PROD-006`).
+   *
+   * Cuatro efectos, y el cuarto es el que manda: **los tickets ya vendidos
+   * siguen siendo válidos**. A quien pagó no se lo perjudica por un problema
+   * entre la plataforma y la productora, así que el Validador los escanea con
+   * normalidad y el comprador sigue viendo su entrada.
+   *
+   * Los otros tres cuelgan de `active = 0`: los eventos salen de los listados
+   * públicos —se ocultan, no se borran—, no se le vende más, y su backoffice
+   * queda en solo lectura.
+   *
+   * **Las órdenes pendientes de pago se dejan terminar.** Cancelarlas dejaría
+   * a alguien pagando en Mercado Pago contra una orden que ya no existe, y el
+   * webhook llegaría igual; el hold dura 10 minutos y se vence solo. Lo que se
+   * corta es la creación de órdenes nuevas.
+   */
+  async suspendOrganization(
+    organizationUuid: string,
+    adminUuid: string,
+    reason: string
+  ): Promise<OrganizationEntity> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() },
+      relations: { organizationStatus: true }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+    if (!org.active) throw new BadRequestException('La productora ya está suspendida');
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) throw new BadRequestException('El motivo de la suspensión es obligatorio');
+
+    await this.dbRepository.update({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      data: {
+        active: 0,
+        suspendedAt: new Date(),
+        suspensionReason: trimmedReason,
+        suspendedByUuid: adminUuid,
+        updatedBy: adminUuid
+      }
+    });
+
+    this.logger.warn(`Productora ${org.uuid} suspendida por ${adminUuid}: ${trimmedReason}`);
+
+    return this.reloadOrganization(org.uuid);
+  }
+
+  /**
+   * Reactiva una productora suspendida.
+   *
+   * Tiene que existir desde el día uno: una suspensión sin vuelta atrás es un
+   * borrado disfrazado. No toca el estado de validación —sigue aprobada, que
+   * es lo que era antes— y limpia el motivo, porque ya no está suspendida.
+   */
+  async reactivateOrganization(
+    organizationUuid: string,
+    adminUuid: string
+  ): Promise<OrganizationEntity> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() },
+      relations: { organizationStatus: true }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+    if (org.active) throw new BadRequestException('La productora no está suspendida');
+
+    await this.dbRepository.update({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      data: {
+        active: 1,
+        suspendedAt: null,
+        suspensionReason: null,
+        suspendedByUuid: null,
+        updatedBy: adminUuid
+      }
+    });
+
+    this.logger.log(`Productora ${org.uuid} reactivada por ${adminUuid}`);
+
+    return this.reloadOrganization(org.uuid);
+  }
+
+  private async reloadOrganization(organizationUuid: string): Promise<OrganizationEntity> {
+    const updated = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid },
+      relations: { organizationStatus: true }
+    });
+    if (!updated) throw new NotFoundException('Organización no encontrada');
+    return updated as OrganizationEntity;
+  }
+
   async rejectOrganization(
     organizationUuid: string,
     adminUuid: string,
@@ -1551,36 +1649,9 @@ export class OrganizationService implements IOrganizationService {
     return updated as OrganizationEntity;
   }
 
-  /**
-   * Avisa a los administradores que hay algo esperando revision.
-   *
-   * Los admins se buscan por NOMBRE de rol y no por uuid a proposito: los uuid
-   * de los seeds no coinciden entre entornos (el indice unico por nombre hace
-   * que el ON DUPLICATE KEY UPDATE matchee por nombre), asi que un uuid fijo
-   * funcionaria en local y en produccion notificaria a nadie.
-   */
+  /** Avisa a los administradores que hay algo esperando revision. */
   private async notifyAdminsPendingReview(title: string, body: string): Promise<void> {
-    const admins = await this.dataSource
-      .createQueryBuilder()
-      .select('DISTINCT ur.userUuid', 'userUuid')
-      .from('user_role', 'ur')
-      .innerJoin('role', 'r', 'r.uuid = ur.roleUuid')
-      .innerJoin('user', 'u', 'u.uuid = ur.userUuid')
-      .where('r.name = :roleName', { roleName: 'Administrador' })
-      .andWhere('ur.isDeleted IS NULL')
-      .andWhere('u.isDeleted IS NULL')
-      .getRawMany<{ userUuid: string }>();
-
-    if (!admins.length) {
-      this.logger.warn('No hay administradores activos para notificar la revision pendiente');
-      return;
-    }
-
-    // Una notificacion falla sin arrastrar a las demas: que un admin quede sin
-    // aviso no puede impedir que el resto se entere.
-    await Promise.allSettled(
-      admins.map(a => this.userNotificationService.create(a.userUuid, title, body))
-    );
+    await this.adminNotifier.notifyAdmins(title, body);
   }
 
   private async notifyOwnerValidationSubmitted(

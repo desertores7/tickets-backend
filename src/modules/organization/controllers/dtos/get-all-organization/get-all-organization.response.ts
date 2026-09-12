@@ -99,6 +99,19 @@ export class GetAllOrganizationResponse {
   @ApiProperty({ enum: ORGANIZATION_VALIDATION_STATUSES })
   validationStatus: OrganizationValidationStatus;
 
+  @ApiProperty({ description: 'En 0 la productora está suspendida (`BR-PROD-006`).' })
+  active: number;
+
+  @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
+  suspendedAt: Date | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Motivo interno de la suspensión. Nunca se le muestra al público.'
+  })
+  suspensionReason: string | null;
+
   @ApiPropertyOptional({ type: String, nullable: true })
   rejectionReason: string | null;
 
@@ -144,6 +157,9 @@ export class GetAllOrganizationResponse {
     this.contactEmail = data.contactEmail ?? null;
     this.contactPhone = data.contactPhone ?? null;
     this.validationStatus = organizationStatusName(data as any);
+    this.active = data.active;
+    this.suspendedAt = data.suspendedAt ?? null;
+    this.suspensionReason = data.suspensionReason ?? null;
     this.rejectionReason = data.rejectionReason ?? null;
     this.createdAt = data.createdAt;
     this.validationSubmittedAt = data.validationSubmittedAt ?? null;

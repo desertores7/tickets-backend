@@ -14,7 +14,8 @@ describe('RefundService', () => {
       overrides.dataSource as never,
       { get: () => '' } as never,
       { sendTemplateEmail: jest.fn() } as never,
-      { userPermission: jest.fn().mockResolvedValue(false) } as never
+      { userPermission: jest.fn().mockResolvedValue(false) } as never,
+      { notifyAdmins: jest.fn() } as never
     );
     return service as unknown as Record<string, (...args: unknown[]) => unknown>;
   };

@@ -44,6 +44,7 @@ import { UpdateOrganizationMeRequest } from './dtos/organization-me/update-organ
 import { RequestBankChangeRequest } from './dtos/organization-me/request-bank-change.request';
 import { RequestFiscalChangeRequest } from './dtos/organization-me/request-fiscal-change.request';
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
+import { SuspendOrganizationRequest } from './dtos/organization-me/suspend-organization.request';
 import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
 import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from './const/organization.filters';
 import { staffFilters } from './const/staff.filters';
@@ -376,6 +377,49 @@ export class OrganizationController {
     @Body() body: RejectOrganizationRequest
   ): Promise<OrganizationMeResponse> {
     const org = await this._organizationService.rejectOrganization(organizationUuid, adminId, body.reason);
+    return this.toMeResponse(org);
+  }
+
+  @AdminAuth(SuspendOrganizationRequest, OrganizationMeResponse)
+  @ApiOperation({
+    summary: 'Suspender productora',
+    description:
+      'Corta la operación de la productora (`BR-PROD-006`): sus eventos salen de los listados públicos, ' +
+      'no se le vende más y su backoffice queda en solo lectura. **Los tickets ya vendidos siguen siendo ' +
+      'válidos** y se escanean con normalidad. Las órdenes pendientes de pago se dejan terminar; vencen solas. ' +
+      'Es reversible con `reactivate`.'
+  })
+  @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
+  @Post(':organizationUuid/suspend')
+  async suspendOrganization(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string,
+    @Body() body: SuspendOrganizationRequest
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.suspendOrganization(
+      organizationUuid,
+      adminId,
+      body.reason
+    );
+    return this.toMeResponse(org);
+  }
+
+  @AdminAuth(null, OrganizationMeResponse)
+  @ApiOperation({
+    summary: 'Reactivar productora',
+    description:
+      'Deshace la suspensión. No toca el estado de validación fiscal: la productora vuelve a operar tal ' +
+      'como estaba antes.'
+  })
+  @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
+  @Post(':organizationUuid/reactivate')
+  async reactivateOrganization(
+    @Param('organizationUuid') organizationUuid: string,
+    @User() adminId: string
+  ): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.reactivateOrganization(organizationUuid, adminId);
     return this.toMeResponse(org);
   }
 

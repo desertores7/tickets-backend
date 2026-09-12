@@ -88,6 +88,8 @@ export interface IOrganizationService {
   ): Promise<OrganizationEntity>;
   approveOrganization(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
   rejectOrganization(organizationUuid: string, adminUuid: string, reason: string): Promise<OrganizationEntity>;
+  suspendOrganization(organizationUuid: string, adminUuid: string, reason: string): Promise<OrganizationEntity>;
+  reactivateOrganization(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity>;
 
   listMyFiscalDocuments(userUuid: string): Promise<FileEntity[]>;
   uploadMyFiscalDocument(

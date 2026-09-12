@@ -34,6 +34,8 @@ export interface ISalesRow {
   currency: string;
   purchasedAt: Date;
   status: string;
+  /** Entradas de este renglón ya reembolsadas. 0 = ninguna. */
+  refundedQuantity: number;
 }
 
 /** Renglon del detalle de una venta: una tanda comprada. */

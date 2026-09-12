@@ -23,6 +23,7 @@ import {
 import { RefundRequestTicketEntity } from '@config/db/entities/tickets/refund_request_ticket.entity';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { resolveRefundWindowEndsAt } from '@modules/event/services/core/event-change.helpers';
 import {
   IRefundService,
@@ -72,7 +73,8 @@ export class RefundService implements IRefundService {
     private readonly dataSource: DataSource,
     private readonly envService: EnvService,
     private readonly emailService: EmailService,
-    private readonly userPermission: UserPermissionService
+    private readonly userPermission: UserPermissionService,
+    private readonly adminNotifier: AdminNotifierService
   ) {}
 
   // ── Lectura ─────────────────────────────────────────────────────────────────
@@ -725,6 +727,7 @@ export class RefundService implements IRefundService {
         this.logger.warn(
           `Refund fallido ${request.uuid}: ${extra.resolutionReason ?? 'sin detalle'}`
         );
+        await this.notifyAdminsRefundFailed(request, extra.resolutionReason);
       }
     }
 
@@ -776,9 +779,9 @@ export class RefundService implements IRefundService {
       }
 
       if (refund?.status && refund.status !== 'in_process') {
-        await this.setStatus(request.uuid, 'failed', {
-          resolutionReason: `Mercado Pago cerró el reintegro como: ${refund.status}`
-        });
+        const motivo = `Mercado Pago cerró el reintegro como: ${refund.status}`;
+        await this.setStatus(request.uuid, 'failed', { resolutionReason: motivo });
+        await this.notifyAdminsRefundFailed(request, motivo);
         return 'failed';
       }
     } catch (error) {
@@ -821,9 +824,39 @@ export class RefundService implements IRefundService {
     if (status === 'refunded') {
       await this.markTicketsRefunded(requestUuid);
       await this.notifyResult(request, 'refunded', null);
+    } else if (status === 'failed') {
+      // Un reintento que vuelve a fallar necesita el mismo aviso: el Admin que
+      // lo tocó puede no ser el que lo retome, y ya van dos intentos.
+      await this.notifyAdminsRefundFailed(request, extra.resolutionReason);
     }
 
     return this.getRequest(requestUuid);
+  }
+
+  /**
+   * Levanta la mano cuando un reintegro no salió (`BR-REFUND-011`).
+   *
+   * Una solicitud en `failed` es el único estado que **no avanza solo**: el
+   * cron no reintenta nunca —reintentar a ciegas devuelve el dinero dos
+   * veces—, así que se queda quieta hasta que un Admin la mire. Sin este aviso
+   * la única forma de enterarse era que alguien abriera `/admin/refunds` por
+   * su cuenta, con plata del comprador sin volver mientras tanto.
+   *
+   * **No se le avisa al comprador.** Del otro lado no hay nada que hacer: el
+   * problema es entre la plataforma y Mercado Pago, y el aviso solo generaría
+   * un reclamo sobre algo que ya estamos resolviendo. Cuando el reintento
+   * salga, le llega el mail de reembolso aprobado de siempre.
+   */
+  private async notifyAdminsRefundFailed(
+    request: TRefundRequest,
+    motivo: string | null | undefined
+  ): Promise<void> {
+    await this.adminNotifier.notifyAdmins(
+      `Reembolso fallido — ${request.eventName}`,
+      `No se pudo reintegrar ${request.currency} ${request.amount} a ${request.buyerName} ` +
+        `(${request.buyerEmail}). Motivo: ${motivo ?? 'sin detalle'}. ` +
+        'Verificá en Mercado Pago si el reintegro se acreditó antes de reintentar desde Reembolsos.'
+    );
   }
 
   // ── Aviso al comprador ──────────────────────────────────────────────────────

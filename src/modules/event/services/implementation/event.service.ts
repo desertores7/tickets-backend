@@ -130,6 +130,9 @@ export class EventService implements IEventService {
       where['isPublished'] = true;
       where['cancelledAt'] = IsNull();
       where['endDate'] = MoreThanOrEqual(new Date());
+      // `BR-PROD-006`: los eventos de una productora suspendida se ocultan del
+      // público. No se borran ni se despublican — al reactivarla vuelven solos.
+      where['organization'] = { active: 1 };
     }
 
     const scopedWhere = this.applyEventFilters(where, filters);
@@ -153,10 +156,27 @@ export class EventService implements IEventService {
     return { meta, items: await this.attachSoldOut(result.items as TEventResponse[]) };
   }
 
+  /**
+   * Oculta la ficha cuando la productora está suspendida (`BR-PROD-006`).
+   *
+   * Filtrar el listado no alcanza: el link directo a la ficha sigue andando y
+   * es lo que la gente tiene guardado. Solo el equipo interno y las productoras
+   * la siguen viendo, porque necesitan el backoffice.
+   */
+  private assertOrganizationOperating(
+    organization: { active?: number } | null | undefined,
+    role?: string | null
+  ): void {
+    if (organization?.active !== 0) return;
+    if (role === 'Administrador' || role === 'Productor') return;
+    throw new BadRequestException('Evento no encontrado');
+  }
+
   async getEventById(uuid: string, role?: string | null): Promise<TEventDetailItem> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
-      where: { uuid, isActive: true }
+      where: { uuid, isActive: true },
+      relations: { organization: true }
     });
 
     if (!event) throw new BadRequestException('Evento no encontrado');
@@ -164,6 +184,7 @@ export class EventService implements IEventService {
     // Los borradores no se exponen a visitantes anónimos (endpoint público).
     // Los usuarios autenticados mantienen el acceso: el backoffice los necesita.
     if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
+    this.assertOrganizationOperating(event.organization, role);
 
     return this.withEventImages(event as TEventResponse);
   }
@@ -174,11 +195,13 @@ export class EventService implements IEventService {
 
     const event = await this.dbRepository.findOne({
       entity: 'event',
-      where: { slug: normalized, isActive: true }
+      where: { slug: normalized, isActive: true },
+      relations: { organization: true }
     });
 
     if (!event) throw new BadRequestException('Evento no encontrado');
     if (!event.isPublished && !role) throw new BadRequestException('Evento no encontrado');
+    this.assertOrganizationOperating(event.organization, role);
 
     return this.withEventImages(event as TEventResponse);
   }
@@ -633,7 +656,7 @@ export class EventService implements IEventService {
 
     if (!event.isPublished) {
       if (!loggedUser) throw new BadRequestException('Evento no encontrado');
-      await this.assertOwnership(eventUuid, loggedUser);
+      await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
     }
 
     const rows = await this.dbRepository.findMany({
@@ -766,7 +789,7 @@ export class EventService implements IEventService {
 
   async getFeeSummary(eventUuid: string, loggedUser: string): Promise<EventFeeSummary | null> {
     // Autoriza: solo el organizador dueño del evento o un admin. Lanza si no.
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
     // Puede ser null si el evento todavía no tiene ventas pagadas — el caller
     // (DTO) mapea null a ceros en lugar de 404.
     return this.feeSummaryService.getSummaryByEvent(eventUuid);
@@ -878,7 +901,7 @@ export class EventService implements IEventService {
   }
 
   async getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
     const map = await this.dbRepository.findOne({
       entity: 'event_map',
       where: { eventUuid }
@@ -898,7 +921,7 @@ export class EventService implements IEventService {
 
     if (!event.isPublished) {
       if (!opts?.loggedUser) throw new BadRequestException('Evento no encontrado');
-      await this.assertOwnership(eventUuid, opts.loggedUser);
+      await this.assertOwnership(eventUuid, opts.loggedUser, { readOnly: true });
     }
 
     const map = await this.dbRepository.findOne({
@@ -1308,7 +1331,7 @@ export class EventService implements IEventService {
   }
 
   async getEventProducers(eventUuid: string, loggedUser: string): Promise<TEventProducer[]> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
 
     const rows = await this.dbRepository.findMany({
       entity: 'event_producer',
@@ -1394,7 +1417,7 @@ export class EventService implements IEventService {
   // ── Empleados del evento (Validador / Caja) ───────────────────────────────
 
   async getEventEmployees(eventUuid: string, loggedUser: string): Promise<TEventEmployee[]> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
 
     const [validators, cashiers] = await Promise.all([
       this.dbRepository.findMany({
@@ -1440,7 +1463,7 @@ export class EventService implements IEventService {
     role: TEventEmployeeRole | undefined,
     loggedUser: string
   ): Promise<TUserSummary[]> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
 
     const term = search?.trim();
     if (!term) return [];
@@ -2039,7 +2062,34 @@ export class EventService implements IEventService {
     }
   }
 
-  private async assertOwnership(eventUuid: string, loggedUser: string): Promise<TEventResponse> {
+  /**
+   * Una productora suspendida no opera (`BR-PROD-006`): su backoffice queda en
+   * solo lectura. El Admin no queda alcanzado — es quien tiene que poder
+   * seguir tocando las cosas de esa productora.
+   */
+  private async assertOrganizationNotSuspended(organizationUuid: string): Promise<void> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid }
+    });
+    if (org && org.active === 0) {
+      throw new ForbiddenException(
+        'La productora está suspendida. Escribinos desde Ayuda para regularizar la situación.'
+      );
+    }
+  }
+
+  /**
+   * Permiso sobre un evento. **Bloquea por defecto si la productora está
+   * suspendida**: las lecturas que tienen que seguir andando lo piden
+   * explícitamente con `readOnly`, así un método nuevo que escriba hereda el
+   * bloqueo sin que nadie tenga que acordarse.
+   */
+  private async assertOwnership(
+    eventUuid: string,
+    loggedUser: string,
+    options?: { readOnly?: boolean }
+  ): Promise<TEventResponse> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid: eventUuid, isActive: true }
@@ -2048,6 +2098,10 @@ export class EventService implements IEventService {
 
     const isAdmin = await this.userPermission.userPermission(loggedUser);
     if (isAdmin) return event as TEventResponse;
+
+    if (!options?.readOnly) {
+      await this.assertOrganizationNotSuspended(event.organizationUuid);
+    }
 
     const membership = await this.dbRepository.findOne({
       entity: 'user_organization',
@@ -2068,6 +2122,8 @@ export class EventService implements IEventService {
   private async assertOrganizationMembership(organizationUuid: string, loggedUser: string): Promise<void> {
     const isAdmin = await this.userPermission.userPermission(loggedUser);
     if (isAdmin) return;
+
+    await this.assertOrganizationNotSuspended(organizationUuid);
 
     const membership = await this.dbRepository.findOne({
       entity: 'user_organization',
@@ -2093,7 +2149,7 @@ export class EventService implements IEventService {
     meta: PaginationMetaResponse;
     total: number;
   }> {
-    await this.assertOwnership(eventUuid, loggedUser);
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
 
     const page = Math.max(opts?.pagination?.page ?? 1, 1);
     const limit = opts?.pagination?.limit ?? 10;

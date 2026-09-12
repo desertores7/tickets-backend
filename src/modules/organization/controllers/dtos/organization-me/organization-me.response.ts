@@ -27,8 +27,22 @@ export class OrganizationMeResponse {
   @ApiProperty()
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'En 0 la productora está suspendida (`BR-PROD-006`).' })
   active: number;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Cuándo se la suspendió. `null` si opera con normalidad.'
+  })
+  suspendedAt: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Motivo de la suspensión. Interno: no se le muestra al público.'
+  })
+  suspensionReason: string | null;
 
   @ApiProperty({ enum: ORGANIZATION_VALIDATION_STATUSES })
   validationStatus: OrganizationValidationStatus;
@@ -138,6 +152,8 @@ export class OrganizationMeResponse {
     this.uuid = org.uuid;
     this.name = org.name;
     this.active = org.active;
+    this.suspendedAt = org.suspendedAt ? new Date(org.suspendedAt).toISOString() : null;
+    this.suspensionReason = org.suspensionReason ?? null;
     this.validationStatus = organizationStatusName(org);
     this.legalName = org.legalName ?? null;
     this.taxId = org.taxId ?? null;

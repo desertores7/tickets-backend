@@ -38,6 +38,7 @@ import { StockAlertService } from './stock-alerts/services/implementation/stock-
 import { CouponService } from './coupons/services/implementation/coupon.service';
 import { EventCashService } from './event-cash/services/implementation/event-cash.service';
 import { TokenCipher } from '@root/shared/crypto/token-cipher';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
@@ -75,6 +76,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     { provide: 'ICouponService', useClass: CouponService },
     { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    AdminNotifierService,
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
@@ -115,6 +117,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     { provide: 'ICouponService', useClass: CouponService },
     { provide: 'IEventCashService', useClass: EventCashService },
     TokenCipher,
+    AdminNotifierService,
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
