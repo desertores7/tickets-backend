@@ -124,7 +124,7 @@ OUTPUT
         "containedAt": "top" | "top_left" | "top_right" | "center" | "bottom" | "bottom_left" | "bottom_right" | null,
         "widthWeight": number,
         "heightWeight": number,
-        "level": string | null,
+        "level": string | null,        // printed floor/tier name — see section H
         "outline": null,
         "cell": null,
 
@@ -142,6 +142,7 @@ GEOMETRY ATTRIBUTES (required — the frontend cannot draw without them):
 - shape / shapeNotch / containedBy / containedAt: see section G (WRAP / L). Critical for theaters.
 - labelOrientation: "vertical" for left/right tribuna/palco/platea/codo columns; "horizontal" otherwise.
 - stage.position = "center" for arena layouts where the stage is in the middle of the campo (not at the top edge).
+- level: printed floor/tier name, or null on single-floor venues. See section H — this one is not cosmetic: a missing level makes a multi-floor map impossible to store.
 - mapArea: bounding box of the venue diagram inside the flyer (0..1). null if the whole image is the map.
 
 ===========================
@@ -180,6 +181,37 @@ Parent zone "WRAP ZONE" is L with notch top_right; child "PREMIUM BLOCK" has
 containedBy = wrap-zone and containedAt = top_right. A full-width "FIELD" sits
 below as its own center stack slot. Never emit premium and wrap as two stacked
 full-width rectangles.
+
+===========================
+H. LEVELS / FLOORS (critical — a wrong level makes the map unsavable)
+===========================
+
+Venues with more than one floor restart their numbering on each floor: the "15"
+of the first floor and the "15" of the second floor are DIFFERENT units that
+happen to share a printed label. The backend stores a unit as (level, label), so
+an omitted level collapses them into one and the whole map is rejected.
+
+H1. Set "level" on EVERY group whenever the flyer prints floor or tier names
+anywhere on the map: "1ER PISO", "2DO PISO", "PLANTA BAJA", "PLATEA ALTA",
+"NIVEL 2", "MEZZANINE", "PALCO ALTO", "VIP FLOOR".
+
+H2. Copy the printed name verbatim ("1ER PISO - VIP", "2DO PISO"). Do not
+translate it, do not renumber it, do not invent one.
+
+H3. The level label is usually printed ONCE, rotated along the edge of the block
+it names, or centered above a band. Attribute it to every group it visually
+covers, not only to the group nearest the text.
+
+H4. Colour is often the level, not the category. If two groups on opposite sides
+share a fill colour and the flyer names a floor for that colour, they belong to
+the same level. Colour alone is never enough: there must be a printed level name
+somewhere.
+
+H5. Use null when the venue has a single floor, or when no level is printed.
+Never guess a level that is not written.
+
+H6. A level is NOT a commercial category and NOT a group. "2DO PISO" alone does
+not become a category, and it never produces its own group.
 
 ===========================
 A. PHYSICAL STRUCTURE RULES
@@ -447,9 +479,11 @@ F. FINAL CHECKLIST (run before returning)
 - prices are plain numbers without symbols or separators
 - consumption credit was not stored as price
 - no bars, bathrooms, entrances or decorations became categories or groups
+- every group carries its printed level when the venue has more than one floor
+- repeated numbers across floors were kept as they are printed, each with its own level
 - the JSON is syntactically valid
 
 Return ONLY valid JSON.`;
 
 export const MAP_LAYOUT_USER_TEXT =
-  'Convert this venue flyer into abstract ticket-map layout JSON. First make a complete visual inventory of every purchasable label (top, left, center, right, bottom), then describe the physical structure (do not split continuous grids by color/price, keep opposite sides as separate groups, never invent or complete missing numbers). Return labels verbatim in visual order and categoryAssignments as zero-based inclusive ranges. ALWAYS include widthWeight/heightWeight (1..10), shape, and labelOrientation on every group. If a sector WRAP another (VIP inside FANS, CODO foot beside SUPER PULLMAN), encode parent shape "l" + shapeNotch and child containedBy/containedAt — NEVER two stacked full-width rects that overlap. For arena maps with a stage in the middle of the campo, set stage.position to "center". Prices as plain numbers. Return ONLY JSON.';
+  'Convert this venue flyer into abstract ticket-map layout JSON. First make a complete visual inventory of every purchasable label (top, left, center, right, bottom), then describe the physical structure (do not split continuous grids by color/price, keep opposite sides as separate groups, never invent or complete missing numbers). Return labels verbatim in visual order and categoryAssignments as zero-based inclusive ranges. ALWAYS include widthWeight/heightWeight (1..10), shape, and labelOrientation on every group. If the flyer prints floor names (1ER PISO, 2DO PISO, PLANTA BAJA...), set "level" verbatim on every group that floor covers: floors restart numbering and without the level the map cannot be stored. If a sector WRAP another (VIP inside FANS, CODO foot beside SUPER PULLMAN), encode parent shape "l" + shapeNotch and child containedBy/containedAt — NEVER two stacked full-width rects that overlap. For arena maps with a stage in the middle of the campo, set stage.position to "center". Prices as plain numbers. Return ONLY JSON.';

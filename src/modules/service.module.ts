@@ -17,6 +17,8 @@ import { EventService } from './event/services/implementation/event.service';
 import { EventChangeService } from './event/services/implementation/event-change.service';
 import { RefundService } from './refunds/services/implementation/refund.service';
 import { EventAiService } from './event/services/implementation/event-ai.service';
+import { MapAnalysisJobStore } from './event/services/implementation/map-analysis-job.store';
+import { AnalyzeMapProcessor } from './event/processors/analyze-map.processor';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -78,6 +80,8 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
+    MapAnalysisJobStore,
+    AnalyzeMapProcessor,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
@@ -118,6 +122,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
+    MapAnalysisJobStore,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },

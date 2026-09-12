@@ -262,6 +262,34 @@ export type AiEventMapLayout = {
 };
 
 /**
+ * Inconsistencias que el backend detecta comparando el layout contra lo que el
+ * propio modelo declaró.
+ *
+ * INTERNAS: no se exponen en la respuesta del endpoint. Al productor no se le
+ * pide que interprete un problema del modelo — su destino es el log, la tabla
+ * `event_ai_map_run` y, cuando esté, disparar la reparación dirigida del
+ * análisis para que el mapa llegue completo sin que nadie se entere.
+ *
+ * - DECLARED_COUNT_MISMATCH: el grupo declara N elementos y listó otra cantidad.
+ * - GRID_SHAPE_MISMATCH: filas × columnas no coincide con los labels de la grilla.
+ * - CATEGORY_WITHOUT_GROUP: hay una categoría con precio que no tiene sector.
+ * - DUPLICATE_LABEL: dos elementos con el mismo nombre dentro de un mismo nivel.
+ */
+export type MapLayoutWarningCode =
+  | 'DECLARED_COUNT_MISMATCH'
+  | 'GRID_SHAPE_MISMATCH'
+  | 'CATEGORY_WITHOUT_GROUP'
+  | 'DUPLICATE_LABEL';
+
+export type MapLayoutWarning = {
+  code: MapLayoutWarningCode;
+  /** Grupo afectado; null cuando la advertencia es del mapa entero. */
+  groupId: string | null;
+  /** Texto listo para mostrarle al productor. */
+  message: string;
+};
+
+/**
  * Layout abstracto del mapa de ventas.
  * El frontend calcula geometría con position/lane/stackOrder/shape/pesos.
  */
@@ -271,6 +299,11 @@ export type AnalyzeMapResult = {
   stage: AiEventMapStage;
   categories: AiEventMapCategory[];
   layout: AiEventMapLayout;
+  /**
+   * Diagnóstico interno; no viaja en la respuesta HTTP (ver
+   * AnalyzeFromMapResponse). Vacío = el mapa pasó todas las verificaciones.
+   */
+  warnings: MapLayoutWarning[];
 };
 
 export interface IEventAiService {

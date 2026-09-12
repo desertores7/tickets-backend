@@ -10,7 +10,9 @@ export const QUEUE_NAMES = {
   /** Cierre automático de venta al fin del evento (BR-EVENT-013) */
   EVENT_LIFECYCLE: 'event-lifecycle',
   /** Cron de evaluación de solicitudes de reembolso (BR-REFUND-011) */
-  REFUNDS: 'refunds'
+  REFUNDS: 'refunds',
+  /** Análisis de mapas de sala con IA (POST /events/ai/from-map) */
+  EVENT_AI: 'event-ai'
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -67,4 +69,21 @@ export interface CloseEndedEventSalesJobData {
 export interface ProcessRefundQueueJobData {
   /** Cuántas solicitudes toma por corrida. */
   batchSize?: number;
+}
+
+/**
+ * Análisis de un plano de sala.
+ *
+ * La imagen viaja en base64 dentro del job: son unidades por día y como mucho
+ * 8 MB, así que no compensa montar un almacenamiento intermedio que después
+ * hay que limpiar. El job se borra al completarse.
+ */
+export interface AnalyzeMapJobData {
+  /** Id que el frontend usa para consultar el estado. */
+  jobId: string;
+  userId: string;
+  imageBase64: string;
+  imageName: string;
+  imageMime: string;
+  imageSize: number;
 }

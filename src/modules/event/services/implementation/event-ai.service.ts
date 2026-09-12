@@ -6,6 +6,9 @@ import {
   Logger,
   ServiceUnavailableException
 } from '@nestjs/common';
+import { createHash, randomUUID } from 'crypto';
+import { DBRepository } from '@config/db/db.repository';
+import { EventAiMapRunEntity } from '@config/db/entities/tickets/event_ai_map_run.entity';
 import { EnvService } from '@config/env/env.service';
 import { RedisService } from '@config/redis/redis.service';
 import OpenAI, { APIError, toFile } from 'openai';
@@ -18,9 +21,14 @@ import {
   MAP_LAYOUT_USER_TEXT
 } from '../../const/map-layout.prompt';
 import {
+  MAP_REPAIR_SYSTEM_PROMPT,
+  buildMapRepairUserText
+} from '../../const/map-repair.prompt';
+import {
   AnalyzeFlyersResult,
   AnalyzeMapResult,
   FlyerEventExtraction,
+  MapLayoutWarning,
   HeroImageMimeType,
   HeroImageUsage,
   IEventAiService,
@@ -30,6 +38,7 @@ import {
   normalizeMapLayout,
   summarizeMapLayout
 } from './map-layout-normalizer';
+import { collectDeclaredCounts, verifyMapLayout } from './map-layout-verifier';
 import { parseJsonObjectLoose } from './parse-json-loose';
 
 const MAX_FLYERS = 1;
@@ -46,6 +55,13 @@ const MAP_LAYOUT_TIMEOUT_MS = 180_000;
 /** Cap de salida+reasoning: con high/32k el modelo se demora de más. */
 const MAP_LAYOUT_MAX_TOKENS = 16_000;
 const MAP_EMPTY_CONTENT_RETRIES = 2;
+/**
+ * Una sola pasada de reparación por análisis.
+ *
+ * Si la primera corrección no alcanzó, insistir sale caro y casi nunca mejora:
+ * el mapa se entrega con lo que hay y el productor lo termina en el editor.
+ */
+const MAP_REPAIR_MAX_TOKENS = 12_000;
 /** Lado máximo del flyer enviado a visión (menos patches = menos latencia). */
 const MAP_VISION_MAX_EDGE_PX = 2048;
 const MAP_VISION_JPEG_QUALITY = 85;
@@ -186,7 +202,8 @@ export class EventAiService implements IEventAiService {
 
   constructor(
     private readonly envService: EnvService,
-    private readonly redisService: RedisService
+    private readonly redisService: RedisService,
+    private readonly dbRepository: DBRepository
   ) {}
 
   async analyzeFromFlyers(
@@ -281,6 +298,12 @@ export class EventAiService implements IEventAiService {
     };
   }
 
+  /**
+   * Análisis completo: visión → verificación → reparación si hace falta.
+   *
+   * Lo corre el worker de la cola, no el request HTTP. Puede tardar minutos y
+   * ese es justamente el motivo de que esté fuera del ciclo de la petición.
+   */
   async analyzeFromMapImage(
     file: Express.Multer.File,
     userId: string
@@ -293,13 +316,27 @@ export class EventAiService implements IEventAiService {
       );
     }
 
-    await this.assertWithinQuota(userId);
-
     const client = this.createClient(apiKey.trim(), MAP_LAYOUT_TIMEOUT_MS);
-    const result = await this.analyzeSalesMap(client, mapFile);
+    const result = await this.analyzeSalesMap(client, mapFile, userId);
 
     await this.consumeQuota(userId);
     return result;
+  }
+
+  /** Validación y cuota: corre en el request, antes de encolar. */
+  validateMapRequest(file: Express.Multer.File): Express.Multer.File {
+    const [mapFile] = this.validateMapFile(file);
+    const apiKey = this.envService.get('OPENIA_API_KEY');
+    if (!apiKey?.trim()) {
+      throw new ServiceUnavailableException(
+        'OPENIA_API_KEY no está configurada en el servidor. Agregala al .env del backend.'
+      );
+    }
+    return mapFile;
+  }
+
+  async assertMapQuota(userId: string): Promise<void> {
+    await this.assertWithinQuota(userId);
   }
 
   private validateMapFile(file: Express.Multer.File | undefined): Express.Multer.File[] {
@@ -328,11 +365,15 @@ export class EventAiService implements IEventAiService {
    */
   private async analyzeSalesMap(
     client: OpenAI,
-    mapFile: Express.Multer.File
+    mapFile: Express.Multer.File,
+    userId: string
   ): Promise<AnalyzeMapResult> {
     const model = this.envService.get('EVENT_AI_MAP_MODEL');
     const reasoningEffort = this.envService.get('EVENT_AI_MAP_REASONING_EFFORT');
     const t0 = Date.now();
+    const imageHash = createHash('sha256').update(mapFile.buffer).digest('hex');
+
+    let repaired = false;
 
     try {
       const prepared = await this.prepareMapImageForVision(mapFile);
@@ -365,10 +406,43 @@ export class EventAiService implements IEventAiService {
         );
       }
 
+      // El `count` que declaró el modelo se pierde al normalizar (se impone
+      // labels.length), así que se lee del crudo y se cruza acá: es la señal
+      // más confiable de que el modelo se olvidó elementos.
+      result.warnings = verifyMapLayout(result, collectDeclaredCounts(parsed, result));
+
+      // Reparación dirigida: el productor nunca ve el defecto, ve el mapa ya
+      // corregido. Una sola pasada — si no alcanzó, el mapa se entrega igual.
+      if (result.warnings.length) {
+        this.logger.warn(
+          `[MAP] ${result.warnings.length} advertencia(s): ` +
+            result.warnings.map(w => `${w.code}${w.groupId ? `(${w.groupId})` : ''}`).join(', ')
+        );
+        repaired = await this.repairMapLayout(client, prepared.file, result, model, reasoningEffort);
+      }
+
+      await this.recordMapRun({
+        userId,
+        mapFile,
+        imageHash,
+        model,
+        reasoningEffort,
+        status: 'ok',
+        latencyMs: Date.now() - t0,
+        openaiMs,
+        usage,
+        groupCount: summary.groups,
+        labelCount: summary.labels,
+        warnings: result.warnings,
+        rawResponse: parsed,
+        normalizedResult: result,
+        errorMessage: null
+      });
+
       this.logger.log(
         `[MAP] Timing: total=${Date.now() - t0}ms openai=${openaiMs}ms normalize=${normalizeMs}ms — ` +
           `model=${model} effort=${reasoningEffort} ` +
-          `groups=${summary.groups} labels=${summary.labels} ` +
+          `repaired=${repaired} groups=${summary.groups} labels=${summary.labels} ` +
           `tables=${summary.tables} boxes=${summary.boxes} palcos=${summary.palcos} ` +
           `zones=${summary.zones} freeform=${summary.freeform} ` +
           `geometryFallback=${summary.requiresGeometryFallback} ` +
@@ -378,6 +452,23 @@ export class EventAiService implements IEventAiService {
       return result;
     } catch (err) {
       this.logger.warn(`[MAP] Total (failed): ${Date.now() - t0} ms`);
+      await this.recordMapRun({
+        userId,
+        mapFile,
+        imageHash,
+        model,
+        reasoningEffort,
+        status: 'failed',
+        latencyMs: Date.now() - t0,
+        openaiMs: null,
+        usage: null,
+        groupCount: null,
+        labelCount: null,
+        warnings: [],
+        rawResponse: null,
+        normalizedResult: null,
+        errorMessage: err instanceof Error ? err.message : String(err)
+      });
       if (
         err instanceof BadRequestException ||
         err instanceof ServiceUnavailableException ||
@@ -389,6 +480,167 @@ export class EventAiService implements IEventAiService {
       throw new ServiceUnavailableException(
         this.friendlyOpenAiError(err, 'Error al analizar el mapa con OpenAI.')
       );
+    }
+  }
+
+  /**
+   * Segunda pasada dirigida sobre los grupos que el verificador marcó.
+   *
+   * Muta `result` en el lugar y devuelve si hubo cambios. Es best-effort a
+   * propósito: si la reparación falla o empeora, se conserva el layout
+   * original. Un mapa incompleto sirve más que ninguno, y el productor lo
+   * termina en el editor.
+   */
+  private async repairMapLayout(
+    client: OpenAI,
+    preparedFile: Express.Multer.File,
+    result: AnalyzeMapResult,
+    model: string,
+    reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  ): Promise<boolean> {
+    const problems = result.warnings.map(w => w.message);
+    const t0 = Date.now();
+
+    try {
+      const { parsed } = await this.mapVisionJson({
+        label: 'map-repair',
+        client,
+        model,
+        maxTokens: MAP_REPAIR_MAX_TOKENS,
+        reasoningEffort,
+        system: MAP_REPAIR_SYSTEM_PROMPT,
+        userText: buildMapRepairUserText({
+          problems,
+          // Sin labels el modelo no puede saber qué falta, pero el layout entero
+          // con cincuenta mesas infla la entrada sin aportar: van los grupos
+          // afectados completos y el resto en una línea.
+          layoutJson: JSON.stringify(this.layoutForRepair(result))
+        }),
+        images: this.flyerDataUrlParts([preparedFile], 'high')
+      });
+
+      const merged = mergeRepairedGroups(result, parsed);
+      if (!merged.changed) {
+        this.logger.warn(`[MAP] La reparación no devolvió cambios (${Date.now() - t0} ms)`);
+        return false;
+      }
+
+      // La reparación vale solo si deja el mapa mejor que antes.
+      const after = verifyMapLayout(merged.result, new Map());
+      if (after.length >= result.warnings.length) {
+        this.logger.warn(
+          `[MAP] Reparación descartada: ${result.warnings.length} → ${after.length} advertencias`
+        );
+        return false;
+      }
+
+      this.logger.log(
+        `[MAP] Reparado en ${Date.now() - t0} ms: ` +
+          `${result.warnings.length} → ${after.length} advertencias`
+      );
+      result.layout.groups = merged.result.layout.groups;
+      result.categories = merged.result.categories;
+      result.warnings = after;
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `[MAP] Reparación fallida, se conserva el layout original: ` +
+          `${err instanceof Error ? err.message : String(err)}`
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Layout recortado para el prompt de reparación: los grupos señalados van
+   * completos y el resto queda como referencia mínima, para que el modelo sepa
+   * qué existe sin que la entrada crezca de más.
+   */
+  private layoutForRepair(result: AnalyzeMapResult): Record<string, unknown> {
+    const affected = new Set(
+      result.warnings.map(w => w.groupId).filter((id): id is string => !!id)
+    );
+
+    return {
+      stage: result.stage,
+      categories: result.categories,
+      groups: result.layout.groups.map(g =>
+        affected.has(g.id)
+          ? g
+          : {
+              id: g.id,
+              elementType: g.elementType,
+              layoutType: g.layoutType,
+              position: g.position,
+              level: g.level,
+              count: g.labels.length,
+              category: g.category
+            }
+      )
+    };
+  }
+
+  /**
+   * Deja registro de la corrida: sirve para depurar un mapa que salió mal sin
+   * pedirle al productor que lo reproduzca, para correr un prompt nuevo contra
+   * casos viejos, y como fuente de fixtures del normalizador.
+   *
+   * Best-effort a propósito: si la escritura falla, el análisis igual se
+   * devuelve. Perder la traza nunca justifica perder el mapa.
+   */
+  private async recordMapRun(params: {
+    userId: string;
+    mapFile: Express.Multer.File;
+    imageHash: string;
+    model: string;
+    reasoningEffort?: string | null;
+    status: 'ok' | 'failed';
+    latencyMs: number;
+    openaiMs: number | null;
+    usage: { prompt_tokens: number | null; completion_tokens: number | null } | null;
+    groupCount: number | null;
+    labelCount: number | null;
+    warnings: MapLayoutWarning[];
+    rawResponse: unknown;
+    normalizedResult: unknown;
+    errorMessage: string | null;
+  }): Promise<void> {
+    try {
+      const run = new EventAiMapRunEntity();
+      run.uuid = randomUUID();
+      run.userUuid = params.userId || null;
+      run.imageHash = params.imageHash;
+      run.imageName = params.mapFile.originalname?.slice(0, 255) ?? null;
+      run.imageBytes = params.mapFile.size ?? null;
+      run.model = params.model;
+      run.reasoningEffort = params.reasoningEffort ?? null;
+      run.status = params.status;
+      run.latencyMs = params.latencyMs;
+      run.openaiMs = params.openaiMs;
+      run.promptTokens = params.usage?.prompt_tokens ?? null;
+      run.completionTokens = params.usage?.completion_tokens ?? null;
+      run.groupCount = params.groupCount;
+      run.labelCount = params.labelCount;
+      run.warningCount = params.warnings.length;
+      run.warnings = params.warnings.length ? params.warnings : null;
+      run.rawResponse = this.stringifyRun(params.rawResponse);
+      run.normalizedResult = this.stringifyRun(params.normalizedResult);
+      run.errorMessage = params.errorMessage?.slice(0, 1000) ?? null;
+
+      await this.dbRepository.create({ entity: 'event_ai_map_run', data: run });
+    } catch (err) {
+      this.logger.warn(
+        `[MAP] No se pudo registrar la corrida: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  private stringifyRun(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
     }
   }
 
