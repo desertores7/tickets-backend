@@ -111,7 +111,12 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
       // Portada: el banner del evento si lo hay. El template la trata como
       // opcional, así que un evento sin banner manda el email igual.
-      heroUrl: order.event.bannerUrl ?? order.event.bannerImages?.desktop ?? null,
+      // `toPublicUrl` antepone el host: en la base el banner se guarda relativo
+      // (`/static/events/banners/…`), y un `src` relativo en un email no
+      // resuelve contra nada — se ve como imagen rota.
+      heroUrl: this.storageService.toPublicUrl(
+        order.event.bannerUrl ?? order.event.bannerImages?.desktop ?? null
+      ),
       heroAlt: order.event.name,
       heroKicker: order.event.name
     };
