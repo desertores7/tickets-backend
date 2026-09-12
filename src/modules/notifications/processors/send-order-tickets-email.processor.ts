@@ -132,12 +132,21 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       return;
     }
 
-    await this.notificationEmailService.sendOrderTicketsEmail({
-      to: order.user.email,
-      subject: `🎫 Tus entradas para ${order.event.name}`,
-      templateData,
-      attachments
-    });
+    try {
+      await this.notificationEmailService.sendOrderTicketsEmail({
+        to: order.user.email,
+        subject: `🎫 Tus entradas para ${order.event.name}`,
+        templateData,
+        attachments
+      });
+    } catch (error) {
+      // Se libera el candado antes de relanzar. Si queda puesto, el reintento
+      // se descarta como duplicado y el email no sale nunca — pasó de verdad:
+      // un adjunto faltante hacía fallar el envío y el candado enterraba todos
+      // los intentos siguientes.
+      await this.redisService.deleteKey(`order-tickets-email:${order.uuid}`);
+      throw error;
+    }
 
     this.logger.log(
       `Tickets email sent: order=${order.orderNumber} to=${order.user.email} tickets=${tickets.length}`
