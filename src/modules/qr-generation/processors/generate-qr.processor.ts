@@ -88,9 +88,31 @@ export class GenerateQrProcessor extends WorkerHost {
 
     // ── PASO 2 — Idempotencia ────────────────────────────────────────────────
 
+    // Ya generado **y con los archivos en su lugar**: recién ahí es un duplicado.
+    //
+    // Mirar solo `qrCode` dejaba entradas irrecuperables: si la fila quedó
+    // marcada como generada pero el PDF no está en el disco, todo reintento
+    // salía por acá sin hacer nada, y el comprador se quedaba con un botón de
+    // descarga que devuelve 404 para siempre. Con la verificación, el reintento
+    // —y el endpoint admin de regeneración— vuelven a escribir los archivos.
     if (ticket.qrCode !== null) {
-      this.logger.warn(`QR already generated for ticket ${ticket.ticketNumber} — skipping duplicate job`);
-      return;
+      const [tieneQr, tienePdf] = await Promise.all([
+        this.storageService.fileExists(
+          this.storageService.resolveAbsolutePath('tickets/qr', `${ticket.uuid}.png`)
+        ),
+        this.storageService.fileExists(
+          this.storageService.resolveAbsolutePath('tickets/pdf', `${ticket.uuid}.pdf`)
+        )
+      ]);
+
+      if (tieneQr && tienePdf) {
+        this.logger.warn(`QR already generated for ticket ${ticket.ticketNumber} — skipping duplicate job`);
+        return;
+      }
+
+      this.logger.warn(
+        `Ticket ${ticket.ticketNumber} figura generado pero faltan archivos (qr=${tieneQr} pdf=${tienePdf}) — se regenera`
+      );
     }
 
     // ── PASO 3 — Generar token QR firmado ───────────────────────────────────
@@ -105,6 +127,13 @@ export class GenerateQrProcessor extends WorkerHost {
     // Track saved paths for cleanup on failure
     let qrAbsolutePath: string | null = null;
     let pdfAbsolutePath: string | null = null;
+    /**
+     * Una vez commiteada la transacción, la base referencia esos archivos: si
+     * después falla cualquier cosa, borrarlos deja al ticket apuntando a un
+     * PDF inexistente y el comprador ve un 404 para siempre. La limpieza solo
+     * tiene sentido mientras los archivos todavía no le pertenecen a nadie.
+     */
+    let ticketPersistido = false;
 
     try {
       // ── PASO 4 — Generar imagen QR ─────────────────────────────────────────
@@ -151,6 +180,7 @@ export class GenerateQrProcessor extends WorkerHost {
       try {
         await queryRunner.manager.update(TicketEntity, { uuid: ticket.uuid }, { qrCode: token, qrUrl, pdfUrl });
         await queryRunner.commitTransaction();
+        ticketPersistido = true;
       } catch (err) {
         await queryRunner.rollbackTransaction();
         throw err;
@@ -172,11 +202,14 @@ export class GenerateQrProcessor extends WorkerHost {
 
       this.logger.log(`QR generated for ticket ${ticket.ticketNumber} | qr=${qrUrl} | pdf=${pdfUrl}`);
     } catch (err) {
-      // Cleanup archivos ya guardados antes de relanzar para que BullMQ reintente limpio
-      await Promise.allSettled([
-        qrAbsolutePath ? this.storageService.deleteFile(qrAbsolutePath) : Promise.resolve(),
-        pdfAbsolutePath ? this.storageService.deleteFile(pdfAbsolutePath) : Promise.resolve()
-      ]);
+      // Cleanup de los archivos ya guardados para que BullMQ reintente limpio,
+      // **solo si la base todavía no los referencia** (ver `ticketPersistido`).
+      if (!ticketPersistido) {
+        await Promise.allSettled([
+          qrAbsolutePath ? this.storageService.deleteFile(qrAbsolutePath) : Promise.resolve(),
+          pdfAbsolutePath ? this.storageService.deleteFile(pdfAbsolutePath) : Promise.resolve()
+        ]);
+      }
 
       this.logger.error(
         `Failed to generate QR for ticket ${ticket.ticketNumber}`,
