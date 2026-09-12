@@ -45,6 +45,8 @@ export interface ISaleDetailItem {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  /** Entradas de esta tanda ya reembolsadas. */
+  refundedQuantity: number;
 }
 
 /**
@@ -75,6 +77,8 @@ export interface ISaleDetail {
   eventVenueCity: string | null;
   items: ISaleDetailItem[];
   ticketsCount: number;
+  /** Entradas de la orden ya reembolsadas. */
+  ticketsRefunded: number;
   ticketsAmount: number;
   serviceFee?: number;
   total?: number;

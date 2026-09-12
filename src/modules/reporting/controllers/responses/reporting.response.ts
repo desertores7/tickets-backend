@@ -60,6 +60,7 @@ export class SaleDetailItemResponse {
   @ApiProperty() quantity: number;
   @ApiProperty() unitPrice: number;
   @ApiProperty() subtotal: number;
+  @ApiProperty({ description: 'Entradas de esta tanda ya reembolsadas.' }) refundedQuantity: number;
 
   constructor(data: ISaleDetailItem) {
     this.ticketTypeUuid = data.ticketTypeUuid;
@@ -67,6 +68,7 @@ export class SaleDetailItemResponse {
     this.quantity = data.quantity;
     this.unitPrice = data.unitPrice;
     this.subtotal = data.subtotal;
+    this.refundedQuantity = data.refundedQuantity;
   }
 }
 
@@ -91,6 +93,13 @@ export class SaleDetailResponse {
   @ApiProperty({ nullable: true }) eventVenueCity: string | null;
   @ApiProperty({ type: [SaleDetailItemResponse] }) items: SaleDetailItemResponse[];
   @ApiProperty() ticketsCount: number;
+
+  @ApiProperty({
+    description:
+      'Entradas de la orden ya reembolsadas. `status` sigue en `paid` con un reembolso parcial.',
+    example: 0
+  })
+  ticketsRefunded: number;
 
   @ApiProperty({
     description: 'Valor de las entradas SIN costo de servicio (BR-REPORT-001)',
@@ -125,6 +134,7 @@ export class SaleDetailResponse {
     this.eventVenueCity = data.eventVenueCity;
     this.items = data.items.map(i => new SaleDetailItemResponse(i));
     this.ticketsCount = data.ticketsCount;
+    this.ticketsRefunded = data.ticketsRefunded;
     this.ticketsAmount = data.ticketsAmount;
     if (data.serviceFee !== undefined) this.serviceFee = data.serviceFee;
     if (data.total !== undefined) this.total = data.total;

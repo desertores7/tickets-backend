@@ -127,7 +127,9 @@ export class ReportingService implements IReportingService {
         'tt.name AS ticketTypeName',
         'oi.quantity AS quantity',
         'oi.unitPrice AS unitPrice',
-        'oi.subtotal AS subtotal'
+        'oi.subtotal AS subtotal',
+        `(SELECT COUNT(*) FROM ticket t
+           WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded') AS refundedQuantity`
       ])
       .from('order_item', 'oi')
       .innerJoin('ticket_type', 'tt', 'tt.uuid = oi.ticketTypeUuid')
@@ -139,7 +141,8 @@ export class ReportingService implements IReportingService {
       ticketTypeName: String(r.ticketTypeName),
       quantity: Number(r.quantity),
       unitPrice: Number(r.unitPrice),
-      subtotal: Number(r.subtotal)
+      subtotal: Number(r.subtotal),
+      refundedQuantity: Number(r.refundedQuantity ?? 0)
     }));
 
     const isAdmin = role === 'Administrador';
@@ -165,6 +168,7 @@ export class ReportingService implements IReportingService {
       eventVenueCity: raw.eventVenueCity ?? null,
       items,
       ticketsCount: items.reduce((sum, i) => sum + i.quantity, 0),
+      ticketsRefunded: items.reduce((sum, i) => sum + i.refundedQuantity, 0),
       ticketsAmount: this.round(items.reduce((sum, i) => sum + i.subtotal, 0)),
       // El costo de servicio solo se expone al Administrador (BR-REPORT-001)
       ...(isAdmin ? { serviceFee: Number(raw.serviceFee ?? 0), total: Number(raw.total ?? 0) } : {})
