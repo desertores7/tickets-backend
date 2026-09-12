@@ -2,7 +2,13 @@ import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { DataSource } from 'typeorm';
-import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import {
+  QUEUE_NAMES,
+  GenerateQrJobData,
+  SendOrderTicketsEmailJobData
+} from '@config/redis/bull-jobs.types';
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
 import { StorageService } from '@root/shared/services/storage.service';
 import { QrSigningService } from '../services/qr-signing.service';
@@ -18,9 +24,49 @@ export class GenerateQrProcessor extends WorkerHost {
     private readonly storageService: StorageService,
     private readonly qrSigningService: QrSigningService,
     private readonly qrImageService: QrImageService,
-    private readonly pdfTicketService: PdfTicketService
+    private readonly pdfTicketService: PdfTicketService,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
   ) {
     super();
+  }
+
+  /**
+   * Encola el email de la orden si esta entrada era la última que faltaba.
+   *
+   * Se apoya en la base y no en un contador: `pdfUrl IS NULL` responde con
+   * exactitud "¿queda alguna sin generar?" sin importar cuántas veces se haya
+   * reintentado ni en qué orden terminaron los jobs.
+   */
+  private async enqueueOrderEmailIfComplete(orderUuid: string | null | undefined): Promise<void> {
+    if (!orderUuid) return;
+
+    try {
+      const row = await this.dataSource
+        .createQueryBuilder()
+        .select('COUNT(*)', 'pendientes')
+        .from('ticket', 't')
+        .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')
+        .where('oi.orderUuid = :orderUuid', { orderUuid })
+        .andWhere('t.pdfUrl IS NULL')
+        .getRawOne<{ pendientes: string }>();
+
+      if (Number(row?.pendientes ?? 0) > 0) return;
+
+      const jobData: SendOrderTicketsEmailJobData = { orderId: orderUuid };
+      await this.notificationsQueue.add('send-order-tickets-email', jobData, {
+        attempts: 6,
+        backoff: { type: 'exponential', delay: 10000 }
+      });
+
+      this.logger.log(`Orden ${orderUuid} completa: email de entradas encolado`);
+    } catch (error) {
+      // Un fallo acá no puede tirar abajo la generación del QR, que ya terminó
+      // bien. El job con delay de `confirmPayment` sigue siendo el otro camino.
+      this.logger.error(
+        `No se pudo encolar el email de la orden ${orderUuid}`,
+        error instanceof Error ? error.stack : String(error)
+      );
+    }
   }
 
   async process(job: Job<GenerateQrJobData>): Promise<void> {
@@ -112,8 +158,15 @@ export class GenerateQrProcessor extends WorkerHost {
         await queryRunner.release();
       }
 
-      // El email de la orden lo encola OrderService.confirmPayment (un solo job
-      // 'send-order-tickets-email' con delay que agrupa todos los tickets).
+      // El email de la orden lo encola `confirmPayment` con un delay, pero esa
+      // ventana de reintentos dura unos 5 minutos. Si la generación tarda más
+      // —un redeploy que reinicia el worker a mitad de camino alcanza— el job
+      // se agota y el comprador se queda sin sus entradas para siempre.
+      //
+      // Por eso, además, se dispara por evento: cuando esta entrada era la
+      // última que faltaba de la orden, se encola el email ahí mismo. El
+      // processor descarta el duplicado por idempotencia.
+      await this.enqueueOrderEmailIfComplete(ticket.orderItem.orderUuid);
 
       // ── PASO 9 — Loguear éxito ────────────────────────────────────────────
 

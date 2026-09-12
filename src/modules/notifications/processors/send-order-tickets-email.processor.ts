@@ -9,8 +9,12 @@ import {
 import { EnvService } from '@config/env/env.service';
 import { OrderEntity, OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
+import { RedisService } from '@config/redis/redis.service';
 import { StorageService } from '@root/shared/services/storage.service';
 import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
+
+/** Ventana del candado anti-duplicado: sobra para que lleguen los dos caminos. */
+const ORDER_EMAIL_IDEMPOTENCY_TTL = 24 * 60 * 60;
 
 @Processor(QUEUE_NAMES.NOTIFICATIONS)
 export class SendOrderTicketsEmailProcessor extends WorkerHost {
@@ -20,7 +24,8 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly notificationEmailService: NotificationEmailService,
-    private readonly envService: EnvService
+    private readonly envService: EnvService,
+    private readonly redisService: RedisService
   ) {
     super();
   }
@@ -111,7 +116,22 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       heroKicker: order.event.name
     };
 
-    // 6. Enviar UN email con todos los PDFs de la orden
+    // 6. Un solo email por orden, pase lo que pase.
+    //
+    // Hay dos caminos que lo encolan: el job con delay de `confirmPayment` y el
+    // disparo por evento de `generate-qr` cuando termina la última entrada. Es
+    // a propósito —el primero se agota a los ~5 minutos y no siempre alcanza—,
+    // pero cuando los dos llegan, el segundo tiene que caerse acá y no mandar
+    // las entradas dos veces.
+    const primero = await this.redisService.markIdempotency(
+      `order-tickets-email:${order.uuid}`,
+      ORDER_EMAIL_IDEMPOTENCY_TTL
+    );
+    if (!primero) {
+      this.logger.log(`Email de la orden ${order.orderNumber} ya enviado — se descarta el duplicado`);
+      return;
+    }
+
     await this.notificationEmailService.sendOrderTicketsEmail({
       to: order.user.email,
       subject: `🎫 Tus entradas para ${order.event.name}`,
