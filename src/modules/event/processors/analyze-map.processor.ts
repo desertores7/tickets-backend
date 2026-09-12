@@ -35,12 +35,14 @@ export class AnalyzeMapProcessor extends WorkerHost {
       // El worker reconstruye el archivo tal como lo recibió el controller: el
       // servicio de análisis no sabe si vino de un request o de una cola.
       const buffer = Buffer.from(imageBase64, 'base64');
+      // Solo los campos que el análisis mira. El resto de Express.Multer.File
+      // son cosas del request HTTP que acá no existen.
       const file = {
         buffer,
         size: imageSize,
         mimetype: imageMime,
         originalname: imageName
-      } as Express.Multer.File;
+      } as unknown as Express.Multer.File;
 
       const result = await this.eventAiService.analyzeFromMapImage(file, userId);
 

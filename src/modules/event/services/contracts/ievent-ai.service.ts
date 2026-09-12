@@ -309,7 +309,21 @@ export type AnalyzeMapResult = {
 export interface IEventAiService {
   analyzeFromFlyers(files: Express.Multer.File[], userId: string): Promise<AnalyzeFlyersResult>;
 
+  /**
+   * Análisis completo del plano. Lo corre el worker de la cola: tarda minutos.
+   */
   analyzeFromMapImage(file: Express.Multer.File, userId: string): Promise<AnalyzeMapResult>;
+
+  /**
+   * Valida el archivo y la configuración antes de encolar.
+   *
+   * Va aparte del análisis porque tiene que fallar en el request: un archivo
+   * inválido no puede descubrirse dos minutos después dentro de un job.
+   */
+  validateMapRequest(file: Express.Multer.File): Express.Multer.File;
+
+  /** Cuota horaria de IA del usuario. Se comprueba antes de encolar. */
+  assertMapQuota(userId: string): Promise<void>;
 
   suggestMapSectors(input: {
     ticketTypes: Array<{ uuid: string; name: string }>;

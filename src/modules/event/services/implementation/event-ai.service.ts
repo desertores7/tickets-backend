@@ -38,7 +38,11 @@ import {
   normalizeMapLayout,
   summarizeMapLayout
 } from './map-layout-normalizer';
-import { collectDeclaredCounts, verifyMapLayout } from './map-layout-verifier';
+import {
+  collectDeclaredCounts,
+  mergeRepairedGroups,
+  verifyMapLayout
+} from './map-layout-verifier';
 import { parseJsonObjectLoose } from './parse-json-loose';
 
 const MAX_FLYERS = 1;
