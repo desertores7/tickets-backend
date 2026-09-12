@@ -132,6 +132,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    // Puede no haber cliente: si el arranque falla antes de `onModuleInit`,
+    // Nest igual corre los hooks de apagado. Sin esta guarda, el
+    // `TypeError: Cannot read properties of undefined` pisa el error que de
+    // verdad impidió levantar la aplicación.
+    if (!this.redis) return;
+
     await this.redis.quit();
     this.logger.log('Redis disconnected');
   }
