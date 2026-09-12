@@ -2,6 +2,8 @@ import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { DBModule } from '../config/db/db.module';
 import { UserService } from './user/services/implementation/user.service';
 import { RoleService } from './role/services/implementation/role.service';
@@ -56,7 +58,9 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     }),
     DBModule,
     QrGenerationModule,
-    NotificationsModule
+    NotificationsModule,
+    // El worker del análisis de mapas vive en este módulo.
+    BullModule.registerQueue({ name: QUEUE_NAMES.EVENT_AI })
   ],
   providers: [
     { provide: 'IAuthService', useClass: AuthService },

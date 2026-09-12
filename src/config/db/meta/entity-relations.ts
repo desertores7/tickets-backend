@@ -335,6 +335,9 @@ export const entityRelations = {
     ticketType: 'ticket_type'
   },
 
+  /** Registro de análisis de mapas con IA: tabla suelta, sin relaciones. */
+  event_ai_map_run: {},
+
   ticket_type: {
     event: 'event'
   },
