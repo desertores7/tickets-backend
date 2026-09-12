@@ -27,24 +27,41 @@ export type OrganizationFiscalDocumentKind = (typeof ORGANIZATION_FISCAL_DOCUMEN
 /** Kinds usados para auto-asignar tipo al subir (no checklist de envío). */
 export const ORGANIZATION_FISCAL_REQUIRED_KINDS = ['dni', 'afip_constancia', 'cbu_proof'] as const;
 
-/** Mínimo de archivos para submit-validation (puede ser un solo PDF con todo). */
+/** Mínimo obligatorio de constancia de inscripción. */
 export const ORGANIZATION_FISCAL_MIN_DOCS = 1;
 
-export const ORGANIZATION_FISCAL_DOC_MAX_FILES = 10;
+/** Máximo de archivos de constancia (imagen o PDF). */
+export const ORGANIZATION_FISCAL_DOC_MAX_FILES = 2;
 export const ORGANIZATION_FISCAL_DOC_MAX_BYTES = 5 * 1024 * 1024;
 
-export const ORGANIZATION_FISCAL_ALLOWED_MIME = [
+/** MIME conocidos con magic bytes; además se acepta cualquier `image/*`. */
+export const ORGANIZATION_FISCAL_KNOWN_MIME = [
   'application/pdf',
   'image/jpeg',
   'image/png',
-  'image/webp'
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
+  'image/heic',
+  'image/heif'
 ] as const;
 
-export const ORGANIZATION_FISCAL_MIME_TO_EXT: Record<(typeof ORGANIZATION_FISCAL_ALLOWED_MIME)[number], string> = {
+export type OrganizationFiscalKnownMime = (typeof ORGANIZATION_FISCAL_KNOWN_MIME)[number];
+
+/** @deprecated Usar ORGANIZATION_FISCAL_KNOWN_MIME; se mantiene por imports legacy. */
+export const ORGANIZATION_FISCAL_ALLOWED_MIME = ORGANIZATION_FISCAL_KNOWN_MIME;
+
+export const ORGANIZATION_FISCAL_MIME_TO_EXT: Record<OrganizationFiscalKnownMime, string> = {
   'application/pdf': 'pdf',
   'image/jpeg': 'jpg',
   'image/png': 'png',
-  'image/webp': 'webp'
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/bmp': 'bmp',
+  'image/tiff': 'tif',
+  'image/heic': 'heic',
+  'image/heif': 'heif'
 };
 
 /** CBU argentino: exactamente 22 dígitos. */

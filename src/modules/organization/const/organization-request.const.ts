@@ -18,6 +18,8 @@ export type FiscalChangeRequestPayload = {
   taxId: string;
   taxCondition: OrganizationTaxCondition;
   contactEmail: string;
+  /** Teléfono de contacto (`+54{codigo}{numero}`). Opcional en payloads viejos. */
+  contactPhone?: string;
 };
 
 export type OrganizationRequestPayload = BankChangeRequestPayload | FiscalChangeRequestPayload;
