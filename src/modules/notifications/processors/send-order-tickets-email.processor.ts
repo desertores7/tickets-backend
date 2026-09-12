@@ -140,10 +140,17 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
         attachments
       });
     } catch (error) {
+      // Se loguea acá y no solo se relanza: sin esto el motivo queda enterrado
+      // en el `failedReason` del job en Redis y no aparece en `docker logs`.
+      // Un certificado SMTP vencido tardó horas en encontrarse por eso.
+      this.logger.error(
+        `No se pudo enviar el email de la orden ${order.orderNumber}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+
       // Se libera el candado antes de relanzar. Si queda puesto, el reintento
-      // se descarta como duplicado y el email no sale nunca — pasó de verdad:
-      // un adjunto faltante hacía fallar el envío y el candado enterraba todos
-      // los intentos siguientes.
+      // se descarta como duplicado y el email no sale nunca.
       await this.redisService.deleteKey(`order-tickets-email:${order.uuid}`);
       throw error;
     }

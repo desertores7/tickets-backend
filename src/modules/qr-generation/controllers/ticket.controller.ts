@@ -21,7 +21,13 @@ import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators
 import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { StorageService } from '@root/shared/services/storage.service';
-import { QUEUE_NAMES, GenerateQrJobData } from '@config/redis/bull-jobs.types';
+import {
+  QUEUE_NAMES,
+  GenerateQrJobData,
+  SendOrderTicketsEmailJobData
+} from '@config/redis/bull-jobs.types';
+import { RedisService } from '@config/redis/redis.service';
+import { OrderEntity, OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { TicketEntity, TicketStatus } from '@config/db/entities/tickets/ticket.entity';
 import {
   REFUND_ACTIVE_STATUSES,
@@ -284,8 +290,84 @@ export class AdminTicketController {
   constructor(
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
-    @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue
+    private readonly redisService: RedisService,
+    @InjectQueue(QUEUE_NAMES.TICKETS) private readonly ticketsQueue: Queue,
+    @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // POST /api/admin/tickets/orders/:orderId/resend-email
+  // ---------------------------------------------------------------------------
+
+  @AdminAuth(null, null)
+  @ApiOperation({
+    summary: 'Reenviar email de la compra',
+    description:
+      'Vuelve a mandarle al comprador el email con **todas** las entradas de la orden adjuntas. ' +
+      'Para cuando no le llegó nada: un SMTP caído, un rebote, o el comprador que lo borró.\n\n' +
+      'Libera el candado de idempotencia antes de encolar — sin eso el reenvío se descartaría como ' +
+      'duplicado del envío original.\n\n' +
+      'Si a alguna entrada le falta el PDF en el disco responde 422: primero hay que regenerarla, ' +
+      'porque el email sale con todas o no sale.'
+  })
+  @ApiParam({ name: 'orderId', description: 'UUID de la orden.' })
+  @ApiResponse({ status: 202, description: 'Reenvío encolado. Sale en unos segundos.' })
+  @ApiResponse({ status: 404, description: 'Orden no encontrada.' })
+  @ApiResponse({ status: 422, description: 'La orden no está pagada, o alguna entrada no tiene su PDF generado.' })
+  @HttpCode(202)
+  @Post('orders/:orderId/resend-email')
+  async resendOrderEmail(@Param('orderId') orderId: string): Promise<{ message: string; orderId: string }> {
+    const order = await this.dataSource
+      .getRepository(OrderEntity)
+      .findOne({ where: { uuid: orderId }, relations: { items: true } });
+
+    if (!order) throw new NotFoundException('Orden no encontrada');
+
+    if (order.status !== OrderStatus.PAID) {
+      throw new UnprocessableEntityException(
+        `Solo se reenvía el email de una orden pagada. Esta está en "${order.status}".`
+      );
+    }
+
+    // El email lleva los PDFs adjuntos: si falta uno, el envío falla entero.
+    // Mejor decirlo acá que dejar que el job reintente y muera en silencio.
+    const tickets = await this.dataSource.getRepository(TicketEntity).find({
+      where: { orderItemUuid: In(order.items.map((i: { uuid: string }) => i.uuid)) }
+    });
+
+    if (tickets.length === 0) {
+      throw new UnprocessableEntityException('La orden no tiene entradas emitidas');
+    }
+
+    const faltantes: string[] = [];
+    for (const ticket of tickets) {
+      const existe =
+        ticket.pdfUrl !== null &&
+        (await this.storageService.fileExists(
+          this.storageService.resolveAbsolutePath('tickets/pdf', `${ticket.uuid}.pdf`)
+        ));
+      if (!existe) faltantes.push(ticket.ticketNumber);
+    }
+
+    if (faltantes.length > 0) {
+      throw new UnprocessableEntityException(
+        `Faltan los PDF de: ${faltantes.join(', ')}. Regenerá esas entradas y volvé a intentar.`
+      );
+    }
+
+    // Sin esto el processor lo descarta: el envío original ya dejó la marca.
+    await this.redisService.deleteKey(`order-tickets-email:${order.uuid}`);
+
+    const jobData: SendOrderTicketsEmailJobData = { orderId: order.uuid };
+    await this.notificationsQueue.add('send-order-tickets-email', jobData, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 }
+    });
+
+    this.logger.log(`Reenvío del email encolado para la orden ${order.orderNumber}`);
+
+    return { message: 'Reenvío encolado', orderId: order.uuid };
+  }
 
   // ---------------------------------------------------------------------------
   // POST /api/admin/tickets/:ticketId/regenerate-qr
