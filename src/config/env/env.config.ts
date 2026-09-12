@@ -67,6 +67,18 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
+  /**
+   * Espacio de nombres de las colas BullMQ en Redis.
+   *
+   * Sin esto las claves son `bull:tickets`, `bull:orders`, `bull:payments` —
+   * nombres genéricos sobre un Redis compartido. Cualquier otra instancia
+   * apuntada al mismo Redis compite por los mismos jobs: pasó el 2026-09-12,
+   * cuando el contenedor viejo procesó entradas de una compra, escribió en la
+   * base de producción y dejó los PDFs en su propio disco.
+   *
+   * Cada entorno tiene que tener el suyo (`showpass:prod`, `showpass:local`).
+   */
+  REDIS_QUEUE_PREFIX: z.string().default('showpass:local'),
 
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),

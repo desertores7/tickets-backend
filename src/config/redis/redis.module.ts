@@ -21,7 +21,12 @@ const DEFAULT_JOB_OPTIONS = {
     BullModule.forRootAsync({
       inject: [EnvService],
       useFactory: (env: EnvService) => ({
-        connection: toBullMqConnection(resolveRedisConnection(env))
+        connection: toBullMqConnection(resolveRedisConnection(env)),
+        // Aísla las colas por entorno. Sin prefijo, dos instancias contra el
+        // mismo Redis se reparten los jobs de la otra: una entrada generada
+        // por el worker equivocado deja el PDF en un disco al que la API que
+        // lo sirve no llega, y el comprador ve un 404.
+        prefix: env.get('REDIS_QUEUE_PREFIX')
       })
     }),
     BullModule.registerQueue(
