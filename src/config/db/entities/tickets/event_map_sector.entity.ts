@@ -49,6 +49,17 @@ export class EventMapSectorEntity {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  /**
+   * Piso / nivel impreso en el plano ("1ER PISO", "2DO PISO"). null en salas de
+   * un solo nivel.
+   *
+   * La identidad de un sector es (level, name), no name: los planos de varios
+   * pisos reinician la numeración en cada uno, y el "15" del primer piso y el
+   * del segundo son unidades distintas.
+   */
+  @Column({ type: 'varchar', length: 120, nullable: true, default: null })
+  level: string | null;
+
   @Column({ type: 'json' })
   geometry: EventMapSectorGeometry;
 

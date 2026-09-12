@@ -21,6 +21,7 @@ import { EventMediaEntityData } from '../entities/tickets/event_media.entity';
 import { EventMapEntityData } from '../entities/tickets/event_map.entity';
 import { EventMapSectorEntityData } from '../entities/tickets/event_map_sector.entity';
 import { EventMapSectorTicketTypeEntityData } from '../entities/tickets/event_map_sector_ticket_type.entity';
+import { EventAiMapRunEntityData } from '../entities/tickets/event_ai_map_run.entity';
 import { TicketTypeEntityData } from '../entities/tickets/ticket_type.entity';
 import { OrderEntityData } from '../entities/tickets/order.entity';
 import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
@@ -73,6 +74,7 @@ export const entitiesData = [
   EventMapEntityData,
   EventMapSectorEntityData,
   EventMapSectorTicketTypeEntityData,
+  EventAiMapRunEntityData,
   TicketTypeEntityData,
   OrderEntityData,
   OrderItemEntityData,

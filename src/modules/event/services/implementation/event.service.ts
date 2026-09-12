@@ -1135,6 +1135,7 @@ export class EventService implements IEventService {
     const mappedSectors: TEventMapSector[] = sectors.map(s => ({
       uuid: s.uuid,
       name: s.name,
+      level: s.level ?? null,
       geometry: s.geometry,
       sortOrder: s.sortOrder,
       isNumbered: !!s.isNumbered,
@@ -1186,17 +1187,33 @@ export class EventService implements IEventService {
    * la vista los agrupa y la misma mesa terminaria vendiendose dos veces. Se
    * compara sin distinguir mayusculas ni espacios de mas.
    */
+  /**
+   * Un sector se identifica por (nivel, nombre), no por nombre.
+   *
+   * Los planos de varias plantas reinician la numeración en cada una: el "15"
+   * del primer piso y el del segundo son unidades distintas con la misma
+   * etiqueta impresa. Comparar solo por nombre rechazaba el mapa entero.
+   *
+   * La restricción sigue existiendo porque el nombre es lo que ve el validador
+   * en la puerta: dentro de un mismo nivel no puede haber dos iguales.
+   */
   private assertUniqueSectorNames(sectors: TUpsertEventMap['sectors']): void {
-    const seen = new Map<string, string>();
+    const seen = new Map<string, { name: string; level: string | null }>();
     for (const sector of sectors) {
       const name = sector.name?.trim() ?? '';
       if (!name) continue;
-      const key = name.toLowerCase().replace(/\s+/g, ' ');
+      const level = sector.level?.trim() || null;
+      const key = `${(level ?? '').toLowerCase()}\u0000${name.toLowerCase().replace(/\s+/g, ' ')}`;
       const previous = seen.get(key);
       if (previous) {
-        throw new BadRequestException(`El mapa tiene dos sectores llamados "${previous}"`);
+        throw new BadRequestException(
+          previous.level
+            ? `El mapa tiene dos sectores llamados "${previous.name}" en "${previous.level}"`
+            : `El mapa tiene dos sectores llamados "${previous.name}". ` +
+              'Si pertenecen a pisos distintos, indicá el piso de cada uno.'
+        );
       }
-      seen.set(key, name);
+      seen.set(key, { name, level });
     }
   }
 
@@ -1248,6 +1265,7 @@ export class EventService implements IEventService {
       sector.uuid = src.uuid?.trim() || uuidv4();
       sector.mapUuid = mapUuid;
       sector.name = src.name.trim();
+      sector.level = src.level?.trim() || null;
       sector.geometry = this.normalizeSectorGeometry(src.geometry);
       sector.sortOrder = src.sortOrder ?? i;
       sector.isNumbered = src.isNumbered ?? false;

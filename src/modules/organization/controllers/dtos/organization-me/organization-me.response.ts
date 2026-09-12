@@ -104,6 +104,9 @@ export class OrganizationMeResponse {
   @ApiPropertyOptional({ type: String, nullable: true })
   pendingContactEmail: string | null;
 
+  @ApiPropertyOptional({ type: String, nullable: true })
+  pendingContactPhone: string | null;
+
   @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
   fiscalChangeRequestedAt: Date | null;
 
@@ -176,6 +179,7 @@ export class OrganizationMeResponse {
     this.pendingTaxId = fiscalPayload?.taxId ?? null;
     this.pendingTaxCondition = fiscalPayload?.taxCondition ?? null;
     this.pendingContactEmail = fiscalPayload?.contactEmail ?? null;
+    this.pendingContactPhone = fiscalPayload?.contactPhone ?? null;
     this.fiscalChangeRequestedAt = pendingFiscal?.createdAt ?? null;
     this.fiscalChangePending = Boolean(pendingFiscal);
     this.fiscalChangeRejectionReason = pendingFiscal

@@ -368,7 +368,15 @@ export class AiEventMapLayoutResponse implements AiEventMapLayout {
   groups: AiEventMapLayoutGroupResponse[];
 }
 
-export class AnalyzeFromMapResponse implements AnalyzeMapResult {
+/**
+ * Respuesta pública del análisis.
+ *
+ * Omite `warnings` a propósito: las inconsistencias que detecta el verificador
+ * son diagnóstico interno y viajan al log y a `event_ai_map_run`, no al
+ * productor. Su destino es disparar la reparación dirigida del análisis, no
+ * pedirle a quien subió un flyer que interprete un problema del modelo.
+ */
+export class AnalyzeFromMapResponse implements Omit<AnalyzeMapResult, 'warnings'> {
   @ApiPropertyOptional({
     type: AiEventMapAreaResponse,
     nullable: true,

@@ -26,7 +26,7 @@ export class UpdateOrganizationMeRequest {
   @IsIn([...ORGANIZATION_TAX_CONDITIONS])
   taxCondition?: (typeof ORGANIZATION_TAX_CONDITIONS)[number];
 
-  @ApiPropertyOptional({ description: 'Teléfono de la productora (sección Redes; opcional)' })
+  @ApiPropertyOptional({ description: 'Teléfono de la productora (identidad fiscal; ej. +541112345678)' })
   @IsOptional()
   @IsString()
   @MaxLength(50)

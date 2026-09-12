@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { ServiceModule } from './service.module';
 import { DBModule } from '../config/db/db.module';
 import { UserController } from './user/controllers/user.controller';
@@ -34,7 +36,15 @@ import { EventMpAccountController } from './event-cash/controllers/event-mp-acco
 import { FavoriteController } from './favorites/controllers/favorite.controller';
 
 @Module({
-  imports: [PassportModule.register({ defaultStrategy: 'user-jwt' }), ConfigModule, DBModule, ServiceModule],
+  imports: [
+    PassportModule.register({ defaultStrategy: 'user-jwt' }),
+    ConfigModule,
+    DBModule,
+    ServiceModule,
+    // El controller encola el análisis de mapas: necesita la cola en su propio
+    // contexto de módulo, igual que NotificationsModule con la suya.
+    BullModule.registerQueue({ name: QUEUE_NAMES.EVENT_AI })
+  ],
   controllers: [
     AuthController,
     UserController,

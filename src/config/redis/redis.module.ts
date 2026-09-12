@@ -79,6 +79,18 @@ const DEFAULT_JOB_OPTIONS = {
         }
       },
       {
+        name: QUEUE_NAMES.EVENT_AI,
+        defaultJobOptions: {
+          ...DEFAULT_JOB_OPTIONS,
+          // Un solo intento: cada análisis cuesta un minuto de razonamiento y
+          // reintentarlo solo porque OpenAI cortó una vez duplica el gasto sin
+          // mejorar el resultado. El productor reintenta desde la pantalla.
+          attempts: 1,
+          removeOnComplete: { count: 20 },
+          removeOnFail: { count: 50 }
+        }
+      },
+      {
         name: QUEUE_NAMES.REFUNDS,
         defaultJobOptions: {
           ...DEFAULT_JOB_OPTIONS,

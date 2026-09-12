@@ -2,6 +2,8 @@ import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { DBModule } from '../config/db/db.module';
 import { UserService } from './user/services/implementation/user.service';
 import { RoleService } from './role/services/implementation/role.service';
@@ -17,6 +19,8 @@ import { EventService } from './event/services/implementation/event.service';
 import { EventChangeService } from './event/services/implementation/event-change.service';
 import { RefundService } from './refunds/services/implementation/refund.service';
 import { EventAiService } from './event/services/implementation/event-ai.service';
+import { MapAnalysisJobStore } from './event/services/implementation/map-analysis-job.store';
+import { AnalyzeMapProcessor } from './event/processors/analyze-map.processor';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
@@ -55,7 +59,9 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     }),
     DBModule,
     QrGenerationModule,
-    NotificationsModule
+    NotificationsModule,
+    // El worker del análisis de mapas vive en este módulo.
+    BullModule.registerQueue({ name: QUEUE_NAMES.EVENT_AI })
   ],
   providers: [
     { provide: 'IAuthService', useClass: AuthService },
@@ -80,6 +86,8 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
+    MapAnalysisJobStore,
+    AnalyzeMapProcessor,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },
@@ -121,6 +129,7 @@ import { FavoriteService } from './favorites/services/implementation/favorite.se
     MpTokenService,
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
+    MapAnalysisJobStore,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },

@@ -22,6 +22,8 @@ export type TEventMediaResponse = TEntityResponse<'event_media', undefined, unde
 export type TEventMapSector = {
   uuid: string;
   name: string;
+  /** Piso impreso en el plano; null en salas de un nivel. Identidad = (level, name). */
+  level: string | null;
   geometry: EventMapSectorGeometry;
   sortOrder: number;
   isNumbered: boolean;
@@ -45,6 +47,7 @@ export type TEventMap = {
 export type TUpsertEventMapSector = {
   uuid?: string;
   name: string;
+  level?: string | null;
   geometry: EventMapSectorGeometry;
   sortOrder?: number;
   isNumbered?: boolean;

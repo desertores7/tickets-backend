@@ -1398,7 +1398,10 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
     layout: {
       requiresGeometryFallback: layoutFallback,
       groups
-    }
+    },
+    // Las llena verifyMapLayout después de normalizar: necesita el resultado
+    // final para cruzarlo contra lo que el modelo declaró.
+    warnings: []
   };
 }
 
