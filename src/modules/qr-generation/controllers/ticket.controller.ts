@@ -250,6 +250,11 @@ export class TicketController {
       orderNumber: ticket.orderItem.order.orderNumber
     };
 
+    // El detalle también lo necesita, no solo el listado: se entra acá por link
+    // directo a una entrada, y sin este dato la pantalla no sabe que hay un
+    // reembolso en curso y muestra el QR igual.
+    const refundStatus = (await this.loadRefundStatuses([ticket.uuid])).get(ticket.uuid) ?? null;
+
     const data: GetTicketData = {
       uuid: ticket.uuid,
       ticketNumber: ticket.ticketNumber,
@@ -257,6 +262,7 @@ export class TicketController {
       qrUrl: this.storageService.toPublicUrl(ticket.qrUrl),
       pdfUrl: this.storageService.toPublicUrl(ticket.pdfUrl),
       qrCode: ticket.qrCode,
+      refundStatus,
       checkedInAt: ticket.checkedInAt,
       event,
       ticketType,

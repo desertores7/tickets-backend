@@ -12,6 +12,7 @@ import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
 import { CheckInResult } from '@config/db/entities/tickets/check_in_log.entity';
 import { TicketStatus } from '@config/db/entities/tickets/ticket.entity';
+import { REFUND_ACTIVE_STATUSES } from '@config/db/entities/tickets/refund_request.entity';
 import { QrSigningService } from '@modules/qr-generation/services/qr-signing.service';
 import {
   ICheckInService,
@@ -195,6 +196,16 @@ export class CheckInService implements ICheckInService {
       return { success: false, message: 'Esta entrada ya fue utilizada', result: CheckInResultEnum.ALREADY_USED };
     }
 
+    // Entradas devueltas o en proceso de devolución no entran (`BR-REFUND-001`).
+    // Va acá y no en `validate` porque el check-in manual por documento no pasa
+    // por el escaneo: este es el único punto que atraviesan los dos caminos.
+    const bloqueoReembolso = await this.refundBlockReason(ticket.uuid, ticket.status);
+    if (bloqueoReembolso) {
+      this.logger.warn(`Check-in rechazado por reembolso: ticket ${ticket.uuid} — ${bloqueoReembolso}`);
+      await this.writeLog({ ticketUuid: ticket.uuid, eventUuid: event.uuid, scannedBy, result: CheckInResult.INVALID, deviceInfo });
+      return { success: false, message: bloqueoReembolso, result: CheckInResultEnum.INVALID };
+    }
+
     // Adquirir lock Redis (previene race condition entre dos validadores simultáneos)
     const lockKey = `checkin:${ticket.uuid}`;
     const acquired = await this.redisService.markIdempotency(lockKey, CHECKIN_LOCK_TTL);
@@ -270,6 +281,43 @@ export class CheckInService implements ICheckInService {
   }
 
   // Inserta un registro de log sin afectar el flujo principal (swallow de errores)
+  /**
+   * Motivo por el que una entrada con reembolso no puede ingresar, o `null`.
+   *
+   * **Se consulta en la puerta y no alcanza con el estado del ticket.** El
+   * ticket recién pasa a `refunded` cuando Mercado Pago confirma que la plata
+   * volvió; mientras la solicitud está `pending`, `approved` o `processing`
+   * sigue figurando como `active`. Sin este chequeo, alguien pide el reembolso,
+   * entra al evento y cobra igual.
+   *
+   * Se registra como `invalid` porque el enum `result` es una columna ENUM de
+   * MySQL: un valor nuevo pediría migración, y el motivo real queda en el
+   * mensaje y en este log.
+   */
+  private async refundBlockReason(ticketUuid: string, status: string): Promise<string | null> {
+    if (status === TicketStatus.REFUNDED) {
+      return 'Esta entrada fue reembolsada';
+    }
+    if (status === TicketStatus.CANCELLED) {
+      return 'Esta entrada fue cancelada';
+    }
+
+    const row = await this.dataSource
+      .createQueryBuilder()
+      .select('rr.status', 'status')
+      .from('refund_request_ticket', 'rrt')
+      .innerJoin('refund_request', 'rr', 'rr.uuid = rrt.refundRequestUuid')
+      .where('rrt.ticketUuid = :ticketUuid', { ticketUuid })
+      .andWhere('rr.status IN (:...statuses)', { statuses: REFUND_ACTIVE_STATUSES })
+      .getRawOne<{ status: string }>();
+
+    if (!row) return null;
+
+    return row.status === 'refunded'
+      ? 'Esta entrada fue reembolsada'
+      : 'Esta entrada tiene un reembolso en curso';
+  }
+
   private async writeLog(data: {
     ticketUuid: string | null;
     eventUuid: string;
