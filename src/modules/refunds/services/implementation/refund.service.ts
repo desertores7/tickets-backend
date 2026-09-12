@@ -870,7 +870,10 @@ export class RefundService implements IRefundService {
     status: 'refunded' | 'rejected',
     motivo: string | null
   ): Promise<void> {
-    const appUrl = (this.envService.get('APP_URL') ?? '').replace(/\/$/, '');
+    // `FRONTEND_URL` y no `APP_URL`: el botón lleva a una pantalla del sitio,
+    // no a la API. Con `APP_URL` el mail mandaba a tickets-api.gemdam.com, que
+    // no tiene esa ruta.
+    const appUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
 
     try {
       await this.emailService.sendTemplateEmail(
