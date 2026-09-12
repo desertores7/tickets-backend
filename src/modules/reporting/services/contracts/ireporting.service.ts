@@ -57,6 +57,14 @@ export interface ISaleTicket {
   status: string;
   qrUrl: string | null;
   pdfUrl: string | null;
+  /**
+   * El PDF existe **en el disco**, no solo en la base.
+   *
+   * La fila puede figurar generada y el archivo no estar: ahí la descarga
+   * devuelve 404 y la entrada hay que regenerarla. Mirar `pdfUrl` no alcanza
+   * para detectarlo, que es justo el caso que interesa al operar.
+   */
+  pdfDisponible: boolean;
   /** Reembolso activo sobre esta entrada, si lo hay. */
   refundStatus: string | null;
 }

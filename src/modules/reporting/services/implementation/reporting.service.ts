@@ -176,15 +176,32 @@ export class ReportingService implements IReportingService {
       .orderBy('t.createdAt', 'ASC')
       .getRawMany<Record<string, unknown>>();
 
-    const ticketsDetalle: ISaleTicket[] = ticketRows.map(r => ({
-      uuid: String(r.uuid),
-      ticketNumber: String(r.ticketNumber),
-      ticketTypeName: String(r.ticketTypeName),
-      status: String(r.status),
-      qrUrl: this.storageService.toPublicUrl(r.qrUrl as string | null),
-      pdfUrl: this.storageService.toPublicUrl(r.pdfUrl as string | null),
-      refundStatus: (r.refundStatus as string | null) ?? null
-    }));
+    const ticketsDetalle: ISaleTicket[] = await Promise.all(
+      ticketRows.map(async r => {
+        const uuid = String(r.uuid);
+        const pdfEnBase = (r.pdfUrl as string | null) ?? null;
+
+        // Un `stat` por entrada. Son pocas por orden y es la única forma de
+        // distinguir "todavía no se generó" de "la base dice que sí y el
+        // archivo no está", que es el caso que hay que reparar.
+        const pdfDisponible = pdfEnBase
+          ? await this.storageService.fileExists(
+              this.storageService.resolveAbsolutePath('tickets/pdf', `${uuid}.pdf`)
+            )
+          : false;
+
+        return {
+          uuid,
+          ticketNumber: String(r.ticketNumber),
+          ticketTypeName: String(r.ticketTypeName),
+          status: String(r.status),
+          qrUrl: this.storageService.toPublicUrl(r.qrUrl as string | null),
+          pdfUrl: this.storageService.toPublicUrl(pdfEnBase),
+          pdfDisponible,
+          refundStatus: (r.refundStatus as string | null) ?? null
+        };
+      })
+    );
 
     const isAdmin = role === 'Administrador';
 

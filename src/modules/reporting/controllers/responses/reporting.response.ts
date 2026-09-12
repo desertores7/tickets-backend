@@ -80,6 +80,14 @@ export class SaleTicketResponse {
   @ApiProperty({ example: 'active' }) status: string;
   @ApiProperty({ nullable: true }) qrUrl: string | null;
   @ApiProperty({ nullable: true }) pdfUrl: string | null;
+
+  @ApiProperty({
+    description:
+      'El PDF existe en el disco, no solo en la base. En `false` con `pdfUrl` cargada, la entrada ' +
+      'está rota y hay que regenerarla.'
+  })
+  pdfDisponible: boolean;
+
   @ApiProperty({ nullable: true }) refundStatus: string | null;
 
   constructor(data: ISaleTicket) {
@@ -89,6 +97,7 @@ export class SaleTicketResponse {
     this.status = data.status;
     this.qrUrl = data.qrUrl;
     this.pdfUrl = data.pdfUrl;
+    this.pdfDisponible = data.pdfDisponible;
     this.refundStatus = data.refundStatus;
   }
 }
