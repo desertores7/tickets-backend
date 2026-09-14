@@ -19,6 +19,8 @@ export function resolveEmailTemplatesPath(): string {
 /** Nombres de archivo `.hbs` (sin extensión). Usar estos al agregar / enviar mails. */
 export const EMAIL_TEMPLATES = {
   registrationWelcome: 'registration-welcome',
+  /** Alta de productora (mismo flujo de verificación, copy orientado a ventas). */
+  registrationWelcomeProducer: 'registration-welcome-producer',
   emailVerified: 'email-verified',
   resetPasswordCode: 'reset-password-code',
   login2faCode: 'login-2fa-code',

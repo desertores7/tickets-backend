@@ -637,7 +637,8 @@ export class AuthService implements IAuthService {
       await this.emailService.sendRegistrationEmail({
         firstName: user.firstName,
         email: request.email,
-        validationUrl
+        validationUrl,
+        audience: 'client'
       });
     } catch (error) {
       console.error('Failed to send registration email:', error);
@@ -718,7 +719,8 @@ export class AuthService implements IAuthService {
       await this.emailService.sendRegistrationEmail({
         firstName: user.firstName,
         email: request.email,
-        validationUrl
+        validationUrl,
+        audience: 'producer'
       });
     } catch (error) {
       console.error('Failed to send producer registration email:', error);
@@ -744,11 +746,17 @@ export class AuthService implements IAuthService {
     const verificationToken = await this.signEmailVerificationToken(user.uuid, email);
     const validationUrl = `${this.getFrontendUrl()}/validate-email?token=${encodeURIComponent(verificationToken)}`;
 
+    const producerRole = await this.dbRepository.findOne({
+      entity: 'user_role',
+      where: { userUuid: user.uuid, roleUuid: this.roleProductorUuid, isDeleted: IsNull() }
+    });
+
     await this.emailService.initializeSmtp();
     await this.emailService.sendRegistrationEmail({
       firstName: user.firstName || user.username || 'Usuario',
       email,
-      validationUrl
+      validationUrl,
+      audience: producerRole ? 'producer' : 'client'
     });
   }
 
