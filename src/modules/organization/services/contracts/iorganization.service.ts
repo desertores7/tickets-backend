@@ -108,4 +108,9 @@ export interface IOrganizationService {
     organizationUuid: string,
     documentUuid: string
   ): Promise<{ absolutePath: string; mimeType: string; originalName: string }>;
+  deleteOrganizationFiscalDocument(
+    organizationUuid: string,
+    documentUuid: string,
+    adminUuid: string
+  ): Promise<void>;
 }

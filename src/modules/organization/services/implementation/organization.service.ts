@@ -1278,7 +1278,8 @@ export class OrganizationService implements IOrganizationService {
 
   async deleteMyFiscalDocument(userUuid: string, documentUuid: string): Promise<void> {
     const org = await this.resolveMembershipOrganization(userUuid);
-    this.assertFiscalDocsEditable(org);
+    // Tras aprobación/rechazo se pueden limpiar archivos; en revisión, no.
+    this.assertFiscalDocsDeletable(org);
 
     const doc = await this.findActiveDoc(org.uuid, documentUuid);
     if (!doc) throw new NotFoundException('Documento no encontrado');
@@ -1327,7 +1328,28 @@ export class OrganizationService implements IOrganizationService {
     return this.resolveFiscalDownload(organizationUuid, documentUuid);
   }
 
-  private assertFiscalDocsEditable(org: OrganizationEntity): void {
+  /**
+   * Admin: limpia adjuntos tras aprobar/rechazar para no dejar evidencia huérfana en storage.
+   * Bloqueado solo mientras la alta está en revisión.
+   */
+  async deleteOrganizationFiscalDocument(
+    organizationUuid: string,
+    documentUuid: string,
+    adminUuid: string
+  ): Promise<void> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+    this.assertFiscalDocsDeletable(org);
+    await this.deleteFiscalDocumentInternal(organizationUuid, documentUuid, adminUuid);
+  }
+
+  private assertFiscalDocsEditable(org: {
+    organizationStatusUuid?: string;
+    organizationStatus?: { name?: string } | null;
+  }): void {
     const status = organizationStatusName(org);
     if (status === 'pending_review') {
       throw new BadRequestException(
@@ -1337,6 +1359,19 @@ export class OrganizationService implements IOrganizationService {
     if (status === 'approved') {
       throw new BadRequestException(
         'Para cambiar documentos usá “Solicitar cambio de información fiscal”.'
+      );
+    }
+  }
+
+  /** Borrar está permitido tras aprobación o rechazo; no durante la revisión. */
+  private assertFiscalDocsDeletable(org: {
+    organizationStatusUuid?: string;
+    organizationStatus?: { name?: string } | null;
+  }): void {
+    const status = organizationStatusName(org);
+    if (status === 'pending_review') {
+      throw new BadRequestException(
+        'La solicitud está en revisión. No se pueden eliminar documentos hasta la resolución.'
       );
     }
   }

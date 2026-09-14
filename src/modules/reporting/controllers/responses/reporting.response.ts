@@ -38,6 +38,12 @@ export class SalesRowResponse {
   })
   refundedQuantity: number;
 
+  @ApiProperty({ nullable: true, required: false })
+  paymentMethod: string | null;
+
+  @ApiProperty({ nullable: true, required: false })
+  paymentProvider: string | null;
+
   constructor(data: ISalesRow) {
     this.orderUuid = data.orderUuid;
     this.orderNumber = data.orderNumber;
@@ -52,6 +58,8 @@ export class SalesRowResponse {
     this.purchasedAt = data.purchasedAt;
     this.status = data.status;
     this.refundedQuantity = data.refundedQuantity;
+    this.paymentMethod = data.paymentMethod;
+    this.paymentProvider = data.paymentProvider;
   }
 }
 

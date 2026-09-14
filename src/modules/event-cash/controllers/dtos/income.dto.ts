@@ -183,12 +183,23 @@ export class IncomesResponse {
 
 export class CashSummaryResponse {
   @ApiProperty({ description: 'Entradas web, SIN costo de servicio' }) webTickets: number;
+  @ApiProperty({ description: 'Cantidad de ventas web (filas del listado)' })
+  webTicketsCount: number;
   @ApiProperty({ description: 'Entradas vendidas en puerta' }) doorTickets: number;
   @ApiProperty({ description: 'Cobros por posnet MP' }) mpIncome: number;
   @ApiProperty({ description: 'MP sin producto mapeado' }) transfersAndOthers: number;
   @ApiProperty({ description: 'Ingresos cargados a mano' }) manualIncome: number;
-  @ApiProperty({ description: 'Devoluciones y contracargos: restan' }) mpRefunds: number;
-  @ApiProperty({ description: 'web + operativos − egresos MP (BR-CASH-007)' }) totalIncome: number;
+  @ApiProperty({
+    description:
+      'Reembolsos web confirmados + egresos/contracargos de caja MP: restan'
+  })
+  mpRefunds: number;
+  @ApiProperty({ description: 'Cantidad de ventas con reembolso (filas del listado)' })
+  webRefundsCount: number;
+  @ApiProperty({
+    description: 'web − reembolsos web + operativos − egresos MP (BR-CASH-007)'
+  })
+  totalIncome: number;
   @ApiProperty() expenses: number;
   @ApiProperty({ description: 'totalIncome − expenses' }) result: number;
   @ApiProperty({ example: 'ARS' }) currency: string;

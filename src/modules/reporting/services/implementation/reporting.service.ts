@@ -64,8 +64,10 @@ export class ReportingService implements IReportingService {
     const qb = this.buildSalesQuery(scope.eventUuids, filters);
 
     const total = await qb.clone().getCount();
+    const order = this.resolveSalesOrder(filters.order_by);
     const rows = await qb
-      .orderBy('o.createdAt', 'DESC')
+      .orderBy(order.column, order.direction)
+      .addOrderBy('oi.uuid', 'DESC')
       .limit(pagination.limit)
       .offset((pagination.page - 1) * pagination.limit)
       .getRawMany();
@@ -248,8 +250,10 @@ export class ReportingService implements IReportingService {
     if (scope.empty) return [];
 
     // Tope duro: un admin sin filtros exportaria la base entera en memoria.
+    const order = this.resolveSalesOrder(filters.order_by);
     const rows = await this.buildSalesQuery(scope.eventUuids, filters)
-      .orderBy('o.createdAt', 'DESC')
+      .orderBy(order.column, order.direction)
+      .addOrderBy('oi.uuid', 'DESC')
       .limit(SALES_EXPORT_MAX_ROWS)
       .getRawMany();
 
@@ -273,6 +277,8 @@ export class ReportingService implements IReportingService {
         'o.createdAt AS purchasedAt',
         'o.status AS status',
         'o.currency AS currency',
+        'o.paymentMethod AS paymentMethod',
+        'o.paymentProvider AS paymentProvider',
         'u.firstName AS buyerFirstName',
         'u.lastName AS buyerLastName',
         'u.email AS buyerEmail',
@@ -303,6 +309,18 @@ export class ReportingService implements IReportingService {
     }
     if (filters.status) {
       qb.andWhere('o.status = :status', { status: filters.status });
+    }
+    const refundedOnly =
+      filters.refunded === true ||
+      filters.refunded === '1' ||
+      filters.refunded === 'true';
+    if (refundedOnly) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM ticket t
+          WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded'
+        )`
+      );
     }
     if (filters.dateFrom) {
       qb.andWhere('o.createdAt >= :dateFrom', { dateFrom: `${filters.dateFrom} 00:00:00` });
@@ -336,8 +354,29 @@ export class ReportingService implements IReportingService {
       currency: String(raw.currency ?? 'ARS'),
       purchasedAt: new Date(raw.purchasedAt as string),
       status: String(raw.status),
-      refundedQuantity: Number(raw.refundedQuantity ?? 0)
+      refundedQuantity: Number(raw.refundedQuantity ?? 0),
+      paymentMethod: raw.paymentMethod != null ? String(raw.paymentMethod) : null,
+      paymentProvider: raw.paymentProvider != null ? String(raw.paymentProvider) : null
     };
+  }
+
+  /**
+   * Acepta los aliases del dropdown de Ingresos (`occurredAt` / `total`) además
+   * de los nombres propios del listado de ventas (`purchasedAt` / `amount`).
+   */
+  private resolveSalesOrder(orderBy?: string): {
+    column: string;
+    direction: 'ASC' | 'DESC';
+  } {
+    const [rawColumn, rawDir] = (orderBy ?? 'purchasedAt:desc').split(':');
+    const direction = rawDir?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    const column = rawColumn?.trim().toLowerCase();
+
+    if (column === 'amount' || column === 'total') {
+      return { column: 'oi.subtotal', direction };
+    }
+
+    return { column: 'o.createdAt', direction };
   }
 
   // ── Dashboard (BR-BACKOFFICE-002) ───────────────────────────────────────────

@@ -1,9 +1,13 @@
 import { IFilterData } from '@root/shared/decorators/filter-query.decorator';
-import { INCOME_METHODS } from '@config/db/entities/tickets/event_income.entity';
+import {
+  INCOME_METHODS,
+  INCOME_SOURCES
+} from '@config/db/entities/tickets/event_income.entity';
 
 /** Filtros del listado de ingresos del evento. */
 export const incomeFilters = [
-  { name: 'method', type: String, required: false, enumValues: [...INCOME_METHODS] }
+  { name: 'method', type: String, required: false, enumValues: [...INCOME_METHODS] },
+  { name: 'source', type: String, required: false, enumValues: [...INCOME_SOURCES] }
 ] as const satisfies IFilterData[];
 
 /**
