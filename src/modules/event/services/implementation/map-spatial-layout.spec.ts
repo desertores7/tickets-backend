@@ -168,28 +168,58 @@ describe('map-spatial-layout', () => {
     });
 
     it('ignora el placement que mandó el modelo y reporta lo corregido', () => {
+      // Las bandas se calculan sobre la unión de los recuadros, así que hacen
+      // falta el centro y el otro costado para que "izquierda" signifique algo:
+      // dos columnas solas SON el plano entero y caen al centro, que es correcto.
       const groups = [
-        group('arriba', { x: 0.1, y: 0.1, w: 0.1, h: 0.2 }, {
+        group('arriba', { x: 0.08, y: 0.15, w: 0.1, h: 0.2 }, {
           position: 'left',
           lane: 0,
           stackOrder: 0
         }),
         // El modelo la declaró como lane paralela; el recuadro dice que está abajo.
-        group('abajo', { x: 0.1, y: 0.5, w: 0.1, h: 0.2 }, {
+        group('abajo', { x: 0.08, y: 0.5, w: 0.1, h: 0.2 }, {
           position: 'left',
           lane: 1,
           stackOrder: 0
-        })
+        }),
+        group('centro', { x: 0.3, y: 0.15, w: 0.4, h: 0.55 }, { layoutType: 'grid' }),
+        group('derecha', { x: 0.82, y: 0.15, w: 0.1, h: 0.55 })
       ];
 
       const out = applySpatialPlacement(groups, null);
 
+      expect(placementOf(out.groups, 'arriba')).toEqual({
+        position: 'left',
+        lane: 0,
+        stackOrder: 0
+      });
       expect(placementOf(out.groups, 'abajo')).toEqual({
         position: 'left',
         lane: 0,
         stackOrder: 1
       });
       expect(out.corrected).toContain('abajo');
+    });
+
+    it('manda al centro un plano que es una sola columna', () => {
+      const groups = [
+        group('arriba', { x: 0.1, y: 0.1, w: 0.1, h: 0.2 }),
+        group('abajo', { x: 0.1, y: 0.5, w: 0.1, h: 0.2 })
+      ];
+
+      const out = applySpatialPlacement(groups, null);
+
+      expect(placementOf(out.groups, 'arriba')).toEqual({
+        position: 'center',
+        lane: null,
+        stackOrder: 0
+      });
+      expect(placementOf(out.groups, 'abajo')).toEqual({
+        position: 'center',
+        lane: null,
+        stackOrder: 1
+      });
     });
 
     it('deriva pesos proporcionales al recuadro', () => {
