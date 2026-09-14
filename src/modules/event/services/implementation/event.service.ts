@@ -26,6 +26,7 @@ import { UserEntity } from '@config/db/entities/user/user.entity';
 import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
 import * as bcryptjs from 'bcryptjs';
 import { FeeSummaryService } from '@modules/orders/services/implementation/fee-summary.service';
+import { OrderStatus } from '@modules/orders/services/core/order';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import {
@@ -426,15 +427,23 @@ export class EventService implements IEventService {
       throw new BadRequestException('El evento ya está en borrador');
     }
 
-    // availableQuantity baja al confirmar pago: si quantity > available hay venta real.
-    // No se permite ocultar el evento (parecería una estafa para quien ya compró).
-    const ticketTypes = (await this.dbRepository.findMany({
-      entity: 'ticket_type',
-      where: { eventUuid: event.uuid }
-    })) as TicketTypeEntity[];
+    // No se permite ocultar un evento con ventas: parecería una estafa para
+    // quien ya compró.
+    //
+    // La prueba de venta son las órdenes pagadas, no el stock. Comparar
+    // `quantity > availableQuantity` daba falsos positivos permanentes: al dar
+    // de baja una tanda se la deja en `availableQuantity: 0` con `quantity`
+    // intacto, y esta consulta ni siquiera filtraba por `isActive`, así que
+    // cualquier evento que hubiera regenerado el mapa —lo que borra y recrea
+    // las tandas— quedaba marcado como vendido para siempre, sin una sola
+    // orden. Una orden pagada es además lo mismo que ve el productor en
+    // Ingresos, así que el mensaje deja de contradecir a la pantalla.
+    const paidOrders = await this.dbRepository.count({
+      entity: 'orders',
+      where: { eventUuid: event.uuid, status: OrderStatus.PAID }
+    });
 
-    const hasSales = ticketTypes.some((tt) => tt.quantity > tt.availableQuantity);
-    if (hasSales) {
+    if (paidOrders > 0) {
       throw new BadRequestException(
         'No se puede pasar a borrador: ya hay entradas vendidas. El evento debe seguir público.'
       );
