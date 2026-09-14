@@ -13,6 +13,7 @@ import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization
 import { RequestBankChangeRequest } from '../../controllers/dtos/organization-me/request-bank-change.request';
 import { RequestFiscalChangeRequest } from '../../controllers/dtos/organization-me/request-fiscal-change.request';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
+import { OrganizationActivityEntity } from '@config/db/entities/user/organization_activity.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from '../../controllers/const/organization.filters';
 import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
@@ -60,6 +61,10 @@ export interface IOrganizationService {
   getMyOrganization(userUuid: string): Promise<OrganizationEntity>;
   getOrgRequestView(organizationUuid: string): Promise<OrgRequestView>;
   getOrgRequestViews(organizationUuids: string[]): Promise<Map<string, OrgRequestView>>;
+  countFiscalDocumentsByOrganizationUuids(
+    organizationUuids: string[]
+  ): Promise<Map<string, number>>;
+  listOrganizationActivity(organizationUuid: string): Promise<OrganizationActivityEntity[]>;
   updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity>;
   submitMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
   withdrawMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;

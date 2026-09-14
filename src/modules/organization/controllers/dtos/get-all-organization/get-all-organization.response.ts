@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ORGANIZATION_FISCAL_MIN_DOCS,
   ORGANIZATION_TAX_CONDITIONS,
   ORGANIZATION_VALIDATION_STATUSES,
+  isValidCbu,
   organizationStatusName,
   type OrganizationTaxCondition,
   type OrganizationValidationStatus
@@ -135,7 +137,23 @@ export class GetAllOrganizationResponse {
   @ApiPropertyOptional({ type: OrganizationListOwnerResponse, nullable: true })
   owner: OrganizationListOwnerResponse | null;
 
-  constructor(data: TOrganizationResponseWithUserOrganizations, requests: OrgRequestView = {}) {
+  @ApiProperty({ description: 'Identidad fiscal completa (nombre, CUIT, contacto, etc.).' })
+  identityComplete: boolean;
+
+  @ApiProperty({ description: 'Datos bancarios completos (banco, CBU válido, alias).' })
+  bankComplete: boolean;
+
+  @ApiProperty({ description: 'Cantidad de archivos de constancia activos.' })
+  docsCount: number;
+
+  @ApiProperty({ description: 'Constancia de inscripción con el mínimo requerido.' })
+  docsComplete: boolean;
+
+  constructor(
+    data: TOrganizationResponseWithUserOrganizations,
+    requests: OrgRequestView = {},
+    docsCount = 0
+  ) {
     const pendingBank = requests.pendingBank ?? null;
     const pendingFiscal = requests.pendingFiscal ?? null;
     const bankPayload =
@@ -176,6 +194,20 @@ export class GetAllOrganizationResponse {
     this.createdAt = data.createdAt;
     this.validationSubmittedAt = data.validationSubmittedAt ?? null;
     this.validationResolvedAt = data.validationResolvedAt ?? null;
+
+    this.identityComplete = Boolean(
+      data.name?.trim() &&
+        data.legalName?.trim() &&
+        data.taxId?.trim() &&
+        data.taxCondition &&
+        data.contactEmail?.trim() &&
+        data.contactPhone?.trim()
+    );
+    this.bankComplete = Boolean(
+      data.bankName?.trim() && isValidCbu(data.cbu ?? '') && data.bankAlias?.trim()
+    );
+    this.docsCount = docsCount;
+    this.docsComplete = docsCount >= ORGANIZATION_FISCAL_MIN_DOCS;
 
     const firstMembership = data.userOrganizations?.[0];
     const user = firstMembership?.user as

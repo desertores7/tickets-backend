@@ -472,6 +472,10 @@ export const entityRelations = {
     organization: 'organization'
   },
 
+  organization_activity: {
+    organization: 'organization'
+  },
+
   user_event_cashier: {
     user: 'user',
     event: 'event',
