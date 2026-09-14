@@ -1,6 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { TUserLoginAuthResponse } from '@modules/auth/services/contracts/iauth.service';
+import { LoginAuthResponse } from './login-auth.response';
 
-export class ValidateEmailResponse {
+/**
+ * Verificación de email + sesión lista para entrar al panel
+ * (mismo contrato de tokens que el login, sin pedir contraseña otra vez).
+ */
+export class ValidateEmailResponse extends LoginAuthResponse {
   @ApiProperty()
   verified: boolean;
 
@@ -10,7 +16,13 @@ export class ValidateEmailResponse {
   @ApiProperty()
   message: string;
 
-  constructor(verified: boolean, alreadyVerified: boolean, message: string) {
+  constructor(
+    verified: boolean,
+    alreadyVerified: boolean,
+    message: string,
+    session: TUserLoginAuthResponse
+  ) {
+    super(session);
     this.verified = verified;
     this.alreadyVerified = alreadyVerified;
     this.message = message;

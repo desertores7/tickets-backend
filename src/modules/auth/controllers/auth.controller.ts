@@ -310,7 +310,8 @@ export class AuthController {
   @ApiOperation({
     summary: 'Validar email',
     description:
-      'Validates the user email using the token from the registration email link. Returns whether it was verified, already verified, or invalid.'
+      'Valida el email con el token del mail de registro y emite sesión (access/refresh) para entrar al panel sin volver a pedir contraseña. ' +
+      'Si el correo ya estaba verificado y el enlace sigue vigente, también emite sesión.'
   })
   @Swagger(ValidateEmailRequest, ValidateEmailResponse)
   @HttpCode(200)
@@ -318,7 +319,12 @@ export class AuthController {
   @Post('validate-email')
   async validateEmail(@Body() request: ValidateEmailRequest): Promise<ValidateEmailResponse> {
     const result = await this.authService.validateEmailAuth(request.token);
-    return new ValidateEmailResponse(result.verified, result.alreadyVerified, result.message);
+    return new ValidateEmailResponse(
+      result.verified,
+      result.alreadyVerified,
+      result.message,
+      result.session
+    );
   }
 
   @ApiOperation({
