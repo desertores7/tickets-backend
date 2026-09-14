@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TicketStatus } from '@config/db/entities/tickets/ticket.entity';
+import { RefundRequestStatus } from '@config/db/entities/tickets/refund_request.entity';
 
 export interface GetTicketEventData {
   uuid: string;
@@ -29,6 +30,8 @@ export interface GetTicketData {
   qrUrl: string | null;
   pdfUrl: string | null;
   qrCode: string | null;
+  /** Reembolso activo sobre esta entrada, si lo hay. */
+  refundStatus: RefundRequestStatus | null;
   checkedInAt: Date | null;
   event: GetTicketEventData;
   ticketType: GetTicketTypeData;
@@ -85,6 +88,12 @@ export class GetTicketResponse {
   @ApiProperty({ nullable: true, example: 'https://api.example.com/static/tickets/qr/uuid.png' }) qrUrl: string | null;
   @ApiProperty({ nullable: true, example: 'https://api.example.com/static/tickets/pdf/uuid.pdf' }) pdfUrl: string | null;
   @ApiProperty({ nullable: true, description: 'Token QR firmado con HMAC-SHA256 (base64url.base64url)' }) qrCode: string | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Reembolso activo sobre esta entrada. Con uno en curso, la entrada no sirve en la puerta.'
+  })
+  refundStatus: RefundRequestStatus | null;
+
   @ApiPropertyOptional({ nullable: true }) checkedInAt: Date | null;
   @ApiProperty({ type: TicketEventResponse }) event: TicketEventResponse;
   @ApiProperty({ type: TicketTypeResponse }) ticketType: TicketTypeResponse;
@@ -98,6 +107,7 @@ export class GetTicketResponse {
     this.qrUrl = data.qrUrl;
     this.pdfUrl = data.pdfUrl;
     this.qrCode = data.qrCode;
+    this.refundStatus = data.refundStatus ?? null;
     this.checkedInAt = data.checkedInAt;
     this.event = new TicketEventResponse(data.event);
     this.ticketType = new TicketTypeResponse(data.ticketType);

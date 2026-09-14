@@ -22,7 +22,7 @@
     "migration:revert": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:revert -d src/config/db/data-source.ts",
     "migration:show": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:show -d src/config/db/data-source.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "test": "jest",
+    "test": "jest --forceExit",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",

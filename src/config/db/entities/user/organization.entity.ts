@@ -23,8 +23,23 @@ export class OrganizationEntity {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  /**
+   * Bandera de suspensión (`BR-PROD-006`). En 0 la productora no opera: sus
+   * eventos salen de los listados públicos y no se le vende. Los tickets ya
+   * vendidos siguen siendo válidos.
+   */
   @Column({ default: 1 })
   active: number;
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true, default: null })
+  suspendedAt: Date | null;
+
+  /** Motivo interno. Nunca se le muestra al público. */
+  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
+  suspensionReason: string | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  suspendedByUuid: string | null;
 
   @Column({ type: 'varchar', length: 36 })
   organizationStatusUuid: string;

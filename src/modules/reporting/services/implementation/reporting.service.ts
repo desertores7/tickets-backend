@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
+import { StorageService } from '@root/shared/services/storage.service';
 import { OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
@@ -13,6 +14,7 @@ import {
   IReportingService,
   ISaleDetail,
   ISaleDetailItem,
+  ISaleTicket,
   ISalesFilters,
   ISalesRow
 } from '../contracts/ireporting.service';
@@ -34,7 +36,8 @@ export class ReportingService implements IReportingService {
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly dataSource: DataSource,
-    @Inject('IEventCashService') private readonly eventCashService: IEventCashService
+    @Inject('IEventCashService') private readonly eventCashService: IEventCashService,
+    private readonly storageService: StorageService
   ) {}
 
   // ── Ventas (BR-REPORT-002) ──────────────────────────────────────────────────
@@ -127,7 +130,9 @@ export class ReportingService implements IReportingService {
         'tt.name AS ticketTypeName',
         'oi.quantity AS quantity',
         'oi.unitPrice AS unitPrice',
-        'oi.subtotal AS subtotal'
+        'oi.subtotal AS subtotal',
+        `(SELECT COUNT(*) FROM ticket t
+           WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded') AS refundedQuantity`
       ])
       .from('order_item', 'oi')
       .innerJoin('ticket_type', 'tt', 'tt.uuid = oi.ticketTypeUuid')
@@ -139,8 +144,64 @@ export class ReportingService implements IReportingService {
       ticketTypeName: String(r.ticketTypeName),
       quantity: Number(r.quantity),
       unitPrice: Number(r.unitPrice),
-      subtotal: Number(r.subtotal)
+      subtotal: Number(r.subtotal),
+      refundedQuantity: Number(r.refundedQuantity ?? 0)
     }));
+
+    // Las entradas una por una. El detalle agrupa por tanda para mostrar
+    // precios, pero para operar sobre una entrada concreta —regenerar su QR
+    // cuando el PDF quedó roto— hace falta la fila individual.
+    const ticketRows = await this.dataSource
+      .createQueryBuilder()
+      .select([
+        't.uuid AS uuid',
+        't.ticketNumber AS ticketNumber',
+        't.status AS status',
+        't.qrUrl AS qrUrl',
+        't.pdfUrl AS pdfUrl',
+        'tt.name AS ticketTypeName'
+      ])
+      .addSelect(
+        `(SELECT rr.status FROM refund_request_ticket rrt
+            INNER JOIN refund_request rr ON rr.uuid = rrt.refundRequestUuid
+           WHERE rrt.ticketUuid = t.uuid
+             AND rr.status IN ('pending','approved','processing','refunded')
+           LIMIT 1)`,
+        'refundStatus'
+      )
+      .from('ticket', 't')
+      .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')
+      .innerJoin('ticket_type', 'tt', 'tt.uuid = t.ticketTypeUuid')
+      .where('oi.orderUuid = :orderUuid', { orderUuid })
+      .orderBy('t.createdAt', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+
+    const ticketsDetalle: ISaleTicket[] = await Promise.all(
+      ticketRows.map(async r => {
+        const uuid = String(r.uuid);
+        const pdfEnBase = (r.pdfUrl as string | null) ?? null;
+
+        // Un `stat` por entrada. Son pocas por orden y es la única forma de
+        // distinguir "todavía no se generó" de "la base dice que sí y el
+        // archivo no está", que es el caso que hay que reparar.
+        const pdfDisponible = pdfEnBase
+          ? await this.storageService.fileExists(
+              this.storageService.resolveAbsolutePath('tickets/pdf', `${uuid}.pdf`)
+            )
+          : false;
+
+        return {
+          uuid,
+          ticketNumber: String(r.ticketNumber),
+          ticketTypeName: String(r.ticketTypeName),
+          status: String(r.status),
+          qrUrl: this.storageService.toPublicUrl(r.qrUrl as string | null),
+          pdfUrl: this.storageService.toPublicUrl(pdfEnBase),
+          pdfDisponible,
+          refundStatus: (r.refundStatus as string | null) ?? null
+        };
+      })
+    );
 
     const isAdmin = role === 'Administrador';
 
@@ -164,7 +225,9 @@ export class ReportingService implements IReportingService {
       eventVenueName: raw.eventVenueName ?? null,
       eventVenueCity: raw.eventVenueCity ?? null,
       items,
+      tickets: ticketsDetalle,
       ticketsCount: items.reduce((sum, i) => sum + i.quantity, 0),
+      ticketsRefunded: items.reduce((sum, i) => sum + i.refundedQuantity, 0),
       ticketsAmount: this.round(items.reduce((sum, i) => sum + i.subtotal, 0)),
       // El costo de servicio solo se expone al Administrador (BR-REPORT-001)
       ...(isAdmin ? { serviceFee: Number(raw.serviceFee ?? 0), total: Number(raw.total ?? 0) } : {})
@@ -217,7 +280,13 @@ export class ReportingService implements IReportingService {
         'e.name AS eventName',
         'tt.name AS ticketTypeName',
         'oi.quantity AS quantity',
-        'oi.subtotal AS amount'
+        'oi.subtotal AS amount',
+        // Cuántas entradas de ESTA tanda en ESTA orden volvieron. `orders.status`
+        // no lo cuenta: una orden con un reembolso parcial sigue siendo `paid`
+        // —y está bien, porque se cobró—, pero sin este dato el backoffice ve
+        // "Pagada" en una venta que ya se devolvió entera.
+        `(SELECT COUNT(*) FROM ticket t
+           WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded') AS refundedQuantity`
       ])
       .from('order_item', 'oi')
       .innerJoin('orders', 'o', 'o.uuid = oi.orderUuid')
@@ -266,7 +335,8 @@ export class ReportingService implements IReportingService {
       amount: Number(raw.amount),
       currency: String(raw.currency ?? 'ARS'),
       purchasedAt: new Date(raw.purchasedAt as string),
-      status: String(raw.status)
+      status: String(raw.status),
+      refundedQuantity: Number(raw.refundedQuantity ?? 0)
     };
   }
 

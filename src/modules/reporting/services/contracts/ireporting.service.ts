@@ -34,6 +34,8 @@ export interface ISalesRow {
   currency: string;
   purchasedAt: Date;
   status: string;
+  /** Entradas de este renglón ya reembolsadas. 0 = ninguna. */
+  refundedQuantity: number;
 }
 
 /** Renglon del detalle de una venta: una tanda comprada. */
@@ -43,6 +45,28 @@ export interface ISaleDetailItem {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  /** Entradas de esta tanda ya reembolsadas. */
+  refundedQuantity: number;
+}
+
+/** Una entrada concreta de la orden. */
+export interface ISaleTicket {
+  uuid: string;
+  ticketNumber: string;
+  ticketTypeName: string;
+  status: string;
+  qrUrl: string | null;
+  pdfUrl: string | null;
+  /**
+   * El PDF existe **en el disco**, no solo en la base.
+   *
+   * La fila puede figurar generada y el archivo no estar: ahí la descarga
+   * devuelve 404 y la entrada hay que regenerarla. Mirar `pdfUrl` no alcanza
+   * para detectarlo, que es justo el caso que interesa al operar.
+   */
+  pdfDisponible: boolean;
+  /** Reembolso activo sobre esta entrada, si lo hay. */
+  refundStatus: string | null;
 }
 
 /**
@@ -72,7 +96,11 @@ export interface ISaleDetail {
   eventVenueName: string | null;
   eventVenueCity: string | null;
   items: ISaleDetailItem[];
+  /** Las entradas una por una, para operar sobre cada una (regenerar QR/PDF). */
+  tickets: ISaleTicket[];
   ticketsCount: number;
+  /** Entradas de la orden ya reembolsadas. */
+  ticketsRefunded: number;
   ticketsAmount: number;
   serviceFee?: number;
   total?: number;

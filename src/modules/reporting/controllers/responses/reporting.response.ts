@@ -6,6 +6,7 @@ import {
   IEventDashboard,
   ISaleDetail,
   ISaleDetailItem,
+  ISaleTicket,
   ISalesRow
 } from '../../services/contracts/ireporting.service';
 
@@ -29,6 +30,14 @@ export class SalesRowResponse {
   @ApiProperty() purchasedAt: Date;
   @ApiProperty({ example: 'paid' }) status: string;
 
+  @ApiProperty({
+    description:
+      'Entradas de este renglón ya reembolsadas. `status` sigue siendo `paid` en una orden con ' +
+      'reembolso parcial: el cobro existió. Este número es el que dice cuánto volvió.',
+    example: 0
+  })
+  refundedQuantity: number;
+
   constructor(data: ISalesRow) {
     this.orderUuid = data.orderUuid;
     this.orderNumber = data.orderNumber;
@@ -42,6 +51,7 @@ export class SalesRowResponse {
     this.currency = data.currency;
     this.purchasedAt = data.purchasedAt;
     this.status = data.status;
+    this.refundedQuantity = data.refundedQuantity;
   }
 }
 
@@ -51,6 +61,7 @@ export class SaleDetailItemResponse {
   @ApiProperty() quantity: number;
   @ApiProperty() unitPrice: number;
   @ApiProperty() subtotal: number;
+  @ApiProperty({ description: 'Entradas de esta tanda ya reembolsadas.' }) refundedQuantity: number;
 
   constructor(data: ISaleDetailItem) {
     this.ticketTypeUuid = data.ticketTypeUuid;
@@ -58,6 +69,36 @@ export class SaleDetailItemResponse {
     this.quantity = data.quantity;
     this.unitPrice = data.unitPrice;
     this.subtotal = data.subtotal;
+    this.refundedQuantity = data.refundedQuantity;
+  }
+}
+
+export class SaleTicketResponse {
+  @ApiProperty() uuid: string;
+  @ApiProperty({ example: 'TKT-1789243917576-5B299D3B' }) ticketNumber: string;
+  @ApiProperty({ example: 'Preventa 1' }) ticketTypeName: string;
+  @ApiProperty({ example: 'active' }) status: string;
+  @ApiProperty({ nullable: true }) qrUrl: string | null;
+  @ApiProperty({ nullable: true }) pdfUrl: string | null;
+
+  @ApiProperty({
+    description:
+      'El PDF existe en el disco, no solo en la base. En `false` con `pdfUrl` cargada, la entrada ' +
+      'está rota y hay que regenerarla.'
+  })
+  pdfDisponible: boolean;
+
+  @ApiProperty({ nullable: true }) refundStatus: string | null;
+
+  constructor(data: ISaleTicket) {
+    this.uuid = data.uuid;
+    this.ticketNumber = data.ticketNumber;
+    this.ticketTypeName = data.ticketTypeName;
+    this.status = data.status;
+    this.qrUrl = data.qrUrl;
+    this.pdfUrl = data.pdfUrl;
+    this.pdfDisponible = data.pdfDisponible;
+    this.refundStatus = data.refundStatus;
   }
 }
 
@@ -81,7 +122,17 @@ export class SaleDetailResponse {
   @ApiProperty({ nullable: true }) eventVenueName: string | null;
   @ApiProperty({ nullable: true }) eventVenueCity: string | null;
   @ApiProperty({ type: [SaleDetailItemResponse] }) items: SaleDetailItemResponse[];
+  @ApiProperty({ type: [SaleTicketResponse], description: 'Las entradas una por una.' })
+  tickets: SaleTicketResponse[];
+
   @ApiProperty() ticketsCount: number;
+
+  @ApiProperty({
+    description:
+      'Entradas de la orden ya reembolsadas. `status` sigue en `paid` con un reembolso parcial.',
+    example: 0
+  })
+  ticketsRefunded: number;
 
   @ApiProperty({
     description: 'Valor de las entradas SIN costo de servicio (BR-REPORT-001)',
@@ -115,7 +166,9 @@ export class SaleDetailResponse {
     this.eventVenueName = data.eventVenueName;
     this.eventVenueCity = data.eventVenueCity;
     this.items = data.items.map(i => new SaleDetailItemResponse(i));
+    this.tickets = (data.tickets ?? []).map(t => new SaleTicketResponse(t));
     this.ticketsCount = data.ticketsCount;
+    this.ticketsRefunded = data.ticketsRefunded;
     this.ticketsAmount = data.ticketsAmount;
     if (data.serviceFee !== undefined) this.serviceFee = data.serviceFee;
     if (data.total !== undefined) this.total = data.total;

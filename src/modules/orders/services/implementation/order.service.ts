@@ -90,7 +90,8 @@ export class OrderService implements IOrderService {
     // 1. Validate event
     const event = await this.dbRepository.findOne({
       entity: 'event',
-      where: { uuid: dto.eventUuid }
+      where: { uuid: dto.eventUuid },
+      relations: { organization: true }
     });
 
     if (!event) {
@@ -98,6 +99,12 @@ export class OrderService implements IOrderService {
     }
 
     if (!event.isPublished || !event.isActive) {
+      throw new UnprocessableEntityException('El evento no está disponible para la venta');
+    }
+
+    // `BR-PROD-006`: productora suspendida, venta cortada en todos sus eventos.
+    // Las órdenes ya creadas se dejan terminar de pagar; vencen solas.
+    if (event.organization && event.organization.active === 0) {
       throw new UnprocessableEntityException('El evento no está disponible para la venta');
     }
 

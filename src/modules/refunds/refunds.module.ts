@@ -7,6 +7,8 @@ import { EnvModule } from '@config/env/env.module';
 import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
+import { UserNotificationService } from '@modules/notifications/services/implementation/user-notification.service';
 import { RefundService } from './services/implementation/refund.service';
 import { ProcessRefundQueueProcessor } from './processors/process-refund-queue.processor';
 
@@ -33,6 +35,11 @@ const REFUND_QUEUE_INTERVAL_MS = 15 * 60 * 1000;
     { provide: 'IRefundService', useClass: RefundService },
     EmailService,
     UserPermissionService,
+    // Este módulo arma su propio `RefundService`, así que tiene que proveer
+    // todo lo que el servicio inyecta — no alcanza con que esté en
+    // ServiceModule. El aviso al Admin por reembolso fallido sale de acá.
+    AdminNotifierService,
+    { provide: 'IUserNotificationService', useClass: UserNotificationService },
     ProcessRefundQueueProcessor
   ],
   exports: [{ provide: 'IRefundService', useClass: RefundService }]

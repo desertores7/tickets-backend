@@ -54,7 +54,20 @@ export class NotificationEmailService {
       host,
       port,
       secure,
-      auth: { user, pass: password }
+      auth: { user, pass: password },
+      /**
+       * ⚠️ TEMPORAL — el certificado del SMTP está vencido.
+       *
+       * Con validación, todo email con entradas adjuntas fallaba con
+       * `certificate has expired` y el comprador no recibía sus tickets. El
+       * otro servicio de correo (`EmailService`, que manda login y reembolsos)
+       * ya venía con esto puesto, y por eso esos sí llegaban.
+       *
+       * Desactivar la validación deja la conexión SMTP expuesta a que alguien
+       * se interponga, con las credenciales viajando ahí. **Sacar apenas se
+       * renueve el certificado**, en los dos servicios a la vez.
+       */
+      tls: { rejectUnauthorized: false }
     });
 
     return this.transporter;

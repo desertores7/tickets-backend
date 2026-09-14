@@ -18,7 +18,11 @@ const CLEANUP_GRACE_DAYS = 30;
   imports: [
     DBModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.TICKETS }),
-    BullModule.registerQueue({ name: QUEUE_NAMES.MAINTENANCE })
+    BullModule.registerQueue({ name: QUEUE_NAMES.MAINTENANCE }),
+    // `generate-qr` encola el email de la orden cuando termina la última
+    // entrada: la cola se declara acá para no depender de que otro módulo la
+    // haya registrado antes.
+    BullModule.registerQueue({ name: QUEUE_NAMES.NOTIFICATIONS })
   ],
   controllers: [TicketController, AdminTicketController],
   providers: [QrSigningService, QrImageService, PdfTicketService, GenerateQrProcessor, CleanupExpiredAssetsProcessor, RoleGuard],

@@ -2,6 +2,10 @@
 # No reconstruye otros servicios del mismo docker-compose.yml.
 # Se dispara al mergear un PR a main (push a main) o manualmente.
 #
+# El deploy está detrás de un job de verificación: si los tests o el compilador
+# fallan, no se toca el servidor. Antes el push a main entraba directo a
+# producción y el primer aviso de que algo estaba roto era la API caída.
+#
 # Secret DEPLOY_PATH = directorio del docker-compose.yml, ej. /docker/showpass
 # (NO pongas .../showpass-api/tickets-backend ahí)
 
@@ -18,8 +22,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Tests y compilación
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Misma versión que usa el Dockerfile: que CI y la imagen resuelvan
+          # las dependencias igual.
+          version: 10.12.1
+
+      - name: Instalar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # `jest --forceExit` (ver package.json): si el grafo de dependencias falla,
+      # `app.module.spec.ts` no llega a cerrar el contenedor y las colas de
+      # BullMQ quedan reintentando contra Redis. Sin esa bandera el job se
+      # cuelga hasta el timeout en vez de fallar con el error a la vista.
+      - name: Tests
+        run: pnpm test
+
+      # `tsc --noEmit` sobre todo el proyecto, tests incluidos: los specs no
+      # entran en el build de Nest, así que un spec roto solo aparece acá.
+      - name: Verificar tipos
+        run: pnpm exec tsc --noEmit
+
+      # El mismo build que corre el servidor. Si falla acá, falla allá — mejor
+      # enterarse antes de bajar el contenedor.
+      - name: Build
+        run: pnpm build
+
   deploy:
     name: SSH → build showpass-api
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
