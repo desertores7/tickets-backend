@@ -617,7 +617,7 @@ export class EventChangeService {
       if (!byEmail.has(email)) {
         byEmail.set(email, {
           email,
-          firstName: user.firstName?.trim() || 'hola'
+          firstName: user.firstName?.trim() || ''
         });
       }
     }

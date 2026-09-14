@@ -536,7 +536,7 @@ export class AuthService implements IAuthService {
     try {
       await this.userNotificationService.create(
         user.uuid,
-        'Bienvenido a ShowPass',
+        'Bienvenido a Showpass',
         'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
       );
     } catch (error) {
@@ -647,7 +647,7 @@ export class AuthService implements IAuthService {
     try {
       await this.userNotificationService.create(
         user.uuid,
-        'Bienvenido a ShowPass',
+        'Bienvenido a Showpass',
         'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
       );
     } catch (error) {
@@ -724,6 +724,16 @@ export class AuthService implements IAuthService {
       });
     } catch (error) {
       console.error('Failed to send producer registration email:', error);
+    }
+
+    try {
+      await this.userNotificationService.create(
+        user.uuid,
+        'Bienvenido a Showpass',
+        'Tu cuenta de productora ya está creada. Completá la validación fiscal para publicar eventos y gestionar tus ventas.'
+      );
+    } catch (error) {
+      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
     }
 
     return { email: request.email, uuid: user.uuid, organizationUuid: org.uuid };
@@ -907,18 +917,21 @@ export class AuthService implements IAuthService {
     });
   }
 
+  /**
+   * Comprueba que el código de recupero sea válido y vigente, sin consumirlo.
+   * El consumo ocurre en `resetPassword` al cambiar la contraseña.
+   */
+  async verifyResetPasswordCode(email: string, code: string): Promise<{ valid: true }> {
+    const reset = await this.findValidPasswordResetCode(email, code);
+    if (!reset) {
+      throw new BadRequestException('Código inválido o expirado');
+    }
+    return { valid: true };
+  }
+
   async resetPassword(email: string, password: string, code: string): Promise<void> {
     const normalizedEmail = email.trim();
-    const reset = await this.dbRepository.findOne({
-      entity: 'user_password_reset',
-      where: {
-        email: normalizedEmail,
-        code: code.trim(),
-        isUsed: false,
-        expiresAt: MoreThan(new Date())
-      },
-      other: { order: { createdAt: 'DESC' } }
-    });
+    const reset = await this.findValidPasswordResetCode(normalizedEmail, code);
 
     if (!reset) {
       throw new BadRequestException('Código inválido o expirado');
@@ -943,6 +956,31 @@ export class AuthService implements IAuthService {
       entity: 'user_password_reset',
       where: { uuid: reset.uuid },
       data: { isUsed: true }
+    });
+
+    try {
+      await this.emailService.initializeSmtp();
+      await this.emailService.sendPasswordResetSuccessEmail({
+        firstName: user.firstName || user.username || 'Usuario',
+        email: user.email
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudo enviar confirmación de reset a ${user.email}: ${(error as Error).message}`
+      );
+    }
+  }
+
+  private async findValidPasswordResetCode(email: string, code: string) {
+    return this.dbRepository.findOne({
+      entity: 'user_password_reset',
+      where: {
+        email: email.trim(),
+        code: code.trim(),
+        isUsed: false,
+        expiresAt: MoreThan(new Date())
+      },
+      other: { order: { createdAt: 'DESC' } }
     });
   }
 
