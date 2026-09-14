@@ -1,0 +1,45 @@
+{{!-- admin-alert: aviso interno a administradores (productoras, etc.) --}}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>{{title}}</title>
+{{> styles}}
+</head>
+<body class="body" style="margin:0; padding:0; background-color:#050409; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">{{preheader}}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#050409;">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+
+        <table role="presentation" class="email-container" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px; max-width:560px; background-color:#0d0b12; border-radius:14px; overflow:hidden;">
+
+          {{> header}}
+
+          <tr>
+            <td class="px" style="padding:34px 40px;">
+              <p style="margin:0 0 10px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; line-height:1.6; color:#a8a4b3;">Hola, {{firstName}}</p>
+
+              <h1 class="h1" style="margin:0 0 18px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:26px; font-weight:800; line-height:1.15; color:#ffffff; letter-spacing:-0.2px; text-transform:uppercase;">{{title}}</h1>
+
+              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">{{body}}</p>
+
+              {{> button url=actionUrl label=actionLabel}}
+
+              {{> fallback-link url=actionUrl}}
+            </td>
+          </tr>
+
+          {{#> footer}}Recibiste este correo porque sos administrador de {{appName}}.{{/footer}}
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

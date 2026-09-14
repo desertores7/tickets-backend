@@ -1,10 +1,15 @@
 /**
  * Prompt ÚNICO de análisis de mapa de venta: flyer/plano → layout abstracto.
  *
- * Reemplaza a map-replicate.prompt.ts (que pedía geometría x/y normalizada).
- * Ese enfoque quedó obsoleto: el modelo estima mal coordenadas y el frontend
- * ya genera la geometría a partir de esta estructura semántica
- * (grupos + labels + rangos de categoría).
+ * Reemplaza a map-replicate.prompt.ts, que pedía el polígono exacto de cada
+ * sector: el modelo estima mal contornos y el frontend dibuja mejor a partir de
+ * la estructura semántica (grupos + labels + rangos de categoría).
+ *
+ * Lo que sí se le pide es un `box` por grupo — el rectángulo que ocupa en la
+ * imagen. No es geometría de dibujo: es la referencia con la que el backend
+ * deriva position / lane / stackOrder en map-spatial-layout.ts. Ubicar un
+ * rectángulo grueso es algo que el modelo hace bien; elegir entre nueve
+ * casilleros semánticos, no, y ahí es donde se desordenaban los mapas.
  *
  * Consumido por: EventAiService.analyzeSalesMap → normalizeMapLayout.
  * Si cambiás nombres de campos acá, actualizá map-layout-normalizer.ts,
@@ -13,7 +18,8 @@
 export const MAP_LAYOUT_SYSTEM_PROMPT = `You convert an event venue flyer into an ABSTRACT STRUCTURED LAYOUT for an interactive ticket map.
 
 Return ONLY valid JSON. No markdown, no comments, no explanations, no trailing text.
-Do NOT return x/y/width/height coordinates: the frontend generates the geometry from this structure.
+
+Every group carries a "box": the normalized rectangle it occupies IN THE IMAGE. The backend derives the final geometry from those rectangles. Do not try to draw the map — measure it.
 
 ===========================
 SCOPE OF THE IMAGE
@@ -68,7 +74,9 @@ OUTPUT
     "alignment": "start" | "center" | "end" | null,
     "inferred": boolean,
     "confidence": number,
-    "outline": null
+    "outline": null,
+    "box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 } | null,
+    "entranceAt": "top" | "bottom" | "left" | "right" | null
   },
 
   "categories": [
@@ -94,6 +102,7 @@ OUTPUT
         "id": string,
         "elementType": "table" | "box" | "palco" | "seat" | "zone" | "section",
         "layoutType": "column" | "row" | "grid" | "zone" | "freeform",
+        "box": { "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1 },   // REQUIRED — see section A0
         "position": "top_left" | "top_center" | "top_right" | "left" | "center" | "right" | "bottom_left" | "bottom_center" | "bottom_right",
         "lane": number | null,
         "stackOrder": number | null,
@@ -134,6 +143,22 @@ OUTPUT
     ]
   }
 }
+
+A0. "box" IS THE MOST IMPORTANT FIELD OF EVERY GROUP. READ THIS TWICE.
+
+"box" is where the group actually sits IN THE IMAGE YOU ARE LOOKING AT:
+- x = left edge / image width, y = top edge / image height (y = 0 is the TOP of the image)
+- w = width / image width, h = height / image height
+- the rectangle must cover the whole group: from the first label to the last one, including every label in between
+
+Measure it against the WHOLE image, not against the map area, and give it for EVERY group — grids, side columns, bottom rows, general/campo zones. Three decimals is enough (0.084, not 0.0843921).
+
+The backend recomputes "position", "lane", "stackOrder", "widthWeight" and "heightWeight" from these rectangles and OVERWRITES whatever you put in those fields. So:
+- Never omit "box" to save effort. A group without it makes the whole map fall back to your guesses, which is exactly how maps come out with the right numbers in the wrong places.
+- Never adjust "box" to match the position you chose. If they disagree, the rectangle is right and the position is wrong.
+- Two groups one ON TOP OF the other have the SAME x and DIFFERENT y. Two groups SIDE BY SIDE have the SAME y and DIFFERENT x. This is the single most frequent mistake: a column of tables 1..6 with another column 11..14 UNDERNEATH it (often separated by a BARRA, a staircase or a floor label) is not two parallel columns — same x, larger y. Look again before writing each rectangle.
+
+Still fill "position" / "lane" / "stackOrder" with your best reading: they are the fallback when a box is missing.
 
 GEOMETRY ATTRIBUTES (required — the frontend cannot draw without them):
 - widthWeight / heightWeight: integers 1..10 relative to neighbors.
@@ -248,12 +273,13 @@ freeform = only for genuinely irregular geometry that cannot be described as the
 
 A8. rows/columns only for layoutType = "grid", and rows x columns must equal count.
 
-A9. lane = parallel groups on the SAME side.
+A9. lane = groups that are SIDE BY SIDE on the same side, i.e. their rectangles overlap in Y and are separated in X.
 lane 0 = closest to the center of the venue, higher = progressively outward.
-Example (left side, from center outward): PALCO column = lane 0, BOXES column = lane 1.
-Parallel columns on one side MUST share the same stackOrder (usually 0) and differ ONLY by lane — never stack PALCO above BOXES vertically.
+Example (left side, from center outward): PALCO column drawn at x≈0.20 = lane 0, BOXES column drawn at x≈0.08 = lane 1. Both start and end at roughly the same height.
 
-A10. stackOrder = separate groups stacked vertically in the same position.
+Use a lane ONLY when the two groups are drawn beside each other. Two groups on the same side that share the x range and are separated vertically are the SAME lane with different stackOrder (see A10). Deciding this by the name of the sector ("palcos go outside boxes") instead of by where they are drawn is what breaks these maps.
+
+A10. stackOrder = separate groups stacked vertically in the same position, i.e. their rectangles overlap in X and are separated in Y.
 0 = first/topmost (closer to the stage / main floor), 1 = below it, 2 = below that.
 Example: the table grid is stackOrder 0 in "center", the CAMPO GENERAL zone below it is stackOrder 1 in "center" — NOT in bottom_center.
 
@@ -275,6 +301,10 @@ A14. THE STAGE FIELD IS ABOUT ORIENTATION, NOT ABOUT DRAWING.
 "visible" does NOT mean "a stage is drawn on the flyer". It means "the front of the venue can be determined".
 
 Most flyers never draw a stage: they only show a grid of tables, bars on the sides and a general area. You must still determine the front.
+
+"entranceAt" is the edge where the plan marks ENTRADA / INGRESO / ACCESO / PUERTA, or where the staircase arrives from outside. Fill it whenever it is readable, even when the stage is drawn — it is read from the plan, not deduced, so the backend trusts it over every other cue. The audience comes in at the BACK: the front is the OPPOSITE edge. An ENTRADA at the top means the stage is at the bottom.
+
+Do not default to "stage at the top" because most flyers look that way. If the only orientation mark on the plan is the entrance, the stage is on the other side of it.
 
 Set visible = true and fill "position" whenever ANY of these is readable:
 - the word ESCENARIO / STAGE / SHOW / FRENTE, or a stage-shaped band
@@ -397,7 +427,7 @@ EXAMPLE 1 — grid with color bands, no stage drawn.
 Flyer: a 7 x 5 grid of tables numbered 1..35 with four color bands (rows 1-2 yellow, 3-4 blue, 5-6 red, 7 green), a BARRA on each side, GENERAL below, artist artwork above, and a price footer with four "MESA VIP" blocks.
 
 {
-  "stage": { "visible": true, "position": "top", "alignment": "center", "inferred": true, "confidence": 0.5 },
+  "stage": { "visible": true, "position": "top", "alignment": "center", "inferred": true, "confidence": 0.5, "box": null, "entranceAt": "bottom" },
   "categories": [
     { "id": "mesa-vip-chichero", "label": "Mesa VIP Chichero", "detectedPrice": 1000000, "elementType": "table", "saleMode": "whole_unit", "selectionUnit": "table", "detectedCapacity": null, "includedAdmissions": 8, "confidence": 0.9 },
     { "id": "mesa-vip-saicotonero", "label": "Mesa VIP Saicotonero", "detectedPrice": 800000, "elementType": "table", "saleMode": "whole_unit", "selectionUnit": "table", "detectedCapacity": null, "includedAdmissions": 8, "confidence": 0.9 },
@@ -409,8 +439,9 @@ Flyer: a 7 x 5 grid of tables numbered 1..35 with four color bands (rows 1-2 yel
     "requiresGeometryFallback": false,
     "groups": [
       {
-        "id": "mesas", "elementType": "table", "layoutType": "grid", "position": "center",
-        "lane": null, "stackOrder": 0, "count": 35, "rows": 7, "columns": 5, "ordering": "row_major",
+        "id": "mesas", "elementType": "table", "layoutType": "grid",
+        "box": { "x": 0.28, "y": 0.21, "w": 0.44, "h": 0.38 },
+        "position": "center", "lane": null, "stackOrder": 0, "count": 35, "rows": 7, "columns": 5, "ordering": "row_major",
         "labels": ["1","2","3","4","5","6","...","35"],
         "category": null,
         "categoryAssignments": [
@@ -422,8 +453,9 @@ Flyer: a 7 x 5 grid of tables numbered 1..35 with four color bands (rows 1-2 yel
         "requiresGeometryFallback": false, "confidence": 0.9
       },
       {
-        "id": "general", "elementType": "zone", "layoutType": "zone", "position": "center",
-        "lane": null, "stackOrder": 1, "count": 1, "rows": null, "columns": null, "ordering": null,
+        "id": "general", "elementType": "zone", "layoutType": "zone",
+        "box": { "x": 0.28, "y": 0.61, "w": 0.44, "h": 0.24 },
+        "position": "center", "lane": null, "stackOrder": 1, "count": 1, "rows": null, "columns": null, "ordering": null,
         "labels": ["GENERAL"],
         "category": "general",
         "categoryAssignments": [
@@ -441,16 +473,26 @@ EXAMPLE 2 — sides and lanes (fragment only).
 
 Flyer: stage at the top; grid of tables M1..M50 in the center; CAMPO GENERAL below it; PALCO 1,3,5..23 in a column on the left with BOXES 1,3,5..23 further out; PALCO 2,4..24 and BOXES 2,4..24 mirrored on the right; PALCO 25..30 in a row at the bottom.
 
-Groups (one per visually separated cluster):
-- "mesas-centro": grid, position "center", stackOrder 0, rows 5, columns 10, labels M1..M50, single category → "category": "silla-vip-individual", one rectangular assignment covering rows 1-5, columns 1-10.
-- "campo-general": zone, position "center", stackOrder 1, one label, linear assignment from 0 to 0.
-- "palcos-izquierda": column, position "left", lane 0, labels ["PALCO 1","PALCO 3",...,"PALCO 23"], linear assignment from 0 to 11.
-- "boxes-izquierda": column, position "left", lane 1, labels ["BOXES 1","BOXES 3",...,"BOXES 23"].
-- "palcos-derecha": column, position "right", lane 0, labels ["PALCO 2","PALCO 4",...,"PALCO 24"].
-- "boxes-derecha": column, position "right", lane 1, labels ["BOXES 2","BOXES 4",...,"BOXES 24"].
-- "palcos-abajo": row, position "bottom_center", labels ["PALCO 25",...,"PALCO 30"].
+Groups (one per visually separated cluster), each with the rectangle it occupies in the image:
+- "mesas-centro": grid, box { x 0.30, y 0.18, w 0.40, h 0.34 }, rows 5, columns 10, labels M1..M50, single category → "category": "silla-vip-individual", one rectangular assignment covering rows 1-5, columns 1-10.
+- "campo-general": zone, box { x 0.30, y 0.54, w 0.40, h 0.22 }, one label, linear assignment from 0 to 0. Same x as the grid, larger y → same column, stacked underneath.
+- "palcos-izquierda": column, box { x 0.19, y 0.18, w 0.08, h 0.58 }, labels ["PALCO 1","PALCO 3",...,"PALCO 23"], linear assignment from 0 to 11.
+- "boxes-izquierda": column, box { x 0.08, y 0.18, w 0.08, h 0.58 }, labels ["BOXES 1","BOXES 3",...,"BOXES 23"]. Same y as the palcos, smaller x → beside them, further out.
+- "palcos-derecha": column, box { x 0.73, y 0.18, w 0.08, h 0.58 }, labels ["PALCO 2","PALCO 4",...,"PALCO 24"].
+- "boxes-derecha": column, box { x 0.84, y 0.18, w 0.08, h 0.58 }, labels ["BOXES 2","BOXES 4",...,"BOXES 24"].
+- "palcos-abajo": row, box { x 0.30, y 0.78, w 0.40, h 0.07 }, labels ["PALCO 25",...,"PALCO 30"].
 
 The odd numbers stay on the left and the even numbers on the right. Never merge or renumber them.
+
+EXAMPLE 3 — stacked columns on one side (the case that breaks most often).
+
+Flyer: on the left edge, a column of tables 1..6 from y 0.21 to y 0.45; a BARRA across the same column at y 0.47; below it, tables 11..14 from y 0.50 to y 0.72. Slightly to the right of both, a short column with tables 7 and 8, from y 0.21 to y 0.45.
+
+- "mesas-1-6":   column, box { x 0.08, y 0.21, w 0.09, h 0.24 }, labels ["1","2","3","4","5","6"]
+- "mesas-11-14": column, box { x 0.08, y 0.50, w 0.09, h 0.22 }, labels ["11","12","13","14"]
+- "mesas-7-8":   column, box { x 0.20, y 0.21, w 0.09, h 0.24 }, labels ["7","8"]
+
+1..6 and 11..14 share x and differ in y: SAME lane, stacked — not two parallel columns, even though a BARRA separates them and their numbers are not consecutive. 7..8 shares y with 1..6 and differs in x: a different lane, closer to the centre. The BARRA itself produces no group.
 
 The "..." in these examples is shorthand. In the real answer every label MUST be written out explicitly.
 
@@ -458,6 +500,9 @@ The "..." in these examples is shorthand. In the real answer every label MUST be
 F. FINAL CHECKLIST (run before returning)
 ===========================
 
+- EVERY group has a "box", measured on the image, covering all of its labels
+- groups drawn one under the other share x and differ in y; groups drawn side by side share y and differ in x
+- "entranceAt" is set if the plan marks an entrance, and the stage is NOT on that same edge
 - every visible purchasable unit from the inventory is present in some group
 - no label was invented, renumbered, translated or completed
 - no label appears twice inside the same group

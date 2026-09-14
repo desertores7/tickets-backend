@@ -25,6 +25,7 @@ import {
   MapLayoutWarningCode
 } from '../contracts/ievent-ai.service';
 import { normalizeMapLayout } from './map-layout-normalizer';
+import { applySpatialPlacement } from './map-spatial-layout';
 
 /** Etiqueta legible de un grupo para los mensajes. */
 function describeGroup(group: AiEventMapLayoutGroup): string {
@@ -158,6 +159,32 @@ function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
 }
 
 /**
+ * Grupos sin recuadro en la imagen.
+ *
+ * Sin recuadro no hay derivación espacial, y el mapa vuelve a armarse con el
+ * `position` / `lane` / `stackOrder` que eligió el modelo — que es de donde
+ * salen los mapas con la numeración perfecta y los bloques desordenados. Es una
+ * sola advertencia para todo el mapa: si faltan los recuadros suelen faltar
+ * varios, y N advertencias iguales no dicen más que una.
+ */
+function checkMissingBoxes(result: AnalyzeMapResult): MapLayoutWarning[] {
+  const missing = result.layout.groups.filter(g => !g.box);
+  if (!missing.length) return [];
+
+  const sample = missing.slice(0, 3).map(describeGroup).join(', ');
+  const rest = missing.length > 3 ? ` y ${missing.length - 3} más` : '';
+
+  return [
+    warn(
+      'MISSING_GROUP_BOX',
+      missing.length === 1 ? missing[0]!.id : null,
+      `${missing.length} sector(es) sin recuadro en la imagen (${sample}${rest}): ` +
+        'la ubicación se resolvió sin geometría y el orden de los bloques puede no coincidir con el plano.'
+    )
+  ];
+}
+
+/**
  * Corre todos los cruces sobre el layout ya normalizado.
  *
  * `declaredCounts` es el `count` tal como lo mandó el modelo, por id de grupo:
@@ -185,6 +212,7 @@ export function verifyMapLayout(
 
   warnings.push(...checkCategoriesWithoutGroup(result));
   warnings.push(...checkDuplicateLabels(result));
+  warnings.push(...checkMissingBoxes(result));
 
   return warnings;
 }
@@ -255,15 +283,21 @@ export function mergeRepairedGroups(
   const byId = new Map(normalized.layout.groups.map(g => [g.id, g]));
   let changed = false;
 
-  const groups = original.layout.groups.map(group => {
+  let groups = original.layout.groups.map(group => {
     const fixed = byId.get(group.id);
     if (!fixed) return group;
     byId.delete(group.id);
     changed = true;
-    // La posición en el stack la resolvió el análisis original mirando el plano
-    // entero; la reparación solo vio un recorte del problema.
+    // El recuadro de la reparación vale solo si trae uno: si no, se conserva el
+    // del análisis original, que vio el plano entero.
+    const box = fixed.box ?? group.box;
     return {
       ...fixed,
+      box,
+      // Sin recuadro no hay geometría que mande, y el placement del análisis
+      // original —que miró todo el plano— es mejor que el de la reparación, que
+      // solo vio un recorte del problema. Con recuadro da igual lo que venga
+      // acá: applySpatialPlacement lo recalcula unas líneas más abajo.
       position: group.position,
       lane: group.lane,
       stackOrder: group.stackOrder
@@ -277,6 +311,12 @@ export function mergeRepairedGroups(
   }
 
   if (!changed) return { result: original, changed: false };
+
+  // Un sector agregado o un recuadro que antes faltaba cambian el plano: hay que
+  // rehacer la derivación sobre el conjunto completo, no dejarlo pegado al final
+  // con el placement que haya adivinado la reparación.
+  const spatial = applySpatialPlacement(groups, original.mapArea);
+  if (spatial.applied) groups = spatial.groups;
 
   const categoryIds = new Set(original.categories.map(c => c.id));
   const categories = [

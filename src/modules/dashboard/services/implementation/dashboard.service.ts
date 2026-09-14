@@ -137,17 +137,27 @@ export class DashboardService {
 
   private async buildAdminDashboard(generatedAt: Date): Promise<GetBackofficeDashboardResponse> {
     // Son consultas independientes: en serie el dashboard paga la suma de todas.
-    const [pendingReview, approved, bankChangePending, fiscalChangePending, eventsPublished, aggregates, topRows, pendingOrgs] =
-      await Promise.all([
-        this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.PENDING_REVIEW.uuid }),
-        this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.APPROVED.uuid }),
-        this.countOrganizations({ requestPending: 'bank_change' }),
-        this.countOrganizations({ requestPending: 'fiscal_change' }),
-        this.dbRepository.query(`SELECT COUNT(*) AS cnt FROM event WHERE isActive = 1 AND isPublished = 1`),
-        this.feeSummaryService.aggregatePlatform(),
-        this.feeSummaryService.topEventsPlatform(5),
-        this.listPendingOrganizations(5)
-      ]);
+    const [
+      pendingReview,
+      approved,
+      bankChangePending,
+      fiscalChangePending,
+      eventsPublished,
+      aggregates,
+      refundStats,
+      topRows,
+      pendingOrgs
+    ] = await Promise.all([
+      this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.PENDING_REVIEW.uuid }),
+      this.countOrganizations({ organizationStatusUuid: ORGANIZATION_STATUS.APPROVED.uuid }),
+      this.countOrganizations({ requestPending: 'bank_change' }),
+      this.countOrganizations({ requestPending: 'fiscal_change' }),
+      this.dbRepository.query(`SELECT COUNT(*) AS cnt FROM event WHERE isActive = 1 AND isPublished = 1`),
+      this.feeSummaryService.aggregatePlatform(),
+      this.aggregateRefundStats(),
+      this.feeSummaryService.topEventsPlatform(5),
+      this.listPendingOrganizations(5)
+    ]);
 
     const kpis = new BackofficeAdminKpisResponse({
       organizationsPendingReview: pendingReview,
@@ -158,7 +168,10 @@ export class DashboardService {
       ticketsSold: aggregates.totalTicketsSold,
       ticketRevenue: aggregates.ticketAmount,
       serviceFeeRevenue: aggregates.serviceFeeAmount,
-      grossRevenue: aggregates.grossAmount
+      grossRevenue: aggregates.grossAmount,
+      refundsAmount: refundStats.refundsAmount,
+      refundsOpen: refundStats.refundsOpen,
+      refundsFailed: refundStats.refundsFailed
     });
 
     const sections = new BackofficeAdminSectionsResponse(
@@ -184,19 +197,30 @@ export class DashboardService {
       kpis,
       sections,
       unavailable: [],
-      quickActions: [
-        new BackofficeQuickActionResponse({
-          label: 'Pendientes de revisión',
-          href: '/admin/organizations?validationStatus=pending_review'
-        }),
-        new BackofficeQuickActionResponse({
-          label: 'Cambios de cuenta',
-          href: '/admin/organizations?bankChangePending=true'
-        }),
-        new BackofficeQuickActionResponse({ label: 'Organizaciones', href: '/admin/organizations' }),
-        new BackofficeQuickActionResponse({ label: 'Eventos', href: '/admin/events' })
-      ]
+      // Accesos rápidos viven en el navbar; el dashboard prioriza KPIs.
+      quickActions: []
     });
+  }
+
+  /** Totales de reembolsos para el tablero admin. */
+  private async aggregateRefundStats(): Promise<{
+    refundsAmount: number;
+    refundsOpen: number;
+    refundsFailed: number;
+  }> {
+    const rows = await this.dbRepository.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount ELSE 0 END), 0) AS refundsAmount,
+        COALESCE(SUM(CASE WHEN status IN ('pending', 'approved', 'processing') THEN 1 ELSE 0 END), 0) AS refundsOpen,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS refundsFailed
+      FROM refund_request
+    `);
+    const row = rows?.[0] ?? {};
+    return {
+      refundsAmount: Math.round(Number(row.refundsAmount ?? 0) * 100) / 100,
+      refundsOpen: Number(row.refundsOpen ?? 0),
+      refundsFailed: Number(row.refundsFailed ?? 0)
+    };
   }
 
   private async buildCashierDashboard(

@@ -1,3 +1,4 @@
+import { applySpatialPlacement, oppositeEdge, parseBox } from './map-spatial-layout';
 import type {
   AiEventMapArea,
   AiEventMapCategory,
@@ -263,7 +264,9 @@ function normalizeStage(raw: unknown): AiEventMapStage {
       alignment: null,
       inferred: false,
       confidence: 0.5,
-      outline: null
+      outline: null,
+      box: null,
+      entranceAt: null
     };
   }
   const s = raw as Record<string, unknown>;
@@ -274,7 +277,9 @@ function normalizeStage(raw: unknown): AiEventMapStage {
     alignment: parseStageAlignment(s.alignment),
     inferred: Boolean(s.inferred),
     confidence: round3(clamp01(Number(s.confidence ?? 0.7))),
-    outline: parseOutline(s.outline)
+    outline: parseOutline(s.outline),
+    box: parseBox(s.box),
+    entranceAt: parseStagePosition(s.entranceAt)
   };
 }
 
@@ -956,6 +961,7 @@ function normalizeGroups(
       lane: parseNonNegIntOrNull(g.lane),
       stackOrder: parseNonNegIntOrNull(g.stackOrder),
       outline: parseOutline(g.outline),
+      box: parseBox(g.box),
       cell: parseCell(g.cell),
       containedBy:
         g.containedBy === null || g.containedBy === undefined || g.containedBy === ''
@@ -1041,6 +1047,29 @@ function resolveStage(
   stage: AiEventMapStage,
   groups: AiEventMapLayoutGroup[]
 ): AiEventMapStage {
+  // Escenario dibujado: no se discute.
+  if (stage.visible && stage.position && !stage.inferred) {
+    return { ...stage, alignment: stage.alignment ?? 'center' };
+  }
+
+  // La ENTRADA manda sobre cualquier deducción. El público entra por el fondo,
+  // así que el frente es el borde opuesto — y es un dato leído del plano, no
+  // deducido, a diferencia de "los premium están cerca del escenario". Sin esto
+  // el modelo pone el escenario arriba por costumbre: un plano con la ENTRADA
+  // arriba a la izquierda salió con el ESCENARIO en ese mismo borde, con todo el
+  // mapa dado vuelta.
+  const fromEntrance = oppositeEdge(stage.entranceAt);
+  if (fromEntrance) {
+    return {
+      ...stage,
+      visible: true,
+      position: fromEntrance,
+      alignment: stage.alignment ?? 'center',
+      inferred: true,
+      confidence: round3(Math.min(stage.confidence, 0.6))
+    };
+  }
+
   if (stage.visible && stage.position) {
     return { ...stage, alignment: stage.alignment ?? 'center' };
   }
@@ -1064,12 +1093,12 @@ function resolveStage(
   }
 
   return {
+    ...stage,
     visible: true,
     position: stage.position ?? position,
     alignment: stage.alignment ?? 'center',
     inferred: true,
-    confidence: round3(Math.min(stage.confidence, 0.4)),
-    outline: stage.outline
+    confidence: round3(Math.min(stage.confidence, 0.4))
   };
 }
 
@@ -1381,9 +1410,23 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
     containedBy: g.containedBy && idSet.has(g.containedBy) ? g.containedBy : null
   }));
 
-  groups = relocateMisplacedCampoGeneral(groups);
-  groups = normalizeSideColumnLanes(groups);
-  groups = normalizeStackOrders(groups);
+  const mapArea = parseMapArea(coalesced.mapArea ?? layoutRaw.mapArea);
+
+  // La geometría gana. Cuando todos los grupos traen recuadro, position / lane /
+  // stackOrder salen de medir la imagen y las heurísticas de abajo se saltean
+  // enteras: están para adivinar lo que ahora está medido, y aplicarlas encima
+  // volvería a pisar el orden real (normalizeSideColumnLanes, por ejemplo,
+  // aplasta a stackOrder 0 toda columna de un mismo costado y las manda lado a
+  // lado, que es exactamente el bug que esto corrige).
+  const spatial = applySpatialPlacement(groups, mapArea);
+  if (spatial.applied) {
+    groups = spatial.groups;
+  } else {
+    groups = relocateMisplacedCampoGeneral(groups);
+    groups = normalizeSideColumnLanes(groups);
+    groups = normalizeStackOrders(groups);
+  }
+
   groups = completeSideLNotches(groups);
   groups = inferNestedWrapFromLShape(groups);
   groups = applyParentLFromContainment(groups);
@@ -1392,7 +1435,7 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
   const layoutFallback = anyGroupFallback || Boolean(layoutRaw.requiresGeometryFallback);
 
   return {
-    mapArea: parseMapArea(coalesced.mapArea ?? layoutRaw.mapArea),
+    mapArea,
     stage: resolveStage(rawStage, groups),
     categories,
     layout: {

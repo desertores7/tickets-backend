@@ -37,7 +37,7 @@ OUTPUT
 Rules:
 
 R1. Every object in "groups" must be a COMPLETE group, with every field the
-input groups have (id, elementType, layoutType, position, lane, stackOrder,
+input groups have (id, elementType, layoutType, box, position, lane, stackOrder,
 count, rows, columns, ordering, labels, category, categoryAssignments, shape,
 shapeNotch, labelOrientation, containedBy, containedAt, widthWeight,
 heightWeight, level, requiresGeometryFallback, confidence).
@@ -70,6 +70,15 @@ If both really belong to the same floor, re-read: one of them is misread.
 
 R8. Never change prices, categories or structure that the problems did not
 mention. You are patching, not regenerating.
+
+R9. MISSING BOX (a sector has no rectangle): "box" is where the group sits in the
+image, normalized 0..1 against the WHOLE image — x = left edge / image width,
+y = top edge / image height (y = 0 is the top), w and h its size. The rectangle
+must cover every label of the group. The backend derives the final placement from
+it, so it has to match what you see, not the "position" written in the layout:
+groups drawn one under the other share x and differ in y, groups drawn side by
+side share y and differ in x. Return "box" on every group you return, even when
+the problem was about something else.
 
 Return ONLY valid JSON.`;
 

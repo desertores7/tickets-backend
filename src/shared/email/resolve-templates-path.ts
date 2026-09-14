@@ -28,6 +28,8 @@ export const EMAIL_TEMPLATES = {
   organizationRejected: 'organization-rejected',
   organizationSubmitted: 'organization-submitted',
   producerInvite: 'producer-invite',
+  /** Aviso interno a Administradores (validaciones, cambios fiscales, etc.). */
+  adminAlert: 'admin-alert',
   /** Template de mario: aviso de cambio material a compradores */
   eventMaterialChange: 'event-material-change',
   /** Alias legacy de main (mismo flujo; preferir `eventMaterialChange`) */

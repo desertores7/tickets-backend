@@ -14,6 +14,9 @@ function group(patch: Partial<AiEventMapLayoutGroup> = {}): AiEventMapLayoutGrou
     position: 'center',
     lane: null,
     stackOrder: 0,
+    // Con recuadro por defecto para que los tests de conteo no arrastren además
+    // un MISSING_GROUP_BOX; el caso sin recuadro tiene su propio test.
+    box: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 },
     outline: null,
     cell: null,
     containedBy: null,
@@ -64,7 +67,9 @@ function result(
       alignment: 'center',
       inferred: true,
       confidence: 0.5,
-      outline: null
+      outline: null,
+      box: null,
+      entranceAt: null
     },
     categories,
     layout: { requiresGeometryFallback: false, groups },
@@ -210,6 +215,37 @@ describe('map-layout-verifier', () => {
       const res = result([group({ id: 'a', labels: ['1', '2', '3'] })]);
 
       expect(collectDeclaredCounts(raw, res).get('a')).toBe(4);
+    });
+  });
+
+  describe('geometría', () => {
+    it('avisa cuando un sector llegó sin recuadro', () => {
+      const res = result([
+        group({ id: 'centro', rows: 1, columns: 2, labels: ['1', '2'], count: 2 }),
+        group({
+          id: 'lateral',
+          layoutType: 'column',
+          rows: null,
+          columns: null,
+          labels: ['11', '12'],
+          count: 2,
+          box: null
+        })
+      ]);
+
+      const warnings = verifyMapLayout(res, new Map());
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.code).toBe('MISSING_GROUP_BOX');
+      expect(warnings[0]!.groupId).toBe('lateral');
+    });
+
+    it('no avisa nada cuando todos los sectores traen recuadro', () => {
+      const res = result([
+        group({ id: 'centro', rows: 1, columns: 2, labels: ['1', '2'], count: 2 })
+      ]);
+
+      expect(verifyMapLayout(res, new Map())).toHaveLength(0);
     });
   });
 });
