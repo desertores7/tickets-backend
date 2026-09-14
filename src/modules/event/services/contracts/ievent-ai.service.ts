@@ -130,6 +130,27 @@ export type MapContainedAt =
 
 export type AiEventMapPoint = { x: number; y: number };
 
+/**
+ * Recuadro normalizado 0..1 de un elemento dentro de la imagen.
+ *
+ * Es la ÚNICA fuente de verdad espacial del análisis: `position`, `lane`,
+ * `stackOrder` y los pesos se derivan de acá en el backend
+ * (`map-spatial-layout.ts`), no los decide el modelo. Un modelo que elige
+ * "izquierda / lane 1 / stackOrder 0" está interpretando la imagen dos veces —
+ * primero la mira y después la traduce a un enum de 9 casilleros — y es en esa
+ * segunda traducción donde se pierde el orden real: dos columnas apiladas una
+ * debajo de la otra terminan declaradas como lanes paralelas y el mapa sale
+ * desordenado aunque los números estén todos bien.
+ */
+export type AiEventMapBox = {
+  /** Borde izquierdo, 0..1 sobre el ancho de la imagen. */
+  x: number;
+  /** Borde superior, 0..1 sobre el alto de la imagen (0 = arriba). */
+  y: number;
+  w: number;
+  h: number;
+};
+
 /** Recuadro del plano dentro del flyer, normalizado 0..1. */
 export type AiEventMapArea = {
   x: number;
@@ -159,6 +180,17 @@ export type AiEventMapStage = {
   confidence: number;
   /** Contorno opcional; null → el frontend sintetiza la banda. */
   outline: AiEventMapPoint[] | null;
+  /** Recuadro del escenario en la imagen; null si no estaba dibujado. */
+  box: AiEventMapBox | null;
+  /**
+   * Borde donde el plano marca la ENTRADA / INGRESO / ACCESO.
+   *
+   * Es el ancla de orientación más confiable que existe cuando el escenario no
+   * está dibujado: el público entra por atrás, así que el frente es el borde
+   * opuesto. Sin esto el modelo asume "escenario arriba" por costumbre y da
+   * vuelta el mapa entero.
+   */
+  entranceAt: MapStagePosition | null;
 };
 
 export type AiEventMapCategory = {
@@ -219,6 +251,15 @@ export type AiEventMapLayoutGroup = {
   stackOrder: number | null;
   /** Contorno 0..1 opcional; null → el frontend reparte por pesos. */
   outline: AiEventMapPoint[] | null;
+  /**
+   * Recuadro del grupo en la imagen original, 0..1.
+   *
+   * Lo pide el prompt para TODOS los grupos. Cuando el mapa entero lo trae,
+   * `position` / `lane` / `stackOrder` / pesos se recalculan a partir de estos
+   * recuadros y se descartan los que había mandado el modelo. null solo en
+   * análisis viejos o cuando el modelo lo omitió.
+   */
+  box: AiEventMapBox | null;
   /** Ubicación en grilla de respaldo; null si no aplica. */
   cell: AiEventMapCell | null;
   /** Grupo contenedor visual (anillos / L). */
@@ -274,12 +315,17 @@ export type AiEventMapLayout = {
  * - GRID_SHAPE_MISMATCH: filas × columnas no coincide con los labels de la grilla.
  * - CATEGORY_WITHOUT_GROUP: hay una categoría con precio que no tiene sector.
  * - DUPLICATE_LABEL: dos elementos con el mismo nombre dentro de un mismo nivel.
+ * - MISSING_GROUP_BOX: algún grupo llegó sin recuadro, así que el mapa se armó
+ *   con el placement semántico del modelo en vez de con la geometría. Es la
+ *   advertencia que explica por qué un mapa salió desordenado, y la que dispara
+ *   la reparación para pedir los recuadros faltantes.
  */
 export type MapLayoutWarningCode =
   | 'DECLARED_COUNT_MISMATCH'
   | 'GRID_SHAPE_MISMATCH'
   | 'CATEGORY_WITHOUT_GROUP'
-  | 'DUPLICATE_LABEL';
+  | 'DUPLICATE_LABEL'
+  | 'MISSING_GROUP_BOX';
 
 export type MapLayoutWarning = {
   code: MapLayoutWarningCode;

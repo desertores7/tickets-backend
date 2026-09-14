@@ -124,6 +124,14 @@ export class GetAllOrganizationResponse {
   @ApiPropertyOptional({ type: String, format: 'date-time', nullable: true })
   validationSubmittedAt: Date | null;
 
+  @ApiPropertyOptional({
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    description: 'Fecha en que Admin aprobó o rechazó la validación fiscal.'
+  })
+  validationResolvedAt: Date | null;
+
   @ApiPropertyOptional({ type: OrganizationListOwnerResponse, nullable: true })
   owner: OrganizationListOwnerResponse | null;
 
@@ -167,6 +175,7 @@ export class GetAllOrganizationResponse {
     this.rejectionReason = data.rejectionReason ?? null;
     this.createdAt = data.createdAt;
     this.validationSubmittedAt = data.validationSubmittedAt ?? null;
+    this.validationResolvedAt = data.validationResolvedAt ?? null;
 
     const firstMembership = data.userOrganizations?.[0];
     const user = firstMembership?.user as

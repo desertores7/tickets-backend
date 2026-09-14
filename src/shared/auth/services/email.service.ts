@@ -409,4 +409,35 @@ export class EmailService {
       }
     );
   }
+
+  /** Aviso interno a Administradores (validación / cambio fiscal o bancario). */
+  async sendAdminAlertEmail(data: {
+    firstName: string;
+    email: string;
+    title: string;
+    body: string;
+    actionPath: string;
+    actionLabel: string;
+  }): Promise<void> {
+    const actionUrl = `${this.getFrontendUrl()}${
+      data.actionPath.startsWith('/') ? data.actionPath : `/${data.actionPath}`
+    }`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.adminAlert,
+      {
+        preheader: data.title,
+        firstName: data.firstName,
+        title: data.title,
+        body: data.body,
+        actionUrl,
+        actionLabel: data.actionLabel
+      },
+      {
+        to: data.email,
+        subject: `${data.title} — ${EMAIL_BRAND.appName}`,
+        text: `Hola ${data.firstName}, ${data.title}. ${data.body} Revisá en: ${actionUrl}`
+      }
+    );
+  }
 }

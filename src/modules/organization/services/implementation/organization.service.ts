@@ -1694,9 +1694,18 @@ export class OrganizationService implements IOrganizationService {
     return updated as OrganizationEntity;
   }
 
-  /** Avisa a los administradores que hay algo esperando revision. */
-  private async notifyAdminsPendingReview(title: string, body: string): Promise<void> {
-    await this.adminNotifier.notifyAdmins(title, body);
+  /** Avisa a los administradores que hay algo esperando revisión (+ email). */
+  private async notifyAdminsPendingReview(
+    title: string,
+    body: string,
+    actionPath: string
+  ): Promise<void> {
+    await this.adminNotifier.notifyAdmins(title, body, {
+      email: {
+        actionPath,
+        actionLabel: 'Revisar en Productoras'
+      }
+    });
   }
 
   private async notifyOwnerValidationSubmitted(
@@ -1724,7 +1733,8 @@ export class OrganizationService implements IOrganizationService {
 
     await this.notifyAdminsPendingReview(
       'Productora esperando revisión',
-      `${organizationName} envió sus datos fiscales para validación. Revisala desde Productoras.`
+      `${organizationName} envió sus datos fiscales para validación. Revisala desde Productoras.`,
+      '/admin/organizations?validationStatus=pending_review'
     );
 
     if (!email) {
@@ -1811,7 +1821,8 @@ export class OrganizationService implements IOrganizationService {
 
     await this.notifyAdminsPendingReview(
       'Cambio de cuenta esperando revisión',
-      `${organizationName} solicitó cambiar sus datos bancarios. Revisalo desde Productoras.`
+      `${organizationName} solicitó cambiar sus datos bancarios. Revisalo desde Productoras.`,
+      '/admin/organizations?bankChangePending=true'
     );
   }
 
@@ -1862,7 +1873,8 @@ export class OrganizationService implements IOrganizationService {
 
     await this.notifyAdminsPendingReview(
       'Cambio fiscal esperando revisión',
-      `${organizationName} solicitó cambiar su información fiscal. Revisalo desde Productoras.`
+      `${organizationName} solicitó cambiar su información fiscal. Revisalo desde Productoras.`,
+      '/admin/organizations?fiscalChangePending=true'
     );
   }
 

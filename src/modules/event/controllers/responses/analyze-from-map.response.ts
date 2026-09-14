@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type {
   AiEventMapArea,
+  AiEventMapBox,
   AiEventMapCategory,
   AiEventMapCategoryAssignment,
   AiEventMapCell,
@@ -92,6 +93,20 @@ export class AiEventMapPointResponse implements AiEventMapPoint {
   y: number;
 }
 
+export class AiEventMapBoxResponse implements AiEventMapBox {
+  @ApiProperty({ example: 0.08, description: 'Borde izquierdo 0..1 sobre el ancho de la imagen' })
+  x: number;
+
+  @ApiProperty({ example: 0.21, description: 'Borde superior 0..1 sobre el alto de la imagen' })
+  y: number;
+
+  @ApiProperty({ example: 0.09 })
+  w: number;
+
+  @ApiProperty({ example: 0.24 })
+  h: number;
+}
+
 export class AiEventMapAreaResponse implements AiEventMapArea {
   @ApiProperty({ example: 0.1 })
   x: number;
@@ -148,6 +163,22 @@ export class AiEventMapStageResponse implements AiEventMapStage {
     description: 'Contorno opcional del escenario; null → el frontend sintetiza'
   })
   outline: AiEventMapPoint[] | null;
+
+  @ApiPropertyOptional({
+    type: AiEventMapBoxResponse,
+    nullable: true,
+    description: 'Recuadro del escenario en la imagen; null si no estaba dibujado'
+  })
+  box: AiEventMapBox | null;
+
+  @ApiPropertyOptional({
+    enum: STAGE_POSITION_ENUM,
+    nullable: true,
+    example: 'bottom',
+    description:
+      'Borde donde el plano marca la entrada. El frente del venue es el borde opuesto.'
+  })
+  entranceAt: MapStagePosition | null;
 }
 
 export class AiEventMapCategoryResponse implements AiEventMapCategory {
@@ -249,6 +280,15 @@ export class AiEventMapLayoutGroupResponse implements AiEventMapLayoutGroup {
 
   @ApiProperty({ enum: LAYOUT_TYPE_ENUM, example: 'grid' })
   layoutType: MapLayoutType;
+
+  @ApiPropertyOptional({
+    type: AiEventMapBoxResponse,
+    nullable: true,
+    description:
+      'Recuadro del grupo en la imagen original, 0..1. Cuando todos los grupos lo traen, ' +
+      'position/lane/stackOrder y los pesos se derivan de acá.'
+  })
+  box: AiEventMapBox | null;
 
   @ApiProperty({ enum: GROUP_POSITION_ENUM, example: 'center' })
   position: MapGroupPosition;

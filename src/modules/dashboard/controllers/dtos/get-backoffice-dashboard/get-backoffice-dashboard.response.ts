@@ -194,11 +194,20 @@ export class BackofficeAdminKpisResponse {
   @ApiProperty()
   ticketRevenue: number;
 
-  @ApiProperty({ description: 'Costo de servicio agregado — solo Administrador.' })
+  @ApiProperty({ description: 'Costo de servicio agregado — solo Administrador (profit).' })
   serviceFeeRevenue: number;
 
   @ApiProperty({ description: 'Bruto agregado — solo Administrador.' })
   grossRevenue: number;
+
+  @ApiProperty({ description: 'Monto total reintegrado (status refunded).' })
+  refundsAmount: number;
+
+  @ApiProperty({ description: 'Solicitudes abiertas (pending / approved / processing).' })
+  refundsOpen: number;
+
+  @ApiProperty({ description: 'Solicitudes fallidas que requieren acción manual.' })
+  refundsFailed: number;
 
   constructor(data: {
     organizationsPendingReview: number;
@@ -210,6 +219,9 @@ export class BackofficeAdminKpisResponse {
     ticketRevenue: number;
     serviceFeeRevenue: number;
     grossRevenue: number;
+    refundsAmount: number;
+    refundsOpen: number;
+    refundsFailed: number;
   }) {
     this.organizationsPendingReview = data.organizationsPendingReview;
     this.organizationsBankChangePending = data.organizationsBankChangePending;
@@ -220,6 +232,9 @@ export class BackofficeAdminKpisResponse {
     this.ticketRevenue = data.ticketRevenue;
     this.serviceFeeRevenue = data.serviceFeeRevenue;
     this.grossRevenue = data.grossRevenue;
+    this.refundsAmount = data.refundsAmount;
+    this.refundsOpen = data.refundsOpen;
+    this.refundsFailed = data.refundsFailed;
   }
 }
 
