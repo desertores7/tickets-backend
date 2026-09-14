@@ -62,6 +62,7 @@ export interface IOrganizationService {
   getOrgRequestViews(organizationUuids: string[]): Promise<Map<string, OrgRequestView>>;
   updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity>;
   submitMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
+  withdrawMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity>;
   requestBankAccountChange(
     userUuid: string,
     data: RequestBankChangeRequest
