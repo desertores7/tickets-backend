@@ -281,20 +281,39 @@ export class EmailService {
     );
   }
 
-  async sendRegistrationEmail(data: { firstName: string; email: string; validationUrl: string }): Promise<void> {
+  /** Primera letra en mayúscula para el saludo del mail (p. ej. "demo" → "Demo"). */
+  private formatGreetingName(name: string): string {
+    const trimmed = (name ?? '').trim();
+    if (!trimmed) return 'ahí';
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  }
+
+  async sendRegistrationEmail(data: {
+    firstName: string;
+    email: string;
+    validationUrl: string;
+    audience?: 'client' | 'producer';
+  }): Promise<void> {
+    const firstName = this.formatGreetingName(data.firstName);
+    const isProducer = data.audience === 'producer';
+
     await this.sendTemplateEmail(
-      EMAIL_TEMPLATES.registrationWelcome,
+      isProducer ? EMAIL_TEMPLATES.registrationWelcomeProducer : EMAIL_TEMPLATES.registrationWelcome,
       {
-        preheader: `Gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email para empezar.`,
-        firstName: data.firstName,
+        preheader: isProducer
+          ? `Tu cuenta de productora en ${EMAIL_BRAND.appName} está lista. Verificá tu email para activarla.`
+          : `Gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email para empezar.`,
+        firstName,
         email: data.email,
         validationUrl: data.validationUrl,
         ...this.heroData()
       },
       {
         to: data.email,
-        subject: `Bienvenido a ${EMAIL_BRAND.appName} — verificá tu email`,
-        text: `Hola ${data.firstName}, gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email en: ${data.validationUrl}`
+        subject: `Bienvenido a ${EMAIL_BRAND.appName} — Verificá tu email`,
+        text: isProducer
+          ? `Hola ${firstName}, tu cuenta de productora en ${EMAIL_BRAND.appName} ya está creada. Verificá tu email en: ${data.validationUrl}`
+          : `Hola ${firstName}, gracias por registrarte en ${EMAIL_BRAND.appName}. Verificá tu email en: ${data.validationUrl}`
       }
     );
   }

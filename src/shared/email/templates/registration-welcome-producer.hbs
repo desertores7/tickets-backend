@@ -1,0 +1,84 @@
+{{!-- registration-welcome-producer: alta de productora, pide verificar el email --}}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>Bienvenido a {{appName}}</title>
+{{> styles}}
+</head>
+<body class="body" style="margin:0; padding:0; background-color:#050409; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">{{preheader}}</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#050409;">
+    <tr>
+      <td align="center" style="padding:32px 12px;">
+
+        <table role="presentation" class="email-container" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px; max-width:560px; background-color:#0d0b12; border-radius:14px; overflow:hidden;">
+
+          {{> header}}
+          {{> hero}}
+
+          <tr>
+            <td class="px" style="padding:34px 40px;">
+              <p style="margin:0 0 10px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; line-height:1.6; color:#a8a4b3;">Hola, {{firstName}}</p>
+
+              <h1 class="h1" style="margin:0 0 18px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:28px; font-weight:800; line-height:1.15; color:#ffffff; letter-spacing:-0.2px; text-transform:uppercase;">Bienvenido a {{appName}}</h1>
+
+              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Tu cuenta de productora ya está creada. Verificá tu email para activarla y empezar a publicar eventos y gestionar tus ventas.</p>
+
+              {{> button url=validationUrl label="Verificar email"}}
+
+              <p style="margin:16px 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:12px; line-height:1.6; color:#6a6673; text-align:center;">El enlace vence en 24 horas. Si no pediste esta cuenta, ignorá este correo.</p>
+
+              {{> fallback-link url=validationUrl}}
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 26px;"><tr><td style="height:1px; line-height:1px; font-size:0; background-color:#241f2e;">&nbsp;</td></tr></table>
+
+              <p style="margin:0 0 16px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff;">Desde tu panel vas a poder</p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td width="14" valign="top" style="padding:0 0 14px;">
+                    <span style="display:inline-block; width:5px; height:5px; border-radius:3px; background-color:#ff2bd6; line-height:5px; font-size:0;">&nbsp;</span>
+                  </td>
+                  <td valign="top" style="padding:0 0 14px;">
+                    <p style="margin:0 0 3px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff;">Publicar eventos</p>
+                    <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:13.5px; line-height:1.6; color:#9d99a8;">Armá la ficha, el mapa y las tandas de entradas listas para la venta.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="14" valign="top" style="padding:0 0 14px;">
+                    <span style="display:inline-block; width:5px; height:5px; border-radius:3px; background-color:#ff2bd6; line-height:5px; font-size:0;">&nbsp;</span>
+                  </td>
+                  <td valign="top" style="padding:0 0 14px;">
+                    <p style="margin:0 0 3px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff;">Seguir tus ventas</p>
+                    <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:13.5px; line-height:1.6; color:#9d99a8;">Órdenes confirmadas, liquidaciones y reportes centralizados en un solo lugar.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="14" valign="top" style="padding:0 0 14px;">
+                    <span style="display:inline-block; width:5px; height:5px; border-radius:3px; background-color:#ff2bd6; line-height:5px; font-size:0;">&nbsp;</span>
+                  </td>
+                  <td valign="top" style="padding:0 0 14px;">
+                    <p style="margin:0 0 3px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff;">Operar en puerta</p>
+                    <p style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:13.5px; line-height:1.6; color:#9d99a8;">Validadores, caja y control de acceso cuando llegue el día del evento.</p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:22px 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700;"><a href="{{frontendUrl}}/login" style="color:#ff2bd6; text-decoration:none;">Ir al panel &rarr;</a></p>
+            </td>
+          </tr>
+
+          {{#> footer}}Recibiste este correo porque creaste una cuenta de productora en {{appName}} con {{email}}.{{/footer}}
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
