@@ -46,6 +46,7 @@ import { RequestFiscalChangeRequest } from './dtos/organization-me/request-fisca
 import { RejectOrganizationRequest } from './dtos/organization-me/reject-organization.request';
 import { SuspendOrganizationRequest } from './dtos/organization-me/suspend-organization.request';
 import { FiscalDocumentResponse } from './dtos/organization-me/fiscal-document.response';
+import { OrganizationActivityItemResponse } from './dtos/organization-me/organization-activity.response';
 import { ORGANIZATION_ORDER_COLUMNS, organizationFilters } from './const/organization.filters';
 import { staffFilters } from './const/staff.filters';
 import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
@@ -339,6 +340,20 @@ export class OrganizationController {
     return { ok: true };
   }
 
+  @AdminAuth(null, OrganizationActivityItemResponse)
+  @ApiOperation({
+    summary: 'Listar historial fiscal de una productora',
+    description: 'Bitácora de guardados, envíos y resoluciones de identidad, banco y constancia.'
+  })
+  @ApiTags('Admin — Organizaciones')
+  @Get(':organizationUuid/fiscal-activity')
+  async listOrganizationFiscalActivity(
+    @Param('organizationUuid') organizationUuid: string
+  ): Promise<OrganizationActivityItemResponse[]> {
+    const rows = await this._organizationService.listOrganizationActivity(organizationUuid);
+    return rows.map(row => new OrganizationActivityItemResponse(row));
+  }
+
   @AdminAuth(null, FiscalDocumentResponse)
   @ApiOperation({ summary: 'Listar documentos fiscales de una productora' })
   @ApiTags('Admin — Organizaciones')
@@ -557,10 +572,18 @@ export class OrganizationController {
     const requestViews = await this._organizationService.getOrgRequestViews(
       organization.items.map(item => item.uuid)
     );
+    const docsCounts = await this._organizationService.countFiscalDocumentsByOrganizationUuids(
+      organization.items.map(item => item.uuid)
+    );
     return {
       meta: organization.meta,
       items: organization.items.map(
-        item => new GetAllOrganizationResponse(item, requestViews.get(item.uuid) ?? {})
+        item =>
+          new GetAllOrganizationResponse(
+            item,
+            requestViews.get(item.uuid) ?? {},
+            docsCounts.get(item.uuid) ?? 0
+          )
       )
     };
   }

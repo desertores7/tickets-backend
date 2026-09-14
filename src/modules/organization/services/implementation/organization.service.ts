@@ -21,12 +21,17 @@ import {
 } from '../core/organization';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { OrganizationRequestEntity } from '@config/db/entities/user/organization_request.entity';
+import { OrganizationActivityEntity } from '@config/db/entities/user/organization_activity.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { FileEntity } from '@config/db/entities/user/file.entity';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { UpdateOrganizationMeRequest } from '../../controllers/dtos/organization-me/update-organization-me.request';
 import type { OrgRequestView } from '../../controllers/dtos/organization-me/organization-me.response';
+import {
+  ORGANIZATION_ACTIVITY_TITLES,
+  type OrganizationActivityKind
+} from '@modules/organization/const/organization-activity.const';
 import {
   ORGANIZATION_FISCAL_DOC_MAX_FILES,
   ORGANIZATION_FISCAL_MIN_DOCS,
@@ -572,6 +577,14 @@ export class OrganizationService implements IOrganizationService {
       data: entity
     });
 
+    this.recordActivity({
+      organizationUuid,
+      kind: type === 'bank_change' ? 'bank_change_requested' : 'fiscal_change_requested',
+      detail: type === 'bank_change' ? 'Nueva cuenta propuesta.' : 'Nueva identidad fiscal propuesta.',
+      payload: payload as unknown as Record<string, unknown>,
+      actorUserUuid: userUuid
+    }).catch(() => undefined);
+
     return entity;
   }
 
@@ -592,6 +605,23 @@ export class OrganizationService implements IOrganizationService {
         updatedBy: adminUuid
       }
     });
+
+    const kind: OrganizationActivityKind =
+      request.type === 'bank_change'
+        ? status === 'approved'
+          ? 'bank_change_approved'
+          : 'bank_change_rejected'
+        : status === 'approved'
+          ? 'fiscal_change_approved'
+          : 'fiscal_change_rejected';
+
+    this.recordActivity({
+      organizationUuid: request.organizationUuid,
+      kind,
+      detail: rejectionReason?.trim() || null,
+      payload: request.payload as unknown as Record<string, unknown>,
+      actorUserUuid: adminUuid
+    }).catch(() => undefined);
   }
 
   private async listPendingRequestOrgUuids(type: OrganizationRequestType): Promise<string[]> {
@@ -674,6 +704,79 @@ export class OrganizationService implements IOrganizationService {
       });
     }
     return map;
+  }
+
+  /** Conteo batch de docs fiscales activos para el listado admin (sin N+1). */
+  async countFiscalDocumentsByOrganizationUuids(
+    organizationUuids: string[]
+  ): Promise<Map<string, number>> {
+    const unique = [...new Set(organizationUuids.filter(Boolean))];
+    const map = new Map<string, number>();
+    if (!unique.length) return map;
+
+    const rows = await this.dataSource
+      .getRepository(FileEntity)
+      .createQueryBuilder('file')
+      .select('file.organizationUuid', 'organizationUuid')
+      .addSelect('COUNT(*)', 'docsCount')
+      .where('file.organizationUuid IN (:...uuids)', { uuids: unique })
+      .andWhere('file.isDeleted IS NULL')
+      .andWhere('file.fileTypeUuid IN (:...types)', {
+        types: [...ORGANIZATION_FISCAL_FILE_TYPE_UUIDS]
+      })
+      .groupBy('file.organizationUuid')
+      .getRawMany<{ organizationUuid: string; docsCount: string }>();
+
+    for (const row of rows) {
+      map.set(row.organizationUuid, Number(row.docsCount) || 0);
+    }
+    return map;
+  }
+
+  async listOrganizationActivity(organizationUuid: string): Promise<OrganizationActivityEntity[]> {
+    const org = await this.dbRepository.findOne({
+      entity: 'organization',
+      where: { uuid: organizationUuid, isDeleted: IsNull() }
+    });
+    if (!org) throw new NotFoundException('Organización no encontrada');
+
+    const rows = (await this.dbRepository.findMany({
+      entity: 'organization_activity',
+      where: { organizationUuid },
+      other: { order: { createdAt: 'DESC' }, take: 100 }
+    })) as OrganizationActivityEntity[];
+
+    return rows;
+  }
+
+  private async recordActivity(input: {
+    organizationUuid: string;
+    kind: OrganizationActivityKind;
+    detail?: string | null;
+    payload?: Record<string, unknown> | null;
+    actorUserUuid?: string | null;
+  }): Promise<void> {
+    try {
+      const entity = new OrganizationActivityEntity();
+      entity.uuid = uuidv4();
+      entity.organizationUuid = input.organizationUuid;
+      entity.kind = input.kind;
+      entity.title = ORGANIZATION_ACTIVITY_TITLES[input.kind];
+      entity.detail = input.detail?.trim() || null;
+      entity.payload = input.payload ?? null;
+      entity.actorUserUuid = input.actorUserUuid ?? null;
+      entity.createdAt = new Date();
+
+      await this.dbRepository.create({
+        entity: 'organization_activity',
+        data: entity
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to record organization activity ${input.kind} for ${input.organizationUuid}`,
+        err instanceof Error ? err.stack : undefined
+      );
+    }
   }
 
   async updateMyOrganization(userUuid: string, data: UpdateOrganizationMeRequest): Promise<OrganizationEntity> {
@@ -769,13 +872,77 @@ export class OrganizationService implements IOrganizationService {
       patch.rejectionReason = null;
     }
 
+    // Primera carga parcial: marca fecha de solicitud para el listado admin.
+    if (
+      touchesFiscal &&
+      !org.validationSubmittedAt &&
+      (status === 'draft_incomplete' || status === 'rejected')
+    ) {
+      patch.validationSubmittedAt = new Date();
+    }
+
     await this.dbRepository.update({
       entity: 'organization',
       where: { uuid: org.uuid },
       data: patch
     });
 
-    return this.resolveMembershipOrganization(userUuid);
+    const updated = await this.resolveMembershipOrganization(userUuid);
+
+    if (
+      touchesFiscal &&
+      (status === 'draft_incomplete' || status === 'rejected')
+    ) {
+      const organizationName = updated.name || updated.legalName || 'Una productora';
+      const section =
+        touchesIdentity && touchesBank
+          ? 'identidad fiscal y datos bancarios'
+          : touchesIdentity
+            ? 'identidad fiscal'
+            : 'datos bancarios';
+      this.notifyAdminsPendingReview(
+        'Productora actualizó datos fiscales',
+        `${organizationName} guardó ${section}. Revisalos en Productoras (borrador o pendientes).`,
+        '/admin/organizations?validationStatus=draft_incomplete'
+      ).catch(err => {
+        this.logger.error(
+          `Failed to notify admins of partial fiscal update for ${org.uuid}`,
+          err?.stack
+        );
+      });
+
+      if (touchesIdentity) {
+        this.recordActivity({
+          organizationUuid: org.uuid,
+          kind: 'identity_saved',
+          detail: 'Actualizó nombre, CUIT, condición o contacto.',
+          payload: {
+            name: updated.name,
+            legalName: updated.legalName,
+            taxId: updated.taxId,
+            taxCondition: updated.taxCondition,
+            contactEmail: updated.contactEmail,
+            contactPhone: updated.contactPhone
+          },
+          actorUserUuid: userUuid
+        }).catch(() => undefined);
+      }
+      if (touchesBank) {
+        this.recordActivity({
+          organizationUuid: org.uuid,
+          kind: 'bank_saved',
+          detail: 'Actualizó banco, CBU o alias.',
+          payload: {
+            bankName: updated.bankName,
+            cbu: updated.cbu,
+            bankAlias: updated.bankAlias
+          },
+          actorUserUuid: userUuid
+        }).catch(() => undefined);
+      }
+    }
+
+    return updated;
   }
 
   async requestBankAccountChange(
@@ -968,6 +1135,12 @@ export class OrganizationService implements IOrganizationService {
     this.notifyOwnerValidationSubmitted(updated, userUuid).catch(err => {
       this.logger.error(`Failed to notify org submitted for ${org.uuid}`, err?.stack);
     });
+    this.recordActivity({
+      organizationUuid: org.uuid,
+      kind: 'validation_submitted',
+      detail: 'Pack fiscal completo enviado a revisión.',
+      actorUserUuid: userUuid
+    }).catch(() => undefined);
 
     return updated;
   }
@@ -990,6 +1163,13 @@ export class OrganizationService implements IOrganizationService {
         updatedBy: userUuid
       }
     });
+
+    this.recordActivity({
+      organizationUuid: org.uuid,
+      kind: 'validation_withdrawn',
+      detail: 'Volvió a borrador para corregir datos.',
+      actorUserUuid: userUuid
+    }).catch(() => undefined);
 
     return this.resolveMembershipOrganization(userUuid);
   }
@@ -1295,6 +1475,26 @@ export class OrganizationService implements IOrganizationService {
 
     await this.markOrgDirtyAfterDocChange(org, userUuid);
 
+    const status = organizationStatusName(org);
+    if (status === 'draft_incomplete' || status === 'rejected') {
+      const organizationName = org.name || org.legalName || 'Una productora';
+      this.notifyAdminsPendingReview(
+        'Productora subió documentación fiscal',
+        `${organizationName} adjuntó constancia de inscripción. Revisalos en Productoras.`,
+        '/admin/organizations?validationStatus=draft_incomplete'
+      ).catch(err => {
+        this.logger.error(`Failed to notify admins of fiscal doc upload for ${org.uuid}`, err?.stack);
+      });
+    }
+
+    this.recordActivity({
+      organizationUuid: org.uuid,
+      kind: 'docs_uploaded',
+      detail: validated.originalName,
+      payload: { documentUuid: entity.uuid, originalName: validated.originalName },
+      actorUserUuid: userUuid
+    }).catch(() => undefined);
+
     return entity;
   }
 
@@ -1572,6 +1772,12 @@ export class OrganizationService implements IOrganizationService {
     this.notifyOwnerValidationResult(updated as OrganizationEntity, 'approved').catch(err => {
       this.logger.error(`Failed to send org approved email for ${organizationUuid}`, err?.stack);
     });
+    this.recordActivity({
+      organizationUuid,
+      kind: 'validation_approved',
+      detail: 'La productora quedó autorizada para operar.',
+      actorUserUuid: adminUuid
+    }).catch(() => undefined);
 
     return updated as OrganizationEntity;
   }
@@ -1712,6 +1918,12 @@ export class OrganizationService implements IOrganizationService {
         this.logger.error(`Failed to send org rejected email for ${organizationUuid}`, err?.stack);
       }
     );
+    this.recordActivity({
+      organizationUuid,
+      kind: 'validation_rejected',
+      detail: trimmedReason,
+      actorUserUuid: adminUuid
+    }).catch(() => undefined);
 
     return updated as OrganizationEntity;
   }
