@@ -7,6 +7,7 @@ import { EnvService } from '@config/env/env.service';
 import { DBRepository } from '@config/db/db.repository';
 import { IsNull } from 'typeorm';
 import { renderEmailTemplate } from '@root/shared/email/compile-template';
+import { formatGreetingName } from '@root/shared/email/format-greeting-name';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 
 @Injectable()
@@ -194,7 +195,7 @@ export class EmailService {
   ): Promise<void> {
     let html: string;
     try {
-      html = renderEmailTemplate(templateName, this.withBrand(data));
+      html = renderEmailTemplate(templateName, this.withBrand(this.withGreetingNames(data)));
     } catch (error) {
       throw new BadRequestException(`Template ${templateName} not found: ${(error as Error).message}`);
     }
@@ -203,6 +204,18 @@ export class EmailService {
       ...options,
       html
     });
+  }
+
+  /** Capitaliza firstName/lastName antes de inyectarlos en el template. */
+  private withGreetingNames(data: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...data };
+    if (typeof next.firstName === 'string') {
+      next.firstName = formatGreetingName(next.firstName);
+    }
+    if (typeof next.lastName === 'string' && next.lastName.trim()) {
+      next.lastName = formatGreetingName(next.lastName);
+    }
+    return next;
   }
 
   private getFrontendUrl(): string {
@@ -230,62 +243,80 @@ export class EmailService {
 
   async sendNewUserEmail(data: { firstName: string; lastName: string; email: string }): Promise<void> {
     const loginUrl = `${this.getFrontendUrl()}/login`;
+    const firstName = formatGreetingName(data.firstName);
+    const lastName = data.lastName.trim() ? formatGreetingName(data.lastName) : '';
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.welcomeNewUser,
       {
-        preheader: `Bienvenido a ${EMAIL_BRAND.appName}, ${data.firstName}. Tu cuenta ya está activa.`,
-        firstName: data.firstName,
-        lastName: data.lastName,
+        preheader: `Bienvenido a ${EMAIL_BRAND.appName}, ${firstName}. Tu cuenta ya está activa.`,
+        firstName,
+        lastName,
         email: data.email,
         loginUrl,
         ...this.heroData()
       },
       {
         to: data.email,
-        subject: `¡Bienvenido a ${EMAIL_BRAND.appName}, ${data.firstName}!`,
-        text: `Hola ${data.firstName} ${data.lastName}, tu cuenta en ${EMAIL_BRAND.appName} ya está activa. Ingresá en: ${loginUrl}`
+        subject: `¡Bienvenido a ${EMAIL_BRAND.appName}, ${firstName}!`,
+        text: `Hola ${firstName}${lastName ? ` ${lastName}` : ''}, tu cuenta en ${EMAIL_BRAND.appName} ya está activa. Ingresá en: ${loginUrl}`
       }
     );
   }
 
   async sendResetPasswordEmail(data: { firstName: string; email: string; code: string }): Promise<void> {
+    const firstName = formatGreetingName(data.firstName);
+
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.resetPasswordCode,
       {
         preheader: `Tu código para restablecer la contraseña es ${data.code}`,
-        firstName: data.firstName,
+        firstName,
         code: data.code
       },
       {
         to: data.email,
         subject: `Restablecer contraseña — ${EMAIL_BRAND.appName}`,
-        text: `Hola ${data.firstName}, tu código para restablecer la contraseña es ${data.code}. Expira en 15 minutos.`
+        text: `Hola ${firstName}, tu código para restablecer la contraseña es ${data.code}. Expira en 15 minutos.`
+      }
+    );
+  }
+
+  async sendPasswordResetSuccessEmail(data: { firstName: string; email: string }): Promise<void> {
+    const firstName = formatGreetingName(data.firstName);
+    const loginUrl = `${this.getFrontendUrl()}/login`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.resetPasswordSuccess,
+      {
+        preheader: `Tu contraseña de ${EMAIL_BRAND.appName} se actualizó correctamente.`,
+        firstName,
+        loginUrl
+      },
+      {
+        to: data.email,
+        subject: `Contraseña actualizada — ${EMAIL_BRAND.appName}`,
+        text: `Hola ${firstName}, confirmamos que restableciste la contraseña de tu cuenta correctamente. Iniciá sesión en: ${loginUrl}`
       }
     );
   }
 
   async sendLoginCodeEmail(data: { firstName: string; email: string; code: string }): Promise<void> {
+    const firstName = formatGreetingName(data.firstName);
+
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.login2faCode,
       {
         preheader: `Tu código de acceso a ${EMAIL_BRAND.appName} es ${data.code}`,
-        firstName: data.firstName,
+        firstName,
         code: data.code
       },
       {
         to: data.email,
         subject: `Código de validación de acceso — ${EMAIL_BRAND.appName}`,
-        text: `Hola ${data.firstName}, tu código de acceso es ${data.code}. Expira en 5 minutos.`
+        text: `Hola ${firstName}, tu código de acceso es ${data.code}. Expira en 5 minutos.`
       }
     );
-  }
-
-  /** Primera letra en mayúscula para el saludo del mail (p. ej. "demo" → "Demo"). */
-  private formatGreetingName(name: string): string {
-    const trimmed = (name ?? '').trim();
-    if (!trimmed) return 'ahí';
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
   }
 
   async sendRegistrationEmail(data: {
@@ -294,7 +325,7 @@ export class EmailService {
     validationUrl: string;
     audience?: 'client' | 'producer';
   }): Promise<void> {
-    const firstName = this.formatGreetingName(data.firstName);
+    const firstName = formatGreetingName(data.firstName);
     const isProducer = data.audience === 'producer';
 
     await this.sendTemplateEmail(
@@ -320,12 +351,13 @@ export class EmailService {
 
   async sendEmailVerifiedEmail(data: { firstName: string; email: string }): Promise<void> {
     const loginUrl = `${this.getFrontendUrl()}/login`;
+    const firstName = formatGreetingName(data.firstName);
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.emailVerified,
       {
         preheader: `Tu correo fue verificado correctamente en ${EMAIL_BRAND.appName}.`,
-        firstName: data.firstName,
+        firstName,
         email: data.email,
         loginUrl,
         ...this.heroData()
@@ -333,7 +365,7 @@ export class EmailService {
       {
         to: data.email,
         subject: `Correo verificado correctamente — ${EMAIL_BRAND.appName}`,
-        text: `Hola ${data.firstName}, tu correo fue verificado. Iniciá sesión en: ${loginUrl}`
+        text: `Hola ${firstName}, tu correo fue verificado. Iniciá sesión en: ${loginUrl}`
       }
     );
   }
@@ -344,19 +376,20 @@ export class EmailService {
     organizationName: string;
   }): Promise<void> {
     const fiscalUrl = `${this.getFrontendUrl()}/producer/organization/fiscal`;
+    const firstName = formatGreetingName(data.firstName);
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.organizationSubmitted,
       {
         preheader: `Recibimos la solicitud de ${data.organizationName}. Te avisamos cuando esté revisada.`,
-        firstName: data.firstName,
+        firstName,
         organizationName: data.organizationName,
         fiscalUrl
       },
       {
         to: data.email,
         subject: `Solicitud recibida — ${data.organizationName}`,
-        text: `Hola ${data.firstName}, recibimos los datos fiscales de ${data.organizationName}. En las próximas horas vas a recibir una confirmación. Estado: ${fiscalUrl}`
+        text: `Hola ${firstName}, recibimos los datos fiscales de ${data.organizationName}. En las próximas horas vas a recibir una confirmación. Estado: ${fiscalUrl}`
       }
     );
   }
@@ -367,19 +400,20 @@ export class EmailService {
     organizationName: string;
   }): Promise<void> {
     const dashboardUrl = `${this.getFrontendUrl()}/producer/dashboard`;
+    const firstName = formatGreetingName(data.firstName);
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.organizationApproved,
       {
         preheader: `${data.organizationName} fue aprobada. Ya podés crear eventos.`,
-        firstName: data.firstName,
+        firstName,
         organizationName: data.organizationName,
         dashboardUrl
       },
       {
         to: data.email,
         subject: `Productora aprobada — ${data.organizationName}`,
-        text: `Hola ${data.firstName}, la productora ${data.organizationName} fue aprobada. Ingresá en: ${dashboardUrl}`
+        text: `Hola ${firstName}, la productora ${data.organizationName} fue aprobada. Ingresá en: ${dashboardUrl}`
       }
     );
   }
@@ -391,12 +425,13 @@ export class EmailService {
     rejectionReason: string;
   }): Promise<void> {
     const fiscalUrl = `${this.getFrontendUrl()}/producer/organization/fiscal`;
+    const firstName = formatGreetingName(data.firstName);
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.organizationRejected,
       {
         preheader: `La validación de ${data.organizationName} fue rechazada.`,
-        firstName: data.firstName,
+        firstName,
         organizationName: data.organizationName,
         rejectionReason: data.rejectionReason,
         fiscalUrl
@@ -404,7 +439,7 @@ export class EmailService {
       {
         to: data.email,
         subject: `Validación rechazada — ${data.organizationName}`,
-        text: `Hola ${data.firstName}, la productora ${data.organizationName} no fue aprobada. Motivo: ${data.rejectionReason}. Corregí los datos en: ${fiscalUrl}`
+        text: `Hola ${firstName}, la productora ${data.organizationName} no fue aprobada. Motivo: ${data.rejectionReason}. Corregí los datos en: ${fiscalUrl}`
       }
     );
   }
@@ -441,12 +476,13 @@ export class EmailService {
     const actionUrl = `${this.getFrontendUrl()}${
       data.actionPath.startsWith('/') ? data.actionPath : `/${data.actionPath}`
     }`;
+    const firstName = formatGreetingName(data.firstName);
 
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.adminAlert,
       {
         preheader: data.title,
-        firstName: data.firstName,
+        firstName,
         title: data.title,
         body: data.body,
         actionUrl,
@@ -455,7 +491,7 @@ export class EmailService {
       {
         to: data.email,
         subject: `${data.title} — ${EMAIL_BRAND.appName}`,
-        text: `Hola ${data.firstName}, ${data.title}. ${data.body} Revisá en: ${actionUrl}`
+        text: `Hola ${firstName}, ${data.title}. ${data.body} Revisá en: ${actionUrl}`
       }
     );
   }

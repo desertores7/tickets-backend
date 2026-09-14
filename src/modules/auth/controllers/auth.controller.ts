@@ -26,6 +26,7 @@ import { LoginAuthRequest } from './requests/login-auth.request';
 import { UpdateMeRequest } from './requests/update-me.request';
 import { ResetPasswordRequest } from './requests/reset-password.request';
 import { SendResetPasswordRequest } from './requests/send-password.request';
+import { VerifyResetPasswordCodeRequest } from './requests/verify-reset-password-code.request';
 import { ChangePasswordRequest } from './requests/change-password.request';
 import { RefreshTokenRequest } from './requests/refresh-token.request';
 import { RefreshTokenResponse } from './responses/refresh-token.response';
@@ -245,6 +246,21 @@ export class AuthController {
   @Post('change-password')
   async changePassword(@Body() request: ChangePasswordRequest, @User() userId: string): Promise<void> {
     await this.authService.changePassword(userId, request.currentPassword, request.newPassword);
+  }
+
+  @ApiOperation({
+    summary: 'Verificar código de recupero',
+    description:
+      'Comprueba que el código de 6 dígitos sea válido y vigente. No lo consume: el consumo ocurre al restablecer la contraseña.'
+  })
+  @Swagger(VerifyResetPasswordCodeRequest, null)
+  @HttpCode(200)
+  @ApiTags('Auth')
+  @Post('verify-reset-password-code')
+  async verifyResetPasswordCode(
+    @Body() request: VerifyResetPasswordCodeRequest
+  ): Promise<{ valid: true }> {
+    return this.authService.verifyResetPasswordCode(request.email, request.code);
   }
 
   @ApiOperation({

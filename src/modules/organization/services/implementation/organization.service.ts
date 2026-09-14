@@ -972,6 +972,28 @@ export class OrganizationService implements IOrganizationService {
     return updated;
   }
 
+  async withdrawMyOrganizationValidation(userUuid: string): Promise<OrganizationEntity> {
+    const org = await this.resolveMembershipOrganization(userUuid);
+    const status = organizationStatusName(org);
+
+    if (status !== 'pending_review') {
+      throw new BadRequestException('Solo podés editar una solicitud que esté en revisión');
+    }
+
+    await this.dbRepository.update({
+      entity: 'organization',
+      where: { uuid: org.uuid },
+      data: {
+        organizationStatusUuid: ORGANIZATION_STATUS.DRAFT_INCOMPLETE.uuid,
+        validationSubmittedAt: null,
+        rejectionReason: null,
+        updatedBy: userUuid
+      }
+    });
+
+    return this.resolveMembershipOrganization(userUuid);
+  }
+
   async requestFiscalIdentityChange(
     userUuid: string,
     data: RequestFiscalChangeRequest,
@@ -1728,12 +1750,12 @@ export class OrganizationService implements IOrganizationService {
     await this.userNotificationService.create(
       ownerUserUuid,
       'Solicitud de productora enviada',
-      `Recibimos los datos fiscales de ${organizationName}. En las próximas horas vas a recibir una confirmación cuando un administrador revise la solicitud.`
+      `Recibimos tu solicitud de ${organizationName}. En las próximas horas vas a recibir una notificación sobre el resultado de la revisión.`
     );
 
     await this.notifyAdminsPendingReview(
       'Productora esperando revisión',
-      `${organizationName} envió sus datos fiscales para validación. Revisala desde Productoras.`,
+      `${organizationName} envió sus datos fiscales para validación. Revisalos en la sección de Productoras.`,
       '/admin/organizations?validationStatus=pending_review'
     );
 

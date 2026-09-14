@@ -3,6 +3,7 @@ import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { EnvService } from '@config/env/env.service';
 import { renderEmailTemplate } from '@root/shared/email/compile-template';
+import { formatGreetingName } from '@root/shared/email/format-greeting-name';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 import { EMAIL_BRAND, emailBrandVars } from '@root/shared/auth/const/email-brand';
 
@@ -80,6 +81,17 @@ export class NotificationEmailService {
     return `"${fromName}" <${fromEmail}>`;
   }
 
+  private withGreetingNames(data: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...data };
+    if (typeof next.firstName === 'string') {
+      next.firstName = formatGreetingName(next.firstName);
+    }
+    if (typeof next.lastName === 'string' && next.lastName.trim()) {
+      next.lastName = formatGreetingName(next.lastName);
+    }
+    return next;
+  }
+
   private async sendTemplate(
     templateName: string,
     params: SendOrderTicketsEmailParams
@@ -91,7 +103,7 @@ export class NotificationEmailService {
         this.envService.get('APP_URL'),
         this.envService.get('FRONTEND_URL') || 'http://localhost:3000'
       ),
-      ...templateData
+      ...this.withGreetingNames(templateData)
     });
 
     await this.getTransporter().sendMail({

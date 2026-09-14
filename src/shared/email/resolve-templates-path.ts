@@ -23,6 +23,8 @@ export const EMAIL_TEMPLATES = {
   registrationWelcomeProducer: 'registration-welcome-producer',
   emailVerified: 'email-verified',
   resetPasswordCode: 'reset-password-code',
+  /** Confirmación tras restablecer la contraseña con el código. */
+  resetPasswordSuccess: 'reset-password-success',
   login2faCode: 'login-2fa-code',
   welcomeNewUser: 'welcome-new-user',
   ticketEmail: 'ticket-email',

@@ -114,6 +114,20 @@ export class OrganizationController {
     return this.toMeResponse(org);
   }
 
+  @UserAuth(null, OrganizationMeResponse)
+  @ApiOperation({
+    summary: 'Retirar solicitud de validación',
+    description:
+      'Vuelve la productora a draft_incomplete para poder editar datos fiscales/bancarios mientras estaba en revisión.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Organización')
+  @Post('me/withdraw-validation')
+  async withdrawMyOrganizationValidation(@User() userId: string): Promise<OrganizationMeResponse> {
+    const org = await this._organizationService.withdrawMyOrganizationValidation(userId);
+    return this.toMeResponse(org);
+  }
+
   @UserAuth(RequestBankChangeRequest, OrganizationMeResponse)
   @ApiOperation({
     summary: 'Solicitar cambio de cuenta bancaria',

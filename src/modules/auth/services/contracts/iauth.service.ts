@@ -69,6 +69,7 @@ export interface IAuthService {
   }>;
   sendResetPassword(email: string): Promise<void>;
   resetPassword(email: string, password: string, code: string): Promise<void>;
+  verifyResetPasswordCode(email: string, code: string): Promise<{ valid: true }>;
   refreshTokens(refreshToken: string): Promise<{ access_token: string; refresh_token: string }>;
   changePassword(userUuid: string, currentPassword: string, newPassword: string): Promise<void>;
   createTokenSession(
