@@ -760,7 +760,12 @@ export class AuthService implements IAuthService {
     });
   }
 
-  async validateEmailAuth(token: string): Promise<{ verified: boolean; alreadyVerified: boolean; message: string }> {
+  async validateEmailAuth(token: string): Promise<{
+    verified: boolean;
+    alreadyVerified: boolean;
+    message: string;
+    session: TUserLoginAuthResponse;
+  }> {
     const { userUuid, email } = await this.verifyEmailVerificationToken(token);
 
     const user = await this.dbRepository.findOne({
@@ -773,10 +778,14 @@ export class AuthService implements IAuthService {
     }
 
     if (user.emailVerified) {
+      // El enlace sigue siendo prueba de posesión del correo: emitimos sesión
+      // para que "Ingresar" entre al panel sin volver a pedir contraseña.
+      const session = await this.loginByUserUuid(user.uuid);
       return {
         verified: true,
         alreadyVerified: true,
-        message: 'El correo ya fue validado anteriormente.'
+        message: 'El correo ya fue validado anteriormente.',
+        session
       };
     }
 
@@ -802,10 +811,15 @@ export class AuthService implements IAuthService {
     // comprador no es un organizador, y esa membresía le daba alcance sobre
     // eventos en toda consulta que filtre por user_organization.
 
+    // Misma idea que Google OAuth: el usuario ya demostró control del email;
+    // no pedimos 2FA ni contraseña otra vez para entrar al panel.
+    const session = await this.loginByUserUuid(user.uuid);
+
     return {
       verified: true,
       alreadyVerified: false,
-      message: 'Correo validado correctamente.'
+      message: 'Correo validado correctamente.',
+      session
     };
   }
 

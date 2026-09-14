@@ -61,7 +61,12 @@ export interface IAuthService {
     acceptedTerms: true;
   }): Promise<{ email: string; uuid: string; organizationUuid: string }>;
   resendEmailVerification(email: string): Promise<void>;
-  validateEmailAuth(token: string): Promise<{ verified: boolean; alreadyVerified: boolean; message: string }>;
+  validateEmailAuth(token: string): Promise<{
+    verified: boolean;
+    alreadyVerified: boolean;
+    message: string;
+    session: TUserLoginAuthResponse;
+  }>;
   sendResetPassword(email: string): Promise<void>;
   resetPassword(email: string, password: string, code: string): Promise<void>;
   refreshTokens(refreshToken: string): Promise<{ access_token: string; refresh_token: string }>;
