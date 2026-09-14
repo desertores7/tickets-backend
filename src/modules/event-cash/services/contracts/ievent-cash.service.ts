@@ -76,6 +76,8 @@ export interface ICashOperationalIncome {
 export interface ICashSummary {
   /** Entradas vendidas por web, SIN costo de servicio (`BR-REPORT-001`) */
   webTickets: number;
+  /** Cantidad de ventas web en el listado (filas order_item, no entradas) */
+  webTicketsCount: number;
   /** Σ productos tipo `entrada` cargados en caja (`BR-CASH-006`) */
   doorTickets: number;
   /** Movimientos de las cuentas MP del evento */
@@ -84,9 +86,11 @@ export interface ICashSummary {
   transfersAndOthers: number;
   /** Ingresos cargados a mano */
   manualIncome: number;
-  /** Devoluciones y contracargos: restan */
+  /** Reembolsos web confirmados + egresos/contracargos de caja MP: restan */
   mpRefunds: number;
-  /** web + operativos − egresos MP */
+  /** Cantidad de ventas con reembolso (filas del listado, no entradas) */
+  webRefundsCount: number;
+  /** web − reembolsos web + operativos − egresos MP */
   totalIncome: number;
   expenses: number;
   /** totalIncome − expenses */
@@ -155,6 +159,8 @@ export interface IListIncomesOpts {
   limit?: number;
   search?: string;
   method?: IncomeMethod;
+  /** `manual` = cargado en el sistema; `mp_auto` = sync de movimientos MP. */
+  source?: IncomeSource;
   orderBy?: 'occurredAt' | 'total';
   orderDir?: 'ASC' | 'DESC';
 }
@@ -192,6 +198,21 @@ export interface IEventCashService {
 
   /** Resumen de caja. Solo el Productor (`29` §5a). */
   getSummary(eventUuid: string, loggedUser: string): Promise<ICashSummary>;
+
+  /**
+   * PDF/Excel del resumen completo de ingresos del evento: ventas online +
+   * cobros de caja, con origen, medio, cantidad y estado legibles.
+   */
+  exportSummary(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: {
+      format?: 'pdf' | 'xlsx';
+      search?: string;
+      /** all | web | manual | mp | refunds */
+      origin?: string;
+    }
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }>;
 
   /** Productor y Caja pueden crear (`BR-CASH-014`). */
   createIncome(

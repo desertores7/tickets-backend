@@ -353,6 +353,29 @@ export class OrganizationController {
     return new StreamableFile(createReadStream(file.absolutePath));
   }
 
+  @AdminAuth(null, null)
+  @ApiOperation({
+    summary: 'Eliminar documento fiscal de una productora',
+    description:
+      'Tras aprobar o rechazar la revisión, permite borrar adjuntos del storage. ' +
+      'No disponible mientras la solicitud está en revisión.',
+  })
+  @HttpCode(200)
+  @ApiTags('Admin — Organizaciones')
+  @Delete(':organizationUuid/fiscal-documents/:documentId')
+  async deleteOrganizationFiscalDocument(
+    @Param('organizationUuid') organizationUuid: string,
+    @Param('documentId') documentId: string,
+    @User() adminId: string
+  ): Promise<{ ok: true }> {
+    await this._organizationService.deleteOrganizationFiscalDocument(
+      organizationUuid,
+      documentId,
+      adminId
+    );
+    return { ok: true };
+  }
+
   @AdminAuth(null, OrganizationMeResponse)
   @ApiOperation({ summary: 'Aprobar validación fiscal' })
   @HttpCode(200)

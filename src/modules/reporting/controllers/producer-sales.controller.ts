@@ -47,6 +47,19 @@ export class ProducerSalesController {
   @ApiQuery({ name: 'dateFrom', required: false, description: 'YYYY-MM-DD, inclusive.' })
   @ApiQuery({ name: 'dateTo', required: false, description: 'YYYY-MM-DD, inclusive (end of day).' })
   @ApiQuery({ name: 'status', required: false, example: 'paid' })
+  @ApiQuery({
+    name: 'refunded',
+    required: false,
+    description:
+      'Si es `1` o `true`, solo ventas con al menos una entrada reembolsada (por ticket, no por orders.status).'
+  })
+  @ApiQuery({
+    name: 'order_by',
+    required: false,
+    enum: ['purchasedAt:desc', 'purchasedAt:asc', 'amount:desc', 'amount:asc', 'occurredAt:desc', 'occurredAt:asc', 'total:desc', 'total:asc'],
+    description:
+      'Orden: fecha (`purchasedAt`/`occurredAt`) o monto (`amount`/`total`). Default `purchasedAt:desc`.'
+  })
   @HttpCode(200)
   @Get('sales')
   async getSales(

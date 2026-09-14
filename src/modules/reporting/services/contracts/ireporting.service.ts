@@ -13,6 +13,18 @@ export interface ISalesFilters {
   dateFrom?: string;
   dateTo?: string;
   status?: string;
+  /**
+   * Si es true/'1'/'true', solo filas con al menos una entrada reembolsada.
+   * No usa `orders.status`: una venta reembolsada sigue en `paid`.
+   */
+  refunded?: string | boolean;
+  /**
+   * Orden del listado (`columna:asc|desc`).
+   * - `purchasedAt` / `occurredAt` → fecha de compra
+   * - `amount` / `total` → monto de la fila (sin service fee)
+   * Default: `purchasedAt:desc`.
+   */
+  order_by?: string;
 }
 
 /**
@@ -36,6 +48,9 @@ export interface ISalesRow {
   status: string;
   /** Entradas de este renglón ya reembolsadas. 0 = ninguna. */
   refundedQuantity: number;
+  /** Código MP / medio (`account_money`, `visa`, …). */
+  paymentMethod: string | null;
+  paymentProvider: string | null;
 }
 
 /** Renglon del detalle de una venta: una tanda comprada. */

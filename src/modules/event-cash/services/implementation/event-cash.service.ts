@@ -1,10 +1,18 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, In, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import { EventIncomeEntity } from '@config/db/entities/tickets/event_income.entity';
 import { EventIncomeProductEntity } from '@config/db/entities/tickets/event_income_product.entity';
 import { MpMovementEntity } from '@config/db/entities/tickets/mp_movement.entity';
+import {
+  formatPaymentMethodLabel,
+  formatSaleStatus
+} from '@modules/reporting/services/implementation/sales-export.service';
+import {
+  IIncomeSummaryExportRow,
+  ISalesExportService
+} from '@modules/reporting/services/contracts/isales-export.service';
 import {
   ICashSummary,
   IEventMpAccount,
@@ -24,11 +32,18 @@ import {
 /** Quién está operando la caja de este evento. */
 type CashAccess = { role: 'producer' | 'cashier'; organizationUuid: string };
 
+const METHOD_LABEL: Record<string, string> = {
+  cash: 'Efectivo',
+  mercadopago: 'Mercado Pago',
+  other: 'Otro'
+};
+
 @Injectable()
 export class EventCashService implements IEventCashService {
   constructor(
     private readonly dbRepository: DBRepository,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    @Inject('ISalesExportService') private readonly salesExport: ISalesExportService
   ) {}
 
   // ── Acceso ──────────────────────────────────────────────────────────────────
@@ -149,6 +164,7 @@ export class EventCashService implements IEventCashService {
     const limit = Math.min(Math.max(opts?.limit ?? 10, 1), 100);
     const searchTerm = opts?.search?.trim();
     const method = opts?.method;
+    const source = opts?.source;
     const orderBy = opts?.orderBy === 'total' ? 'total' : 'occurredAt';
     const orderDir = opts?.orderDir === 'ASC' ? 'ASC' : 'DESC';
 
@@ -161,6 +177,10 @@ export class EventCashService implements IEventCashService {
 
     if (method) {
       qb.andWhere('income.method = :method', { method });
+    }
+
+    if (source) {
+      qb.andWhere('income.source = :source', { source });
     }
 
     if (searchTerm) {
@@ -449,16 +469,31 @@ export class EventCashService implements IEventCashService {
 
     const num = (v: unknown) => Math.round(Number(v ?? 0) * 100) / 100;
 
-    const [web, expenses, byUser, topProducts, operational] = await Promise.all([
-      // Entradas web SIN costo de servicio: se suma oi.subtotal, nunca o.total.
+    const [web, webRefundsRaw, expenses, byUser, topProducts, operational] = await Promise.all([
+      // Monto = Σ subtotal (entradas). Cantidad = filas del listado (order_item),
+      // no Σ quantity: si no, "8 ventas" del listado no cierra con el KPI.
       this.dataSource
         .createQueryBuilder()
         .select('COALESCE(SUM(oi.subtotal), 0)', 'v')
+        .addSelect('COALESCE(COUNT(oi.uuid), 0)', 'qty')
         .from('order_item', 'oi')
         .innerJoin('orders', 'o', 'o.uuid = oi.orderUuid')
         .where('o.eventUuid = :eventUuid', { eventUuid })
         .andWhere("o.status IN ('paid', 'refunded')")
-        .getRawOne<{ v: string }>(),
+        .getRawOne<{ v: string; qty: string }>(),
+
+      // Monto = Σ precio de entradas reembolsadas. Cantidad = filas con al
+      // menos un reembolso (mismo criterio que el filtro "Reembolsos").
+      this.dataSource
+        .createQueryBuilder()
+        .select('COALESCE(SUM(oi.unitPrice), 0)', 'v')
+        .addSelect('COALESCE(COUNT(DISTINCT oi.uuid), 0)', 'qty')
+        .from('ticket', 't')
+        .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')
+        .innerJoin('orders', 'o', 'o.uuid = oi.orderUuid')
+        .where('o.eventUuid = :eventUuid', { eventUuid })
+        .andWhere("t.status = 'refunded'")
+        .getRawOne<{ v: string; qty: string }>(),
 
       this.dataSource
         .createQueryBuilder()
@@ -505,19 +540,26 @@ export class EventCashService implements IEventCashService {
     ]);
 
     const webTickets = num(web?.v);
+    const webTicketsCount = Number(web?.qty ?? 0);
+    const webRefunds = num(webRefundsRaw?.v);
+    const webRefundsCount = Number(webRefundsRaw?.qty ?? 0);
     const expensesTotal = num(expenses?.v);
+    // Caja/posnet + reembolsos web: lo que resta del evento.
+    const mpRefunds = num(operational.mpRefunds + webRefunds);
 
-    // BR-CASH-007: web + operativos − egresos MP. El neto operativo lo calcula
-    // `getOperationalIncome`, que es el mismo que usa el dashboard.
-    const totalIncome = num(webTickets + operational.total);
+    // BR-CASH-007: web + operativos − egresos. `getOperationalIncome` ya resta
+    // egresos de caja; acá restamos también los reembolsos web.
+    const totalIncome = num(webTickets - webRefunds + operational.total);
 
     return {
       webTickets,
+      webTicketsCount,
       doorTickets: operational.doorTickets,
       mpIncome: operational.mpIncome,
       transfersAndOthers: operational.transfersAndOthers,
       manualIncome: operational.manualIncome,
-      mpRefunds: operational.mpRefunds,
+      mpRefunds,
+      webRefundsCount,
       totalIncome,
       expenses: expensesTotal,
       result: num(totalIncome - expensesTotal),
@@ -533,6 +575,186 @@ export class EventCashService implements IEventCashService {
         total: num(r.total)
       })),
       mpSyncAvailable: true
+    };
+  }
+
+  async exportSummary(
+    eventUuid: string,
+    loggedUser: string,
+    opts?: {
+      format?: 'pdf' | 'xlsx';
+      search?: string;
+      origin?: string;
+    }
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const access = await this.resolveAccess(eventUuid, loggedUser);
+    this.assertProducer(access, 'exportar el resumen de ingresos');
+
+    const event = await this.dbRepository.findOne({
+      entity: 'event',
+      where: { uuid: eventUuid },
+      select: { uuid: true, name: true } as never
+    });
+    if (!event) throw new NotFoundException('Evento no encontrado');
+
+    const summary = await this.getSummary(eventUuid, loggedUser);
+    const origin = opts?.origin ?? 'all';
+    const search = opts?.search?.trim();
+    const includeWeb = origin === 'all' || origin === 'web' || origin === 'refunds';
+    const includeCash = origin === 'all' || origin === 'manual' || origin === 'mp';
+    const refundedOnly = origin === 'refunds';
+
+    const rows: IIncomeSummaryExportRow[] = [];
+
+    if (includeWeb) {
+      const salesQb = this.dataSource
+        .createQueryBuilder()
+        .select([
+          'o.orderNumber AS orderNumber',
+          'o.createdAt AS purchasedAt',
+          'o.status AS status',
+          'o.paymentMethod AS paymentMethod',
+          'o.paymentProvider AS paymentProvider',
+          'u.firstName AS buyerFirstName',
+          'u.lastName AS buyerLastName',
+          'tt.name AS ticketTypeName',
+          'oi.quantity AS quantity',
+          'oi.subtotal AS amount',
+          `(SELECT COUNT(*) FROM ticket t
+             WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded') AS refundedQuantity`
+        ])
+        .from('order_item', 'oi')
+        .innerJoin('orders', 'o', 'o.uuid = oi.orderUuid')
+        .innerJoin('user', 'u', 'u.uuid = o.userUuid')
+        .innerJoin('ticket_type', 'tt', 'tt.uuid = oi.ticketTypeUuid')
+        .where('o.eventUuid = :eventUuid', { eventUuid })
+        .andWhere("o.status IN ('paid', 'refunded')")
+        .orderBy('o.createdAt', 'DESC')
+        .limit(5000);
+
+      if (refundedOnly) {
+        salesQb.andWhere(
+          `EXISTS (
+            SELECT 1 FROM ticket t
+            WHERE t.orderItemUuid = oi.uuid AND t.status = 'refunded'
+          )`
+        );
+      }
+
+      if (search) {
+        const term = `%${search}%`;
+        salesQb.andWhere(
+          '(u.firstName LIKE :term OR u.lastName LIKE :term OR u.email LIKE :term OR o.orderNumber LIKE :term)',
+          { term }
+        );
+      }
+
+      const salesRaw = await salesQb.getRawMany<Record<string, unknown>>();
+      for (const raw of salesRaw) {
+        const quantity = Number(raw.quantity);
+        const refundedQuantity = Number(raw.refundedQuantity ?? 0);
+        rows.push({
+          origin: 'Venta online',
+          reference: String(raw.orderNumber),
+          party: `${raw.buyerFirstName ?? ''} ${raw.buyerLastName ?? ''}`.trim() || '—',
+          detail: String(raw.ticketTypeName ?? '—'),
+          quantity,
+          paymentMethod: formatPaymentMethodLabel(
+            raw.paymentMethod != null ? String(raw.paymentMethod) : null,
+            raw.paymentProvider != null ? String(raw.paymentProvider) : null
+          ),
+          amount: Number(raw.amount),
+          occurredAt: new Date(raw.purchasedAt as string),
+          status: formatSaleStatus({
+            status: String(raw.status),
+            quantity,
+            refundedQuantity
+          })
+        });
+      }
+    }
+
+    if (includeCash) {
+      const cash = await this.listIncomes(eventUuid, loggedUser, {
+        page: 1,
+        limit: 100,
+        search,
+        source: origin === 'manual' ? 'manual' : origin === 'mp' ? 'mp_auto' : undefined,
+        orderBy: 'occurredAt',
+        orderDir: 'DESC'
+      });
+
+      // listIncomes pagina a 100: si hay más, pedimos el resto.
+      const allCash = [...cash.items];
+      const totalCash = cash.meta.total;
+      if (totalCash > allCash.length) {
+        const pages = Math.ceil(totalCash / 100);
+        for (let page = 2; page <= pages; page++) {
+          const next = await this.listIncomes(eventUuid, loggedUser, {
+            page,
+            limit: 100,
+            search,
+            source: origin === 'manual' ? 'manual' : origin === 'mp' ? 'mp_auto' : undefined,
+            orderBy: 'occurredAt',
+            orderDir: 'DESC'
+          });
+          allCash.push(...next.items);
+        }
+      }
+
+      for (const income of allCash) {
+        const qty = income.products.reduce((s, p) => s + p.quantity, 0);
+        const detail =
+          income.products.map(p => `${p.name} ×${p.quantity}`).join(', ') ||
+          income.notes?.trim() ||
+          '—';
+        rows.push({
+          origin: income.source === 'mp_auto' ? 'Mercado Pago' : 'Ingreso manual',
+          reference: '—',
+          party: income.createdByName?.trim() || '—',
+          detail,
+          quantity: qty,
+          paymentMethod: METHOD_LABEL[income.method] ?? income.method,
+          amount: Number(income.total),
+          occurredAt: new Date(income.occurredAt),
+          status: 'Registrado'
+        });
+      }
+    }
+
+    rows.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+
+    const cashIncomeAmount =
+      Math.round((summary.manualIncome + summary.mpIncome + summary.transfersAndOthers) * 100) / 100;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const payload = {
+      eventName: String((event as { name?: string }).name ?? 'Evento'),
+      kpis: {
+        webSalesCount: summary.webTicketsCount,
+        webSalesAmount: summary.webTickets,
+        refundsCount: summary.webRefundsCount,
+        refundsAmount: summary.mpRefunds,
+        cashIncomeAmount,
+        netTotal: summary.totalIncome
+      },
+      rows
+    };
+
+    const format = opts?.format === 'xlsx' ? 'xlsx' : 'pdf';
+    if (format === 'xlsx') {
+      const buffer = await this.salesExport.toIncomeSummaryExcel(payload);
+      return {
+        buffer,
+        filename: `ingresos-${stamp}.xlsx`,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      };
+    }
+
+    const buffer = await this.salesExport.toIncomeSummaryPdf(payload);
+    return {
+      buffer,
+      filename: `ingresos-${stamp}.pdf`,
+      contentType: 'application/pdf'
     };
   }
 

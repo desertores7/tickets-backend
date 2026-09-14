@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import {
@@ -52,6 +53,7 @@ export class EventCashController {
       'Producer and the cashiers assigned to this event.\n' +
       '- `search`: coincidencia parcial sobre notas, productos o quién cobró.\n' +
       '- `method`: cash | mercadopago | other.\n' +
+      '- `source`: manual | mp_auto.\n' +
       '- `order_by`: occurredAt:desc|asc, total:desc|asc.'
   })
   @ApiParam({ name: 'eventUuid' })
@@ -74,6 +76,7 @@ export class EventCashController {
       limit: pagination.limit,
       search: search?.search,
       method: filters?.method?.[0] as 'cash' | 'mercadopago' | 'other' | undefined,
+      source: filters?.source?.[0] as 'manual' | 'mp_auto' | undefined,
       orderBy:
         order?.order_by === 'total' || order?.order_by === 'occurredAt'
           ? order.order_by
@@ -108,6 +111,43 @@ export class EventCashController {
     return new CashSummaryResponse(
       await this.eventCashService.getSummary(eventUuid, loggedUser)
     );
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Exportar resumen de ingresos',
+    description:
+      'PDF o Excel con ventas online e ingresos de caja: origen, medio de pago, cantidad, ' +
+      'detalle y estado. Respeta el filtro de origen del listado.'
+  })
+  @ApiParam({ name: 'eventUuid' })
+  @ApiQuery({ name: 'format', required: false, enum: ['pdf', 'xlsx'] })
+  @ApiQuery({
+    name: 'origin',
+    required: false,
+    enum: ['all', 'web', 'manual', 'mp', 'refunds'],
+    description: 'Mismo criterio que el filtro del listado de Ingresos.'
+  })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiResponse({ status: 200, description: 'Binary file.' })
+  @HttpCode(200)
+  @Get('export')
+  async exportSummary(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string,
+    @Query('format') format: string | undefined,
+    @Query('origin') origin: string | undefined,
+    @Query('search') search: string | undefined,
+    @Res() res: Response
+  ): Promise<void> {
+    const file = await this.eventCashService.exportSummary(eventUuid, loggedUser, {
+      format: format === 'xlsx' ? 'xlsx' : 'pdf',
+      origin,
+      search
+    });
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   }
 
   @UserAuth(CreateIncomeRequest, IncomeResponse)
