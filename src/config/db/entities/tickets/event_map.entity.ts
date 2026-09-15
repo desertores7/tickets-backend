@@ -34,6 +34,13 @@ export class EventMapEntity {
   @Column({ type: 'int', default: 1000 })
   canvasHeight: number;
 
+  /**
+   * Layout abstracto de la IA (grilla 24×24, categorías, stage). Fuente visual
+   * del MapGridOverlay; null en mapas dibujados a mano o previos a esta columna.
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  analysis: Record<string, unknown> | null;
+
   @CreateDateColumn({ type: 'timestamp', nullable: true, default: () => 'CURRENT_TIMESTAMP(3)' })
   createdAt: Date;
 

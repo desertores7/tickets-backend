@@ -39,6 +39,11 @@ export type TEventMap = {
   baseImageUrl: string | null;
   canvasWidth: number;
   canvasHeight: number;
+  /**
+   * Layout abstracto de la IA (MapGridOverlay). Null si el mapa es a mano o
+   * aún no se guardó análisis.
+   */
+  analysis: Record<string, unknown> | null;
   sectors: TEventMapSector[];
   /** Tandas del evento (agrupadas con el mapa para compra / sectores). */
   ticketTypes: TTicketTypeResponse[];
@@ -60,6 +65,11 @@ export type TUpsertEventMap = {
   canvasWidth?: number;
   canvasHeight?: number;
   baseImageUrl?: string | null;
+  /**
+   * Si viene en el body (incluido null), se persiste. Si se omite, se conserva
+   * el analysis ya guardado (p. ej. upserts parciales de vínculos tanda↔sector).
+   */
+  analysis?: Record<string, unknown> | null;
   sectors: TUpsertEventMapSector[];
 };
 

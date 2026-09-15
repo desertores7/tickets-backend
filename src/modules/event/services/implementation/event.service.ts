@@ -305,14 +305,13 @@ export class EventService implements IEventService {
     }
 
     if (data.slug !== undefined && data.slug !== event.slug) {
-      if (event.isPublished) {
-        throw new BadRequestException('No se puede cambiar el slug de un evento publicado');
-      }
       const slugTaken = await this.dbRepository.findOne({
         entity: 'event',
         where: { slug: data.slug }
       });
-      if (slugTaken) throw new BadRequestException('El slug ya está en uso');
+      if (slugTaken && slugTaken.uuid !== event.uuid) {
+        throw new BadRequestException('El slug ya está en uso');
+      }
       patch.slug = data.slug;
     }
 
@@ -993,6 +992,7 @@ export class EventService implements IEventService {
       baseImageUrl: string | null;
       canvasWidth: number;
       canvasHeight: number;
+      analysis: Record<string, unknown> | null;
     };
     let sectors: TEventMapSector[];
 
@@ -1005,6 +1005,7 @@ export class EventService implements IEventService {
         created.baseImageUrl = data.baseImageUrl ?? null;
         created.canvasWidth = data.canvasWidth ?? 1000;
         created.canvasHeight = data.canvasHeight ?? 1000;
+        created.analysis = data.analysis !== undefined ? data.analysis : null;
         created.createdBy = loggedUser;
         await this.dbRepository.create({ entity: 'event_map', data: created, queryRunner });
         map = created;
@@ -1014,6 +1015,7 @@ export class EventService implements IEventService {
         if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
         if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
         if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
+        if (data.analysis !== undefined) patch.analysis = data.analysis;
 
         if (Object.keys(patch).length) {
           // UPDATE directo en vez de `dbRepository.update`, que lee la fila con
@@ -1023,11 +1025,33 @@ export class EventService implements IEventService {
           const fields = Object.keys(patch);
           await this.dbRepository.query(
             `UPDATE event_map SET ${fields.map(f => `\`${f}\` = ?`).join(', ')} WHERE uuid = ?`,
-            [...fields.map(f => (patch as Record<string, unknown>)[f]), existing.uuid],
+            [
+              ...fields.map(f => {
+                const value = (patch as Record<string, unknown>)[f];
+                // MySQL JSON column via raw query needs a string.
+                if (f === 'analysis') {
+                  return value == null ? null : JSON.stringify(value);
+                }
+                return value;
+              }),
+              existing.uuid
+            ],
             queryRunner
           );
         }
-        map = { ...existing, ...patch };
+        map = {
+          uuid: existing.uuid,
+          eventUuid: existing.eventUuid,
+          name: patch.name ?? existing.name,
+          baseImageUrl:
+            patch.baseImageUrl !== undefined ? patch.baseImageUrl : existing.baseImageUrl,
+          canvasWidth: patch.canvasWidth ?? existing.canvasWidth,
+          canvasHeight: patch.canvasHeight ?? existing.canvasHeight,
+          analysis:
+            data.analysis !== undefined
+              ? data.analysis
+              : ((existing.analysis as Record<string, unknown> | null) ?? null)
+        };
       }
 
       sectors = await this.replaceMapSectors(map.uuid, data.sectors, queryRunner);
@@ -1046,6 +1070,7 @@ export class EventService implements IEventService {
       baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
       canvasWidth: map.canvasWidth,
       canvasHeight: map.canvasHeight,
+      analysis: map.analysis ?? null,
       sectors,
       ticketTypes: await this.getTicketTypes(map.eventUuid)
     };
@@ -1094,6 +1119,7 @@ export class EventService implements IEventService {
       created.baseImageUrl = url;
       created.canvasWidth = 1000;
       created.canvasHeight = 1000;
+      created.analysis = null;
       created.createdBy = loggedUser;
       await this.dbRepository.create({ entity: 'event_map', data: created });
       map = created;
@@ -1163,6 +1189,7 @@ export class EventService implements IEventService {
       created.baseImageUrl = media.url;
       created.canvasWidth = 1000;
       created.canvasHeight = 1000;
+      created.analysis = null;
       created.createdBy = loggedUser;
       await this.dbRepository.create({ entity: 'event_map', data: created });
       map = created;
@@ -1185,6 +1212,7 @@ export class EventService implements IEventService {
     baseImageUrl: string | null;
     canvasWidth: number;
     canvasHeight: number;
+    analysis?: Record<string, unknown> | null;
   }): Promise<TEventMap> {
     const [sectors, ticketTypes] = await Promise.all([
       this.dbRepository.findMany({
@@ -1229,6 +1257,7 @@ export class EventService implements IEventService {
       baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
       canvasWidth: map.canvasWidth,
       canvasHeight: map.canvasHeight,
+      analysis: (map.analysis as Record<string, unknown> | null) ?? null,
       sectors: mappedSectors,
       ticketTypes
     };
@@ -1244,6 +1273,7 @@ export class EventService implements IEventService {
       baseImageUrl: string | null;
       canvasWidth: number;
       canvasHeight: number;
+      analysis?: Record<string, unknown> | null;
     } | null
   ): Promise<TEventMap> {
     if (map) return this.loadEventMap(map);
@@ -1256,6 +1286,7 @@ export class EventService implements IEventService {
       baseImageUrl: null,
       canvasWidth: 0,
       canvasHeight: 0,
+      analysis: null,
       sectors: [],
       ticketTypes
     };
