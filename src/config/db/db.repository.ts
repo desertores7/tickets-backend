@@ -231,14 +231,23 @@ export class DBRepository {
     data: TResponseNoSelectNoRelation<EntityName>[];
     queryRunner?: QueryRunner;
   }): Promise<TResponseNoSelectNoRelation<EntityName>[]> {
-    if (queryRunner) {
-      const response = await queryRunner.manager.save(entity, data);
-      return response;
-    } else {
-      const repo = this.privateRepositories[entity];
-      const response = await repo.save(data as unknown as TEntity<EntityName>[]);
-      return response;
+    if (!data.length) return [];
+
+    // `save()` sobre un array hace SELECT+INSERT/UPDATE por fila (TypeORM).
+    // Para altas masivas (mapa con N sectores) eso son cientos de round-trips.
+    // `insert()` manda un multi-row INSERT y listo.
+    const CHUNK = 200;
+    for (let i = 0; i < data.length; i += CHUNK) {
+      const chunk = data.slice(i, i + CHUNK);
+      if (queryRunner) {
+        await queryRunner.manager.insert(entity, chunk as never);
+      } else {
+        const repo = this.privateRepositories[entity];
+        // insert() tipa más estricto que save(); el lote ya viene tipado como entidad.
+        await repo.insert(chunk as never);
+      }
     }
+    return data;
   }
 
   async update<
@@ -320,6 +329,22 @@ export class DBRepository {
     } else {
       return await repo.count({ where });
     }
+  }
+
+  /**
+   * QueryRunner propio para agrupar varias operaciones en UNA conexión.
+   *
+   * Sirve para lo obvio —una transacción— y para algo menos obvio que pesa
+   * igual: cada método de este repositorio toma una conexión distinta del pool.
+   * Una operación de diez consultas puede abrir diez conexiones nuevas, y
+   * abrirlas no es gratis cuando MySQL no está en el mismo host que la API.
+   * Pasando el runner, las diez van por la misma.
+   *
+   * El llamador es responsable de `connect()`, `commitTransaction()` /
+   * `rollbackTransaction()` y `release()` en un `finally`.
+   */
+  createQueryRunner(): QueryRunner {
+    return this.dataSource.createQueryRunner();
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

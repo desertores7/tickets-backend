@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
-import { Between, Like, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or } from 'typeorm';
+import { Between, Like, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or, QueryRunner } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
 import { StorageService } from '@root/shared/services/storage.service';
@@ -940,45 +940,106 @@ export class EventService implements IEventService {
     return this.loadEventMapBundle(eventUuid, map);
   }
 
+  /**
+   * Guarda el mapa completo: metadatos + reemplazo de la lista de sectores.
+   *
+   * Todas las escrituras van por UN QueryRunner, dentro de UNA transacción, por
+   * dos motivos distintos:
+   *
+   *  - Atomicidad. El reemplazo de sectores es DELETE + INSERT. Sin transacción,
+   *    un error entre los dos dejaba el mapa del productor vacío: los sectores
+   *    borrados y los nuevos sin insertar, sin vuelta atrás.
+   *
+   *  - Conexiones. Cada método del repositorio toma una conexión del pool por
+   *    su cuenta, así que un guardado disparaba una decena de conexiones nuevas
+   *    a la vez. Con MySQL fuera del contenedor, abrir una conexión cuesta
+   *    bastante más que la consulta que va a correr por ella, y ese costo se
+   *    paga entero en el primer guardado después de un rato de inactividad
+   *    —cuando el pool está frío— mientras que el segundo, con las conexiones
+   *    ya abiertas, tarda una fracción. Es la diferencia entre 17 s y 1 s sobre
+   *    el mismo payload.
+   *
+   * La respuesta se arma con lo que se acaba de escribir en vez de releer el
+   * mapa: los sectores y los vínculos ya están en memoria, y releerlos eran
+   * tres consultas más para devolver exactamente lo mismo.
+   */
   async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
     this.assertUniqueSectorNames(data.sectors);
     await this.validateSectorTicketTypes(event.uuid, data.sectors);
 
-    let map = await this.dbRepository.findOne({
+    const existing = await this.dbRepository.findOne({
       entity: 'event_map',
       where: { eventUuid: event.uuid }
     });
 
-    if (!map) {
-      const created = new EventMapEntity();
-      created.uuid = uuidv4();
-      created.eventUuid = event.uuid;
-      created.name = data.name?.trim() || 'Mapa del evento';
-      created.baseImageUrl = data.baseImageUrl ?? null;
-      created.canvasWidth = data.canvasWidth ?? 1000;
-      created.canvasHeight = data.canvasHeight ?? 1000;
-      created.createdBy = loggedUser;
-      await this.dbRepository.create({ entity: 'event_map', data: created });
-      map = created;
-    } else {
-      const patch: Partial<EventMapEntity> = {};
-      if (data.name !== undefined) patch.name = data.name.trim() || map.name;
-      if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
-      if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
-      if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
-      if (Object.keys(patch).length) {
-        await this.dbRepository.update({
-          entity: 'event_map',
-          where: { uuid: map.uuid },
-          data: patch
-        });
-        map = { ...map, ...patch };
+    const queryRunner = this.dbRepository.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    let map: {
+      uuid: string;
+      eventUuid: string;
+      name: string;
+      baseImageUrl: string | null;
+      canvasWidth: number;
+      canvasHeight: number;
+    };
+    let sectors: TEventMapSector[];
+
+    try {
+      if (!existing) {
+        const created = new EventMapEntity();
+        created.uuid = uuidv4();
+        created.eventUuid = event.uuid;
+        created.name = data.name?.trim() || 'Mapa del evento';
+        created.baseImageUrl = data.baseImageUrl ?? null;
+        created.canvasWidth = data.canvasWidth ?? 1000;
+        created.canvasHeight = data.canvasHeight ?? 1000;
+        created.createdBy = loggedUser;
+        await this.dbRepository.create({ entity: 'event_map', data: created, queryRunner });
+        map = created;
+      } else {
+        const patch: Partial<EventMapEntity> = {};
+        if (data.name !== undefined) patch.name = data.name.trim() || existing.name;
+        if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
+        if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
+        if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
+
+        if (Object.keys(patch).length) {
+          // UPDATE directo en vez de `dbRepository.update`, que lee la fila con
+          // un findOne por fuera del runner antes de escribirla: una consulta
+          // más, en otra conexión, sobre la misma fila que la transacción está
+          // por tocar.
+          const fields = Object.keys(patch);
+          await this.dbRepository.query(
+            `UPDATE event_map SET ${fields.map(f => `\`${f}\` = ?`).join(', ')} WHERE uuid = ?`,
+            [...fields.map(f => (patch as Record<string, unknown>)[f]), existing.uuid],
+            queryRunner
+          );
+        }
+        map = { ...existing, ...patch };
       }
+
+      sectors = await this.replaceMapSectors(map.uuid, data.sectors, queryRunner);
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
     }
 
-    await this.replaceMapSectors(map.uuid, data.sectors);
-    return this.loadEventMap(map);
+    return {
+      uuid: map.uuid,
+      eventUuid: map.eventUuid,
+      name: map.name,
+      baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
+      canvasWidth: map.canvasWidth,
+      canvasHeight: map.canvasHeight,
+      sectors,
+      ticketTypes: await this.getTicketTypes(map.eventUuid)
+    };
   }
 
   async uploadMapBaseImage(
@@ -1251,15 +1312,27 @@ export class EventService implements IEventService {
     }
   }
 
+  /**
+   * Reemplaza la lista de sectores del mapa y devuelve la que quedó.
+   *
+   * Devolverla evita releer lo recién escrito para armar la respuesta: acá ya
+   * está todo armado en memoria, con los uuid definitivos.
+   *
+   * Corre siempre dentro del runner que le pasa `upsertEventMap`: el DELETE y
+   * los INSERT tienen que ir en la misma transacción o un error en el medio
+   * deja al productor sin mapa.
+   */
   private async replaceMapSectors(
     mapUuid: string,
-    sectors: TUpsertEventMap['sectors']
-  ): Promise<void> {
+    sectors: TUpsertEventMap['sectors'],
+    queryRunner: QueryRunner
+  ): Promise<TEventMapSector[]> {
     // Los vinculos con tandas se van solos: la FK es ON DELETE CASCADE. Leer
     // los sectores para borrarlos por lista era una consulta al pedo.
     await this.dbRepository.delete({
       entity: 'event_map_sector',
-      where: { mapUuid } as any
+      where: { mapUuid } as any,
+      queryRunner
     });
 
     // Un mapa de estadio son cientos de sectores: se arma todo en memoria y se
@@ -1293,15 +1366,35 @@ export class EventService implements IEventService {
     if (newSectors.length) {
       await this.dbRepository.createMany({
         entity: 'event_map_sector',
-        data: newSectors as never
+        data: newSectors as never,
+        queryRunner
       });
     }
     if (newLinks.length) {
       await this.dbRepository.createMany({
         entity: 'event_map_sector_ticket_type',
-        data: newLinks as never
+        data: newLinks as never,
+        queryRunner
       });
     }
+
+    const ticketTypesBySector = new Map<string, string[]>();
+    for (const link of newLinks) {
+      const arr = ticketTypesBySector.get(link.sectorUuid) ?? [];
+      arr.push(link.ticketTypeUuid);
+      ticketTypesBySector.set(link.sectorUuid, arr);
+    }
+
+    return newSectors.map(sector => ({
+      uuid: sector.uuid,
+      name: sector.name,
+      level: sector.level ?? null,
+      geometry: sector.geometry,
+      sortOrder: sector.sortOrder,
+      isNumbered: !!sector.isNumbered,
+      capacity: sector.capacity ?? null,
+      ticketTypeUuids: ticketTypesBySector.get(sector.uuid) ?? []
+    }));
   }
 
   private normalizeSectorGeometry(raw: EventMapSectorGeometry): EventMapSectorGeometry {
