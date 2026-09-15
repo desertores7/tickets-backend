@@ -60,6 +60,8 @@ export interface ICouponApplication {
   subtotal: number;
   /** Parte del subtotal sobre la que se calculó el descuento (`BR-COUPON-009`). */
   eligibleSubtotal: number;
+  /** Tandas sobre las que se reparte el descuento. */
+  eligibleTicketTypeUuids: string[];
   discountAmount: number;
   /** subtotal − descuento */
   discountedSubtotal: number;

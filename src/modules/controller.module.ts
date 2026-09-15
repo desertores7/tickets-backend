@@ -34,6 +34,7 @@ import { EventDashboardController } from './reporting/controllers/event-dashboar
 import { RefundController } from './refunds/controllers/refund.controller';
 import { EventMpAccountController } from './event-cash/controllers/event-mp-account.controller';
 import { FavoriteController } from './favorites/controllers/favorite.controller';
+import { ServiceFeeController } from './orders/controllers/service-fee.controller';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { FavoriteController } from './favorites/controllers/favorite.controller'
     RefundController,
     EventMpAccountController,
     OrderController,
+    ServiceFeeController,
     PaymentController,
     CheckInController,
     UserNotificationController,

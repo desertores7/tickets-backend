@@ -48,6 +48,14 @@ export class OrderEntity {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   serviceFee: number;
 
+  /** Tasa con la que se cobró el fee (0.1 = 10%). Queda fija aunque cambie la regla. */
+  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true, default: null })
+  serviceFeeRate: number | null;
+
+  /** Tope por entrada vigente al crear la orden. `null` en órdenes previas al tope. */
+  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, default: null })
+  serviceFeeCap: number | null;
+
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   total: number;
 

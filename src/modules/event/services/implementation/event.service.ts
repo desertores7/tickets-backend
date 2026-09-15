@@ -57,6 +57,7 @@ import {
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { normalizeLineup } from '../core/event-change.helpers';
+import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
@@ -317,6 +318,12 @@ export class EventService implements IEventService {
 
     if (Object.keys(patch).length) {
       await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
+    }
+
+    // La venta solo se corta cuando el evento terminó: si el job ya la había
+    // cerrado y ahora el fin pasa a futuro, se reabre.
+    if (shouldReopenAutoClosedSales(event, data.endDate)) {
+      await this.eventChangeService.reopenAutoClosedSales(event as EventEntity, loggedUser);
     }
 
     // Historial + email/ventana de reembolso si el cambio es material y hay

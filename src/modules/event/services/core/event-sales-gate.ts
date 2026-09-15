@@ -36,3 +36,23 @@ export function getEventSalesBlockReason(
 
   return null;
 }
+
+/**
+ * ¿Hay que reabrir la venta tras cambiar la fecha de fin?
+ *
+ * El job BR-EVENT-013 cierra la venta con `salesClosedAt = endDate` cuando el
+ * evento termina. Si la productora después reprograma el fin a futuro, ese
+ * cierre quedó viejo y bloqueaba la compra aunque el evento siga vigente.
+ *
+ * Solo se reabre un cierre automático (coincide con el `endDate` anterior): un
+ * cierre manual de admin/productora o una cancelación se respetan.
+ */
+export function shouldReopenAutoClosedSales(
+  event: { cancelledAt?: Date | string | null; salesClosedAt?: Date | string | null; endDate: Date | string },
+  newEndDate: Date | string | null | undefined,
+  now = new Date()
+): boolean {
+  if (!newEndDate || event.cancelledAt || !event.salesClosedAt) return false;
+  if (new Date(newEndDate) <= now) return false;
+  return new Date(event.salesClosedAt).getTime() === new Date(event.endDate).getTime();
+}

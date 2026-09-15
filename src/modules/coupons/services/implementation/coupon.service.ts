@@ -546,6 +546,7 @@ export class CouponService implements ICouponService {
       code: coupon.code,
       subtotal,
       eligibleSubtotal,
+      eligibleTicketTypeUuids: eligibleLines.map(l => l.ticketTypeUuid),
       discountAmount,
       discountedSubtotal
     };

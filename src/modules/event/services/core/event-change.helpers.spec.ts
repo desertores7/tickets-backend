@@ -6,7 +6,40 @@ import {
   resolveOpenRefundWindowEndsAt,
   resolveRefundWindowEndsAt
 } from './event-change.helpers';
-import { getEventSalesBlockReason } from './event-sales-gate';
+import { getEventSalesBlockReason, shouldReopenAutoClosedSales } from './event-sales-gate';
+
+describe('shouldReopenAutoClosedSales', () => {
+  const oldEnd = new Date('2026-09-14T06:30:00.000Z');
+  const now = new Date('2026-09-15T12:00:00.000Z');
+  const future = new Date('2026-09-17T02:15:00.000Z');
+
+  it('reabre el cierre automático si el fin pasa a futuro', () => {
+    expect(shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: oldEnd }, future, now)).toBe(true);
+  });
+
+  it('no reabre si la nueva fecha de fin ya pasó', () => {
+    expect(
+      shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: oldEnd }, new Date('2026-09-15T00:00:00Z'), now)
+    ).toBe(false);
+  });
+
+  it('respeta un cierre manual (no coincide con el fin anterior)', () => {
+    expect(
+      shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: new Date('2026-09-13T10:00:00Z') }, future, now)
+    ).toBe(false);
+  });
+
+  it('respeta la cancelación', () => {
+    expect(
+      shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: oldEnd, cancelledAt: oldEnd }, future, now)
+    ).toBe(false);
+  });
+
+  it('no hace nada si no cambió la fecha de fin o la venta está abierta', () => {
+    expect(shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: oldEnd }, undefined, now)).toBe(false);
+    expect(shouldReopenAutoClosedSales({ endDate: oldEnd, salesClosedAt: null }, future, now)).toBe(false);
+  });
+});
 
 describe('event-change.helpers', () => {
   const base = {

@@ -302,6 +302,36 @@ export class EventChangeService {
     return closed;
   }
 
+  /**
+   * Reabre la venta que cerró el job de fin de evento cuando la productora
+   * reprograma el fin a futuro. Ver `shouldReopenAutoClosedSales`.
+   */
+  async reopenAutoClosedSales(event: EventEntity, loggedUser: string): Promise<void> {
+    await this.dbRepository.update({
+      entity: 'event',
+      where: { uuid: event.uuid },
+      data: { salesClosedAt: null }
+    });
+
+    await this.persistChangeAndMaybeNotify({
+      event,
+      type: 'sales_close',
+      isMaterial: false,
+      reason: null,
+      changes: [
+        {
+          field: 'salesClosedAt',
+          label: 'Venta',
+          before: 'Cerrada (fin del evento)',
+          after: 'Reabierta (nueva fecha de fin)'
+        }
+      ],
+      createdByUuid: loggedUser,
+      newStartDate: null,
+      forceNotifyWithSales: false
+    });
+  }
+
   /** Tras un update de evento: persiste grupos detectados y notifica si hay ventas. */
   async recordUpdateChanges(
     eventBefore: EventSnapshotForChange & { uuid: string; organizationUuid: string; name: string },
