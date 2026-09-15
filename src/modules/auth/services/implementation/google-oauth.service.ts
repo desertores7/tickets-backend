@@ -101,14 +101,21 @@ export class GoogleOAuthService {
 
   /**
    * Arranque del flujo. El `state` es un JWT corto: además de frenar el CSRF
-   * del OAuth, se lleva a dónde volver, así el "iniciar sesión" desde una
-   * página profunda no termina siempre en el home.
+   * del OAuth, se lleva a dónde volver y el `intent` (cliente vs productora),
+   * así el alta desde `/register/producer` no crea un Cliente por defecto.
    */
-  async buildAuthorizationUrl(redirectPath: string | null): Promise<string> {
+  async buildAuthorizationUrl(
+    redirectPath: string | null,
+    intent: 'client' | 'producer' = 'client'
+  ): Promise<string> {
     this.requireEnabled();
 
     const state = await this.jwt.signAsync(
-      { purpose: 'google-oauth-state', redirect: this.safeRedirect(redirectPath) },
+      {
+        purpose: 'google-oauth-state',
+        redirect: this.safeRedirect(redirectPath),
+        intent: intent === 'producer' ? 'producer' : 'client'
+      },
       { secret: this.config.get('JWT_SECRET'), expiresIn: STATE_TTL }
     );
 
@@ -152,6 +159,7 @@ export class GoogleOAuthService {
     }
 
     let redirect: string | null = null;
+    let intent: 'client' | 'producer' = 'client';
     try {
       this.requireEnabled();
 
@@ -159,12 +167,14 @@ export class GoogleOAuthService {
         throw new UnauthorizedException('Respuesta de Google incompleta');
       }
 
-      redirect = await this.verifyState(params.state);
+      const verified = await this.verifyState(params.state);
+      redirect = verified.redirect;
+      intent = verified.intent;
 
       const accessToken = await this.exchangeCode(params.code);
       const profile = await this.fetchProfile(accessToken);
 
-      const userUuid = await this.authService.resolveGoogleUser(profile);
+      const userUuid = await this.authService.resolveGoogleUser(profile, { intent });
 
       const ticket = uuidv4();
       await this.redisService.setEphemeral(TICKET_PREFIX + ticket, userUuid, TICKET_TTL_SECONDS);
@@ -179,12 +189,15 @@ export class GoogleOAuthService {
       // El motivo viaja como texto para que el login lo muestre tal cual: son
       // mensajes nuestros ("la cuenta está desactivada"), no de Google.
       const detail = error instanceof UnauthorizedException ? message : 'No pudimos validar tu cuenta de Google';
-      return `${front}/login?error=google&detail=${encodeURIComponent(detail)}`;
+      const errorPath = intent === 'producer' ? '/register/producer' : '/login';
+      return `${front}${errorPath}?error=google&detail=${encodeURIComponent(detail)}`;
     }
   }
 
-  private async verifyState(state: string): Promise<string | null> {
-    let payload: { purpose?: string; redirect?: string | null };
+  private async verifyState(
+    state: string
+  ): Promise<{ redirect: string | null; intent: 'client' | 'producer' }> {
+    let payload: { purpose?: string; redirect?: string | null; intent?: string };
     try {
       payload = await this.jwt.verifyAsync(state, { secret: this.config.get('JWT_SECRET') });
     } catch {
@@ -195,7 +208,10 @@ export class GoogleOAuthService {
       throw new UnauthorizedException('Intento de ingreso inválido');
     }
 
-    return this.safeRedirect(payload.redirect);
+    return {
+      redirect: this.safeRedirect(payload.redirect),
+      intent: payload.intent === 'producer' ? 'producer' : 'client'
+    };
   }
 
   /** Canje del `code` por un access token de Google. Servidor contra servidor. */

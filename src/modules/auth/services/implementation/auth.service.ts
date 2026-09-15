@@ -459,25 +459,34 @@ export class AuthService implements IAuthService {
    * cuenta ajena. Google manda `email_verified: false` para algunas cuentas de
    * Workspace, así que el caso es real.
    *
-   * No crea documento: Google no lo provee. Tras el login, el cliente completa
-   * tipo + número en `/complete-document` (FC01) antes de operar.
+   * `intent: 'producer'` (alta desde `/register/producer`): crea Productor + org
+   * `draft_incomplete`, sin documento. `intent: 'client'` (default): Cliente;
+   * el documento se completa después en `/complete-document` (FC01).
    */
-  async resolveGoogleUser(profile: {
-    googleId: string;
-    email: string;
-    emailVerified: boolean;
-    firstName: string;
-    lastName: string;
-  }): Promise<string> {
+  async resolveGoogleUser(
+    profile: {
+      googleId: string;
+      email: string;
+      emailVerified: boolean;
+      firstName: string;
+      lastName: string;
+    },
+    options?: { intent?: 'client' | 'producer' }
+  ): Promise<string> {
+    const intent = options?.intent === 'producer' ? 'producer' : 'client';
     const email = profile.email.trim().toLowerCase();
 
     const byGoogleId = await this.dbRepository.findOne({
       entity: 'user',
-      where: { googleId: profile.googleId, isDeleted: IsNull() }
+      where: { googleId: profile.googleId, isDeleted: IsNull() },
+      relations: { userRoles: { role: true } }
     });
 
     if (byGoogleId) {
       if (!byGoogleId.active) throw new UnauthorizedException('La cuenta está desactivada');
+      if (intent === 'producer') {
+        await this.assertGoogleUserIsProducer(byGoogleId.uuid, byGoogleId.userRoles as any);
+      }
       return byGoogleId.uuid;
     }
 
@@ -487,11 +496,16 @@ export class AuthService implements IAuthService {
 
     const byEmail = await this.dbRepository.findOne({
       entity: 'user',
-      where: { email, isDeleted: IsNull() }
+      where: { email, isDeleted: IsNull() },
+      relations: { userRoles: { role: true } }
     });
 
     if (byEmail) {
       if (!byEmail.active) throw new UnauthorizedException('La cuenta está desactivada');
+
+      if (intent === 'producer') {
+        await this.assertGoogleUserIsProducer(byEmail.uuid, byEmail.userRoles as any);
+      }
 
       await this.dbRepository.update({
         entity: 'user',
@@ -508,6 +522,35 @@ export class AuthService implements IAuthService {
       return byEmail.uuid;
     }
 
+    if (intent === 'producer') {
+      return this.createGoogleProducerUser(profile, email);
+    }
+
+    return this.createGoogleClientUser(profile, email);
+  }
+
+  private async assertGoogleUserIsProducer(
+    userUuid: string,
+    userRoles?: Array<{ isDeleted?: Date | string | null; role?: { uuid: string } | null }>
+  ): Promise<void> {
+    const isProducer = (userRoles ?? []).some(
+      (ur) => !ur.isDeleted && ur.role?.uuid === this.roleProductorUuid
+    );
+    if (!isProducer) {
+      throw new UnauthorizedException(
+        'Este Google ya tiene una cuenta que no es de productora. Usá otro correo o ingresá como cliente.'
+      );
+    }
+  }
+
+  private async createGoogleClientUser(
+    profile: {
+      googleId: string;
+      firstName: string;
+      lastName: string;
+    },
+    email: string
+  ): Promise<string> {
     const user = new UserEntity();
     user.uuid = uuidv4();
     user.firstName = profile.firstName.trim() || 'Usuario';
@@ -534,18 +577,89 @@ export class AuthService implements IAuthService {
     userRole.updatedBy = user.uuid;
     await this.dbRepository.create({ entity: 'user_role', data: userRole });
 
-    try {
-      await this.userNotificationService.create(
+    void this.userNotificationService
+      .create(
         user.uuid,
         'Bienvenido a Showpass',
         'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
-      );
-    } catch (error) {
-      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
-    }
+      )
+      .catch((error) => {
+        this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
+      });
 
-    this.logger.log(`Cuenta creada desde Google: ${user.uuid}`);
+    this.logger.log(`Cuenta cliente creada desde Google: ${user.uuid}`);
     return user.uuid;
+  }
+
+  private async createGoogleProducerUser(
+    profile: {
+      googleId: string;
+      firstName: string;
+      lastName: string;
+    },
+    email: string
+  ): Promise<string> {
+    const user = new UserEntity();
+    user.uuid = uuidv4();
+    user.firstName = profile.firstName.trim() || 'Usuario';
+    user.lastName = profile.lastName.trim() || '';
+    user.email = email;
+    user.googleId = profile.googleId;
+    user.password = await this.hash(uuidv4() + uuidv4());
+    user.active = 1;
+    user.emailVerified = true;
+    user.emailVerifiedAt = new Date();
+    user.termsAcceptedAt = new Date();
+    user.twoAuthentication = false;
+    user.isDeleted = null;
+    await this.dbRepository.create({ entity: 'user', data: user });
+
+    await this.attachProducerRoleAndDraftOrg(user);
+
+    void this.userNotificationService
+      .create(
+        user.uuid,
+        'Bienvenido a Showpass',
+        'Tu cuenta de productora ya está creada. Completá la validación fiscal para publicar eventos y gestionar tus ventas.'
+      )
+      .catch((error) => {
+        this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
+      });
+
+    this.logger.log(`Cuenta productora creada desde Google: ${user.uuid}`);
+    return user.uuid;
+  }
+
+  /** Rol Productor + organización en draft_incomplete (alta email/pass o Google). */
+  private async attachProducerRoleAndDraftOrg(user: UserEntity): Promise<string> {
+    const userRole = new UserRoleEntity();
+    userRole.uuid = uuidv4();
+    userRole.userUuid = user.uuid;
+    userRole.roleUuid = this.roleProductorUuid;
+    userRole.createdBy = user.uuid;
+    userRole.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'user_role', data: userRole });
+
+    const org = new OrganizationEntity();
+    org.uuid = uuidv4();
+    org.name = `Productora ${user.firstName} ${user.lastName}`.trim();
+    org.active = 1;
+    org.organizationStatusUuid = ORGANIZATION_STATUS.DRAFT_INCOMPLETE.uuid;
+    org.isDeleted = null;
+    org.createdBy = user.uuid;
+    org.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'organization', data: org });
+
+    const membership = new UserOrganizationEntity();
+    membership.uuid = uuidv4();
+    membership.userUuid = user.uuid;
+    membership.organizationUuid = org.uuid;
+    membership.isDeleted = null;
+    membership.createdBy = user.uuid;
+    membership.updatedBy = user.uuid;
+    await this.dbRepository.create({ entity: 'user_organization', data: membership });
+
+    return org.uuid;
   }
 
   /**
@@ -694,32 +808,7 @@ export class AuthService implements IAuthService {
     user.isDeleted = null;
     await this.dbRepository.create({ entity: 'user', data: user });
 
-    const userRole = new UserRoleEntity();
-    userRole.uuid = uuidv4();
-    userRole.userUuid = user.uuid;
-    userRole.roleUuid = this.roleProductorUuid;
-    userRole.createdBy = user.uuid;
-    userRole.updatedBy = user.uuid;
-    await this.dbRepository.create({ entity: 'user_role', data: userRole });
-
-    const org = new OrganizationEntity();
-    org.uuid = uuidv4();
-    org.name = `Productora ${user.firstName} ${user.lastName}`.trim();
-    org.active = 1;
-    org.organizationStatusUuid = ORGANIZATION_STATUS.DRAFT_INCOMPLETE.uuid;
-    org.isDeleted = null;
-    org.createdBy = user.uuid;
-    org.updatedBy = user.uuid;
-    await this.dbRepository.create({ entity: 'organization', data: org });
-
-    const membership = new UserOrganizationEntity();
-    membership.uuid = uuidv4();
-    membership.userUuid = user.uuid;
-    membership.organizationUuid = org.uuid;
-    membership.isDeleted = null;
-    membership.createdBy = user.uuid;
-    membership.updatedBy = user.uuid;
-    await this.dbRepository.create({ entity: 'user_organization', data: membership });
+    const organizationUuid = await this.attachProducerRoleAndDraftOrg(user);
 
     const verificationToken = await this.signEmailVerificationToken(user.uuid, request.email);
     const validationUrl = `${this.getFrontendUrl()}/validate-email?token=${encodeURIComponent(verificationToken)}`;
@@ -751,7 +840,7 @@ export class AuthService implements IAuthService {
         this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
       });
 
-    return { email: request.email, uuid: user.uuid, organizationUuid: org.uuid };
+    return { email: request.email, uuid: user.uuid, organizationUuid };
   }
 
   async resendEmailVerification(email: string): Promise<void> {
