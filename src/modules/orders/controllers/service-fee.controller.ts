@@ -40,7 +40,7 @@ export class ServiceFeeController {
   @ApiTags('Admin — Costo de servicio')
   @AdminAuth(UpdateServiceFeeConfigRequest, ServiceFeeConfigResponse)
   @ApiOperation({
-    summary: 'Actualizar tope del costo de servicio',
+    summary: 'Actualizar costo de servicio — porcentaje y tope',
     description:
       'Applies to every event, for orders created from now on. Orders already created keep the fee ' +
       'they were priced with.'
@@ -51,7 +51,12 @@ export class ServiceFeeController {
     @Body() body: UpdateServiceFeeConfigRequest,
     @User() loggedUser: string
   ): Promise<ServiceFeeConfigResponse> {
-    return new ServiceFeeConfigResponse(await this.serviceFeeConfig.updateCap(body.cap, loggedUser));
+    return new ServiceFeeConfigResponse(
+      await this.serviceFeeConfig.updateConfig(
+        { ratePercent: body.ratePercent, cap: body.cap },
+        loggedUser
+      )
+    );
   }
 
   @ApiTags('Admin — Costo de servicio')
