@@ -25,7 +25,8 @@ export class UserResponse {
   @ApiProperty({
     name: 'requiresDocumentCompletion',
     description:
-      'true si falta tipo o número de documento (alta Google). El cliente debe completarlos antes de operar.'
+      'true solo para Cliente si falta tipo o número de documento (alta Google / FC01). ' +
+      'Productor y otros roles no pasan por esa pantalla.'
   })
   requiresDocumentCompletion: boolean;
 
@@ -51,7 +52,6 @@ export class UserResponse {
     this.lastName = user.lastName;
     this.email = user.email;
     this.emailVerified = Boolean(user.emailVerified);
-    this.requiresDocumentCompletion = !Boolean(user.documentType && user.dni?.trim());
     const profileFile = user.files?.find(file => isProfileFile(file) && !file.isDeleted);
     this.imgProfile = {
       url: buildProfileImageUrl(profileFile),
@@ -61,6 +61,8 @@ export class UserResponse {
 
     this.roleUuid = activeRole?.uuid ?? undefined;
     this.role = activeRole?.name ?? undefined;
+    this.requiresDocumentCompletion =
+      activeRole?.name === 'Cliente' && !Boolean(user.documentType && user.dni?.trim());
   }
 }
 

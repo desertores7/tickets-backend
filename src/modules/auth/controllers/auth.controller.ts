@@ -156,12 +156,18 @@ export class AuthController {
     summary: 'Iniciar sesión con Google',
     description:
       'Redirige a la pantalla de Google (OAuth 2.0, authorization code). `next` es la ruta interna a la que volver ' +
-      'después de entrar. No devuelve JSON: es un redirect para el navegador.'
+      'después de entrar. `intent=producer` crea/loguea una cuenta de productora (sin documento). ' +
+      'Sin intent (o `client`) es el flujo de comprador. No devuelve JSON: es un redirect para el navegador.'
   })
   @ApiTags('Auth')
   @Get('google')
-  async googleStart(@Query('next') next: string | undefined, @Res() res: Response): Promise<void> {
-    const url = await this.googleOAuthService.buildAuthorizationUrl(next ?? null);
+  async googleStart(
+    @Query('next') next: string | undefined,
+    @Query('intent') intent: string | undefined,
+    @Res() res: Response
+  ): Promise<void> {
+    const oauthIntent = intent === 'producer' ? 'producer' : 'client';
+    const url = await this.googleOAuthService.buildAuthorizationUrl(next ?? null, oauthIntent);
     res.redirect(url);
   }
 
