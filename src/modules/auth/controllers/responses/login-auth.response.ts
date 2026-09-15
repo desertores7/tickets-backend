@@ -23,6 +23,13 @@ export class UserResponse {
   emailVerified: boolean;
 
   @ApiProperty({
+    name: 'requiresDocumentCompletion',
+    description:
+      'true si falta tipo o número de documento (alta Google). El cliente debe completarlos antes de operar.'
+  })
+  requiresDocumentCompletion: boolean;
+
+  @ApiProperty({
     name: 'imgProfile',
     type: 'object',
     properties: {
@@ -44,6 +51,7 @@ export class UserResponse {
     this.lastName = user.lastName;
     this.email = user.email;
     this.emailVerified = Boolean(user.emailVerified);
+    this.requiresDocumentCompletion = !Boolean(user.documentType && user.dni?.trim());
     const profileFile = user.files?.find(file => isProfileFile(file) && !file.isDeleted);
     this.imgProfile = {
       url: buildProfileImageUrl(profileFile),

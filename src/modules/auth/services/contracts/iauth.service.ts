@@ -48,6 +48,12 @@ export interface IUpdateMeData {
   imgProfile?: Express.Multer.File;
 }
 
+export interface ICompleteDocumentData {
+  documentType: 'DNI' | 'Pasaporte' | 'Documento extranjero' | 'Otro';
+  documentNumber: string;
+  acceptedTerms: true;
+}
+
 export interface IAuthService {
   userLoginAuth(email: string, password: string): Promise<TLoginAuthResult>;
   verifyTwoFactor(email: string, code: string): Promise<TUserLoginAuthResponse>;
@@ -80,6 +86,11 @@ export interface IAuthService {
   ): Promise<void>;
   getMe(userUuid: string): Promise<TMeResponse>;
   updateMe(authenticatedUserUuid: string, data: IUpdateMeData): Promise<TMeResponse>;
+  /** Completa tipo+número de documento una sola vez (alta Google / FC01). */
+  completeIdentityDocument(
+    authenticatedUserUuid: string,
+    data: ICompleteDocumentData
+  ): Promise<TMeResponse>;
   deactivateAccount(userUuid: string): Promise<void>;
   validateProducerInvite(token: string): Promise<{
     valid: boolean;

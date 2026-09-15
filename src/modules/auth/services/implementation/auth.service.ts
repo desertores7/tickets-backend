@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { DBRepository } from '@config/db/db.repository';
-import { IAuthService, IUpdateMeData, TUserLoginAuthResponse, TMeResponse, TLoginAuthResult } from '../contracts/iauth.service';
+import { IAuthService, IUpdateMeData, ICompleteDocumentData, TUserLoginAuthResponse, TMeResponse, TLoginAuthResult } from '../contracts/iauth.service';
 import { v4 as uuidv4 } from 'uuid';
 import { IUser, IUserTokenSession } from '@modules/user/services/core/user';
 import { ConfigService } from '@nestjs/config';
@@ -18,7 +18,7 @@ import { UserTokenSessionEntity } from '@config/db/entities/user/user_token_sess
 import { UserSessionEntity } from '@config/db/entities/user/user_session.entity';
 import { PasswordResetCodeEntity } from '@config/db/entities/user/password-reset-code.entity';
 import * as bcryptjs from 'bcryptjs';
-import { IsNull, MoreThan, QueryRunner, DataSource } from 'typeorm';
+import { IsNull, MoreThan, Not, QueryRunner, DataSource } from 'typeorm';
 import { TEntityResponse } from '@config/db/meta/db.types';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { RoleEntity } from '@config/db/entities/user/role.entity';
@@ -35,6 +35,7 @@ import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 import { PRODUCTOR_ROLE_UUID, ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
+import { normalizeDocumentNumber } from '@modules/auth/const/normalize-document';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -458,8 +459,8 @@ export class AuthService implements IAuthService {
    * cuenta ajena. Google manda `email_verified: false` para algunas cuentas de
    * Workspace, así que el caso es real.
    *
-   * No crea documento ni teléfono: no los da Google. El usuario los completa
-   * desde el perfil cuando los necesite.
+   * No crea documento: Google no lo provee. Tras el login, el cliente completa
+   * tipo + número en `/complete-document` (FC01) antes de operar.
    */
   async resolveGoogleUser(profile: {
     googleId: string;
@@ -605,12 +606,18 @@ export class AuthService implements IAuthService {
     });
     if (existing) throw new BadRequestException('El email ya se encuentra registrado');
 
+    const documentNumber = normalizeDocumentNumber(request.documentType, request.documentNumber);
+    if (!documentNumber) {
+      throw new BadRequestException('Ingresá un número de documento válido');
+    }
+    await this.assertDocumentAvailable(documentNumber);
+
     const user = new UserEntity();
     user.uuid = uuidv4();
     user.firstName = request.firstName.trim();
     user.lastName = request.lastName.trim();
     user.documentType = request.documentType;
-    user.dni = request.documentNumber.trim();
+    user.dni = documentNumber;
     user.email = request.email;
     user.password = await this.hash(request.password);
     user.active = 1;
@@ -1133,6 +1140,65 @@ export class AuthService implements IAuthService {
     }
 
     return this.loadMeUser(authenticatedUserUuid);
+  }
+
+  /**
+   * Completa identidad (tipo + documento) una sola vez.
+   * Usado tras alta Google (FC01): el perfil después queda en solo lectura.
+   */
+  async completeIdentityDocument(
+    authenticatedUserUuid: string,
+    data: ICompleteDocumentData
+  ): Promise<TMeResponse> {
+    const user = await this.loadMeUser(authenticatedUserUuid);
+
+    if (user.dni?.trim() && user.documentType) {
+      throw new ConflictException(
+        'El documento ya está cargado. Para corregirlo, contactá a soporte.'
+      );
+    }
+
+    const documentNumber = normalizeDocumentNumber(data.documentType, data.documentNumber);
+    if (!documentNumber) {
+      throw new BadRequestException('Ingresá un número de documento válido');
+    }
+
+    await this.assertDocumentAvailable(documentNumber, authenticatedUserUuid);
+
+    await this.dbRepository.update({
+      entity: 'user',
+      where: { uuid: authenticatedUserUuid },
+      data: {
+        documentType: data.documentType,
+        dni: documentNumber,
+        termsAcceptedAt: user.termsAcceptedAt ?? new Date(),
+        updatedBy: authenticatedUserUuid
+      }
+    });
+
+    return this.loadMeUser(authenticatedUserUuid);
+  }
+
+  /** Rechaza si otro usuario activo ya tiene ese documento. */
+  private async assertDocumentAvailable(
+    documentNumber: string,
+    excludeUserUuid?: string
+  ): Promise<void> {
+    const where: Record<string, unknown> = {
+      dni: documentNumber,
+      isDeleted: IsNull()
+    };
+    if (excludeUserUuid) {
+      where.uuid = Not(excludeUserUuid);
+    }
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'user',
+      where
+    });
+    if (existing) {
+      throw new ConflictException('Ya existe una cuenta con este documento');
+    }
   }
 
   /**

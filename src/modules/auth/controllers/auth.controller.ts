@@ -24,6 +24,7 @@ import { LoginAuthResponse } from './responses/login-auth.response';
 import { MeResponse } from './responses/me.response';
 import { LoginAuthRequest } from './requests/login-auth.request';
 import { UpdateMeRequest } from './requests/update-me.request';
+import { CompleteDocumentRequest } from './requests/complete-document.request';
 import { ResetPasswordRequest } from './requests/reset-password.request';
 import { SendResetPasswordRequest } from './requests/send-password.request';
 import { VerifyResetPasswordCodeRequest } from './requests/verify-reset-password-code.request';
@@ -97,6 +98,27 @@ export class AuthController {
     file?: Express.Multer.File
   ): Promise<MeResponse> {
     const result = await this.authService.updateMe(userId, { ...request, imgProfile: file });
+    return new MeResponse(result);
+  }
+
+  @ApiOperation({
+    summary: 'Completar documento de identidad',
+    description:
+      'Permite cargar tipo y número de documento una sola vez (alta con Google / FC01). ' +
+      'Si ya hay documento, responde 409 — el cambio posterior es vía soporte.'
+  })
+  @UserAuth(CompleteDocumentRequest, MeResponse)
+  @ApiTags('Perfil')
+  @Patch('me/document')
+  async completeDocument(
+    @User() userId: string,
+    @Body() request: CompleteDocumentRequest
+  ): Promise<MeResponse> {
+    const result = await this.authService.completeIdentityDocument(userId, {
+      documentType: request.documentType,
+      documentNumber: request.documentNumber,
+      acceptedTerms: true
+    });
     return new MeResponse(result);
   }
 
