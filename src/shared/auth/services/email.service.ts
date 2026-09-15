@@ -14,6 +14,8 @@ import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 export class EmailService {
   private transporter: Transporter;
   private emailConfig: EmailConfig;
+  /** Evita verify() + createTransport en cada envío (Gmail suele costar 1–3s). */
+  private smtpReady = false;
 
   constructor(
     private envService: EnvService,
@@ -39,6 +41,10 @@ export class EmailService {
   }
 
   async initializeSmtp(): Promise<void> {
+    if (this.smtpReady && this.transporter) {
+      return;
+    }
+
     const smtpFromDb = await this.dbRepository.findOne({
       entity: 'email',
       where: { isDeleted: IsNull() },
@@ -80,8 +86,10 @@ export class EmailService {
 
     try {
       await this.transporter.verify();
+      this.smtpReady = true;
       console.log('✅ SMTP connection verified successfully');
     } catch (error) {
+      this.smtpReady = false;
       console.error('❌ SMTP connection failed:', error);
       throw new BadRequestException(`SMTP connection failed: ${error.message}`);
     }
@@ -122,7 +130,9 @@ export class EmailService {
 
     try {
       await this.transporter.verify();
+      this.smtpReady = true;
     } catch (error) {
+      this.smtpReady = false;
       throw new BadRequestException(`SMTP connection failed: ${error.message}`);
     }
   }
