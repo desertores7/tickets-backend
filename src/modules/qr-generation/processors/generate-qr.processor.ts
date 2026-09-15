@@ -1,6 +1,8 @@
+import { readFile } from 'fs/promises';
 import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
+import sharp from 'sharp';
 import { DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -10,10 +12,21 @@ import {
   SendOrderTicketsEmailJobData
 } from '@config/redis/bull-jobs.types';
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
+import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { StorageService } from '@root/shared/services/storage.service';
 import { QrSigningService } from '../services/qr-signing.service';
 import { QrImageService } from '../services/qr-image.service';
 import { PdfTicketService } from '../services/pdf-ticket.service';
+
+/**
+ * Portada del PDF, en pixeles.
+ *
+ * El doble del rectangulo que dibuja `PdfTicketService` (420x134 puntos), para
+ * que impresa a 144dpi no se vea pixelada. Mas que eso solo engorda el adjunto:
+ * cada entrada de la orden lleva su propia copia.
+ */
+const FLYER_WIDTH = 840;
+const FLYER_HEIGHT = 268;
 
 @Processor(QUEUE_NAMES.TICKETS)
 export class GenerateQrProcessor extends WorkerHost {
@@ -28,6 +41,51 @@ export class GenerateQrProcessor extends WorkerHost {
     @InjectQueue(QUEUE_NAMES.NOTIFICATIONS) private readonly notificationsQueue: Queue
   ) {
     super();
+  }
+
+  /**
+   * Banner del evento, listo para meter en el PDF.
+   *
+   * Se lee del disco y se pasa por sharp por dos motivos: pdfkit solo entiende
+   * JPEG y PNG —un banner WebP reventaria la generacion de la entrada— y el
+   * original pesa varios MB, que multiplicados por las entradas de la orden
+   * terminan en un email que el servidor rechaza. Sale recortado al rectangulo
+   * exacto del encabezado, asi el PDF no tiene que deformar nada.
+   *
+   * Devuelve null ante cualquier problema: una entrada sin portada se entrega
+   * igual, una entrada que no se genera deja al comprador afuera.
+   */
+  private async loadEventFlyer(event: EventEntity): Promise<Buffer | null> {
+    const stored = event.bannerImages?.desktop ?? event.bannerUrl ?? null;
+
+    try {
+      const pathname = this.storageService.staticPathname(stored);
+      if (!pathname) return null;
+
+      const relative = pathname.replace(/^\/static\//, '');
+      const slash = relative.lastIndexOf('/');
+      const directory = slash >= 0 ? relative.slice(0, slash) : '';
+      const filename = decodeURIComponent(slash >= 0 ? relative.slice(slash + 1) : relative);
+      if (!filename || filename.includes('..')) return null;
+
+      const absolutePath = this.storageService.resolveAbsolutePath(directory, filename);
+      if (!(await this.storageService.fileExists(absolutePath))) return null;
+
+      const original = await readFile(absolutePath);
+
+      return await sharp(original)
+        .rotate()
+        .resize(FLYER_WIDTH, FLYER_HEIGHT, { fit: 'cover', position: 'attention' })
+        .jpeg({ quality: 82, mozjpeg: true })
+        .toBuffer();
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo preparar la portada del evento ${event.uuid} para el PDF: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
   }
 
   /**
@@ -151,16 +209,20 @@ export class GenerateQrProcessor extends WorkerHost {
 
       // ── PASO 6 — Generar PDF ───────────────────────────────────────────────
 
+      const flyerImageBuffer = await this.loadEventFlyer(ticket.event);
+
       const pdfBuffer = await this.pdfTicketService.generateTicketPdf({
         ticketNumber: ticket.ticketNumber,
         eventName: ticket.event.name,
         eventDate: ticket.event.startDate,
         eventVenue: ticket.event.venueName,
         eventCity: ticket.event.venueCity,
+        eventAddress: ticket.event.venueAddress,
         ticketTypeName: ticket.ticketType.name,
         holderName: `${ticket.user.firstName} ${ticket.user.lastName}`,
         orderId: ticket.orderItem.orderUuid,
-        qrImageBuffer
+        qrImageBuffer,
+        flyerImageBuffer
       });
 
       // ── PASO 7 — Guardar PDF en disco ─────────────────────────────────────
