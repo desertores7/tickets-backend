@@ -83,6 +83,25 @@ function toIso(value: Date | string | null | undefined): string | null {
   return d.toISOString();
 }
 
+/**
+ * Compara fechas de evento a resolución de minuto.
+ * El round-trip DD/MM/YYYY HH:mm:ss ↔ Date/MySQL a veces difiere en ms o
+ * segundos y disparaba un "reschedule" material (y emails) en cada Guardar.
+ */
+function sameEventInstant(
+  a: Date | string | null | undefined,
+  b: Date | string | null | undefined
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a === null || b === null) return a === b;
+  const left = a instanceof Date ? a : new Date(a);
+  const right = b instanceof Date ? b : new Date(b);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) {
+    return toIso(a) === toIso(b);
+  }
+  return Math.floor(left.getTime() / 60_000) === Math.floor(right.getTime() / 60_000);
+}
+
 function normalizeText(value: string | null | undefined): string {
   return (value ?? '').trim();
 }
@@ -130,7 +149,7 @@ export function detectEventUpdateChanges(
   const groups: DetectedChangeGroup[] = [];
 
   const scheduleChanges: EventChangeFieldSnapshot[] = [];
-  if (patch.startDate !== undefined && toIso(patch.startDate) !== toIso(before.startDate)) {
+  if (patch.startDate !== undefined && !sameEventInstant(patch.startDate, before.startDate)) {
     scheduleChanges.push({
       field: 'startDate',
       label: 'Inicio',
@@ -138,7 +157,7 @@ export function detectEventUpdateChanges(
       after: toIso(patch.startDate)
     });
   }
-  if (patch.endDate !== undefined && toIso(patch.endDate) !== toIso(before.endDate)) {
+  if (patch.endDate !== undefined && !sameEventInstant(patch.endDate, before.endDate)) {
     scheduleChanges.push({
       field: 'endDate',
       label: 'Fin',

@@ -315,10 +315,12 @@ export class EventService implements IEventService {
       patch.slug = data.slug;
     }
 
-    await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
+    if (Object.keys(patch).length) {
+      await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: patch });
+    }
 
     // Historial + email/ventana de reembolso si el cambio es material y hay
-    // ventas (FP10).
+    // ventas (FP10). Los emails van en background: no bloquean el PATCH.
     await this.eventChangeService.recordUpdateChanges(
       snapshot,
       {
