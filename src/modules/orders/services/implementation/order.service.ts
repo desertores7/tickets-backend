@@ -771,14 +771,24 @@ export class OrderService implements IOrderService {
    * pruebas con cuentas descartables.
    */
   private async assertBuyerCanPurchase(userId: string): Promise<void> {
-    if (String(process.env.NODE_ENV ?? '').toLowerCase() !== 'production') return;
-
     const user = await this.dbRepository.findOne({
       entity: 'user',
       where: { uuid: userId }
     });
 
-    if (!user?.emailVerified) {
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.documentType || !user.dni?.trim()) {
+      throw new UnprocessableEntityException(
+        'Completá tu tipo y número de documento antes de comprar. Entrá a Mi perfil para cargarlos.'
+      );
+    }
+
+    if (String(process.env.NODE_ENV ?? '').toLowerCase() !== 'production') return;
+
+    if (!user.emailVerified) {
       throw new UnprocessableEntityException(
         'Tenés que verificar tu correo antes de comprar. Revisá tu bandeja de entrada.'
       );
