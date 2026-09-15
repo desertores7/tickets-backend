@@ -632,27 +632,30 @@ export class AuthService implements IAuthService {
     const verificationToken = await this.signEmailVerificationToken(user.uuid, request.email);
     const validationUrl = `${this.getFrontendUrl()}/validate-email?token=${encodeURIComponent(verificationToken)}`;
 
-    try {
-      await this.emailService.initializeSmtp();
-      await this.emailService.sendRegistrationEmail({
-        firstName: user.firstName,
-        email: request.email,
-        validationUrl,
-        audience: 'client'
+    // SMTP (Gmail) suele sumar 5–10s; no bloquear el 201. El usuario ya ve "revisá tu correo".
+    void this.emailService
+      .initializeSmtp()
+      .then(() =>
+        this.emailService.sendRegistrationEmail({
+          firstName: user.firstName,
+          email: request.email,
+          validationUrl,
+          audience: 'client'
+        })
+      )
+      .catch((error) => {
+        this.logger.error(`Failed to send registration email to ${request.email}`, error?.stack);
       });
-    } catch (error) {
-      console.error('Failed to send registration email:', error);
-    }
 
-    try {
-      await this.userNotificationService.create(
+    void this.userNotificationService
+      .create(
         user.uuid,
         'Bienvenido a Showpass',
         'Gracias por registrarte. Ya podés explorar eventos y comprar entradas desde tu cuenta.'
-      );
-    } catch (error) {
-      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
-    }
+      )
+      .catch((error) => {
+        this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
+      });
 
     return { email: request.email, uuid: user.uuid };
   }
@@ -714,27 +717,32 @@ export class AuthService implements IAuthService {
     const verificationToken = await this.signEmailVerificationToken(user.uuid, request.email);
     const validationUrl = `${this.getFrontendUrl()}/validate-email?token=${encodeURIComponent(verificationToken)}`;
 
-    try {
-      await this.emailService.initializeSmtp();
-      await this.emailService.sendRegistrationEmail({
-        firstName: user.firstName,
-        email: request.email,
-        validationUrl,
-        audience: 'producer'
+    void this.emailService
+      .initializeSmtp()
+      .then(() =>
+        this.emailService.sendRegistrationEmail({
+          firstName: user.firstName,
+          email: request.email,
+          validationUrl,
+          audience: 'producer'
+        })
+      )
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send producer registration email to ${request.email}`,
+          error?.stack
+        );
       });
-    } catch (error) {
-      console.error('Failed to send producer registration email:', error);
-    }
 
-    try {
-      await this.userNotificationService.create(
+    void this.userNotificationService
+      .create(
         user.uuid,
         'Bienvenido a Showpass',
         'Tu cuenta de productora ya está creada. Completá la validación fiscal para publicar eventos y gestionar tus ventas.'
-      );
-    } catch (error) {
-      this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
-    }
+      )
+      .catch((error) => {
+        this.logger.error(`Failed to create welcome notification for ${user.uuid}`, error?.stack);
+      });
 
     return { email: request.email, uuid: user.uuid, organizationUuid: org.uuid };
   }
