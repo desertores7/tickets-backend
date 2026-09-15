@@ -483,27 +483,16 @@ export class EventChangeService {
     const now = new Date();
     let refundWindowEndsAt: Date | null = null;
     let notifiedAt: Date | null = null;
-    let buyersNotified = 0;
 
     if (shouldNotify) {
       notifiedAt = now;
       // `BR-REFUND-010`: el límite es el inicio del evento — el nuevo, si esta
       // misma edición lo reprogramó — o la extensión que haya puesto un Admin.
-      // Se guarda en la fila como registro de lo que se le comunicó al
-      // comprador; la elegibilidad se evalúa siempre contra el evento, para que
-      // una extensión posterior alcance también a los cambios ya avisados.
       const windowEnd = resolveRefundWindowEndsAt(
         params.newStartDate ?? params.event.startDate,
         params.event.refundWindowExtendedTo
       );
       refundWindowEndsAt = windowEnd;
-      buyersNotified = await this.notifyBuyers({
-        event: params.event,
-        type: params.type,
-        changes: params.changes,
-        reason: params.reason,
-        refundWindowEndsAt: windowEnd
-      });
     }
 
     const row = new EventChangeEntity();
@@ -516,10 +505,20 @@ export class EventChangeService {
     row.ticketTypeUuid = params.ticketTypeUuid ?? null;
     row.refundWindowEndsAt = refundWindowEndsAt;
     row.notifiedAt = notifiedAt;
-    row.buyersNotified = buyersNotified;
+    row.buyersNotified = 0;
     row.createdByUuid = params.createdByUuid;
 
     await this.dbRepository.create({ entity: 'event_change', data: row });
+
+    // SMTP a N compradores no puede bloquear el PATCH (fácilmente 10–30s).
+    if (shouldNotify) {
+      void this.deliverMaterialChangeEmails(row.uuid).catch(err => {
+        this.logger.error(
+          `Background buyer notify failed for change ${row.uuid}`,
+          err instanceof Error ? err.stack : String(err)
+        );
+      });
+    }
 
     const saved = (await this.dbRepository.findOne({
       entity: 'event_change',
@@ -528,6 +527,46 @@ export class EventChangeService {
 
     const nameByUser = await this.resolveUserNames([saved.createdByUuid]);
     return this.toItem(saved, nameByUser.get(saved.createdByUuid ?? '') ?? null);
+  }
+
+  /**
+   * Envía los emails del cambio material y actualiza `buyersNotified`.
+   * Corre en background tras el PATCH para no alargar la respuesta HTTP.
+   */
+  async deliverMaterialChangeEmails(eventChangeUuid: string): Promise<number> {
+    const change = (await this.dbRepository.findOne({
+      entity: 'event_change',
+      where: { uuid: eventChangeUuid }
+    })) as EventChangeEntity | null;
+    if (!change) {
+      this.logger.error(`event_change ${eventChangeUuid} not found — skip notify`);
+      return 0;
+    }
+
+    const event = await this.findActiveEvent(change.eventUuid);
+    const windowEnd =
+      change.refundWindowEndsAt ??
+      resolveRefundWindowEndsAt(event.startDate, event.refundWindowExtendedTo);
+
+    const buyersNotified = await this.notifyBuyers({
+      event,
+      type: change.type,
+      changes: change.changes ?? [],
+      reason: change.reason,
+      refundWindowEndsAt: windowEnd
+    });
+
+    await this.dbRepository.update({
+      entity: 'event_change',
+      where: { uuid: change.uuid },
+      data: {
+        buyersNotified,
+        notifiedAt: change.notifiedAt ?? new Date(),
+        refundWindowEndsAt: change.refundWindowEndsAt ?? windowEnd
+      }
+    });
+
+    return buyersNotified;
   }
 
   private async notifyBuyers(params: {
