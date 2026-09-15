@@ -153,6 +153,17 @@ export class UpsertEventMapRequest {
   @IsString()
   baseImageUrl?: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Layout abstracto de la IA (AnalyzeMapResult). Null = mapa a mano. ' +
+      'Si se omite, se conserva el valor ya guardado.'
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsObject()
+  analysis?: Record<string, unknown> | null;
+
   @ApiProperty({ type: [UpsertEventMapSectorDto] })
   @IsArray()
   @ValidateNested({ each: true })

@@ -47,6 +47,11 @@ export class EventMapResponse {
   @ApiPropertyOptional({ nullable: true }) baseImageUrl: string | null;
   @ApiProperty() canvasWidth: number;
   @ApiProperty() canvasHeight: number;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Layout abstracto de la IA para MapGridOverlay; null si no hay.'
+  })
+  analysis: Record<string, unknown> | null;
   @ApiProperty({ type: [EventMapSectorResponse] }) sectors: EventMapSectorResponse[];
   @ApiProperty({
     type: [TicketTypeResponse],
@@ -61,6 +66,7 @@ export class EventMapResponse {
     this.baseImageUrl = data.baseImageUrl;
     this.canvasWidth = data.canvasWidth;
     this.canvasHeight = data.canvasHeight;
+    this.analysis = data.analysis ?? null;
     this.sectors = data.sectors.map(s => new EventMapSectorResponse(s));
     this.ticketTypes = (data.ticketTypes ?? []).map(tt => new TicketTypeResponse(tt));
   }
