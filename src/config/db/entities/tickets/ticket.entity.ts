@@ -44,6 +44,17 @@ export class TicketEntity {
   @Column({ type: 'varchar', length: 50, unique: true })
   ticketNumber: string;
 
+  /** Descuento de cupón aplicado a esta entrada. */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  discountAmount: number;
+
+  /**
+   * Costo de servicio que se cobró por esta entrada. No se recalcula si cambia
+   * la regla: es lo que alimenta métricas y la división con la productora.
+   */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  serviceFee: number;
+
   @Column({ type: 'varchar', length: 500, nullable: true, default: null, unique: true })
   qrCode: string | null;
 

@@ -40,13 +40,13 @@ import { IUserNotificationService } from '@modules/notifications/services/contra
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { ICouponService } from '@modules/coupons/services/contracts/icoupon.service';
 import { getEventSalesBlockReason } from '@modules/event/services/core/event-sales-gate';
+import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
+import { ServiceFeeConfigService } from './service-fee-config.service';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
-/** Costo de servicio ticketera — 15% sobre subtotal (post-cupón). Ver BR-PAY-002. */
 /** BR-SALE-006: tope de entradas por transacción */
 const MAX_TICKETS_PER_ORDER = 20;
 
-const SERVICE_FEE_RATE = 0.15;
 const IDEMPOTENCY_TTL_SECONDS = 86400;
 
 @Injectable()
@@ -67,7 +67,8 @@ export class OrderService implements IOrderService {
     @Inject('IStockAlertService')
     private readonly stockAlertService: IStockAlertService,
     @Inject('ICouponService')
-    private readonly couponService: ICouponService
+    private readonly couponService: ICouponService,
+    private readonly serviceFeeConfig: ServiceFeeConfigService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -173,9 +174,9 @@ export class OrderService implements IOrderService {
     }
     subtotal = Math.round(subtotal * 100) / 100;
 
-    // Orden fijado por `BR-COUPON-008`: subtotal -> cupón -> fee 15% sobre el
-    // subtotal YA descontado -> total. Calcular el fee sobre el subtotal sin
-    // descuento le cobraría de más al comprador.
+    // Orden fijado por `BR-COUPON-008`: subtotal -> cupón -> fee sobre el
+    // precio YA descontado -> total. Calcular el fee sin el descuento le
+    // cobraría de más al comprador.
     const coupon = dto.couponCode
       ? await this.couponService.applyToSubtotal(
           dto.eventUuid,
@@ -193,14 +194,22 @@ export class OrderService implements IOrderService {
     const discountAmount = coupon?.discountAmount ?? 0;
     const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
 
-    // El total se redondea al peso hacia arriba y el costo de servicio absorbe
-    // la diferencia, para que `subtotal + serviceFee === total` siga siendo
-    // exacto. Sin esto el 15% deja centavos ($50 → $57,50) que las pantallas
-    // muestran redondeados, y el comprador ve un importe distinto al que se le
-    // cobra. Hacia arriba y no hacia abajo: el redondeo no puede salir del
-    // bolsillo de la plataforma.
-    const total = Math.ceil(discountedSubtotal * (1 + SERVICE_FEE_RATE));
-    const serviceFee = Math.round((total - discountedSubtotal) * 100) / 100;
+    // `BR-PAY-002`: 10% por entrada con el tope vigente, sobre el precio ya
+    // descontado. Cada línea guarda su fee para que un cambio posterior del
+    // tope no toque lo ya vendido. El redondeo vive en `ticketServiceFee`.
+    const feeConfig = await this.serviceFeeConfig.getConfig();
+    const fees = allocateOrderServiceFees(
+      dto.items.map((item, i) => ({
+        ticketTypeUuid: item.ticketTypeUuid,
+        quantity: item.quantity,
+        unitPrice: Number(ticketTypes[i]!.price)
+      })),
+      discountAmount,
+      coupon ? coupon.eligibleTicketTypeUuids : null,
+      feeConfig.cap
+    );
+    const serviceFee = fees.serviceFee;
+    const total = Math.round((discountedSubtotal + serviceFee) * 100) / 100;
 
     // 4. Reserve stock — rollback and throw if any item fails
     const stockItems = dto.items.map((item, i) => ({
@@ -244,6 +253,8 @@ export class OrderService implements IOrderService {
         couponUuid: coupon?.couponUuid ?? null,
         discountAmount,
         serviceFee,
+        serviceFeeRate: feeConfig.rate,
+        serviceFeeCap: feeConfig.cap,
         total,
         currency,
         expiresAt,
@@ -255,7 +266,9 @@ export class OrderService implements IOrderService {
         ticketTypeUuid: item.ticketTypeUuid,
         quantity: item.quantity,
         unitPrice: Number(ticketTypes[i]!.price),
-        subtotal: Math.round(item.quantity * Number(ticketTypes[i]!.price) * 100) / 100
+        subtotal: Math.round(item.quantity * Number(ticketTypes[i]!.price) * 100) / 100,
+        discountAmount: fees.lines[i].discountAmount,
+        serviceFee: fees.lines[i].serviceFee
       }));
 
       await queryRunner.manager.save('order_item', orderItemsData);
@@ -496,6 +509,11 @@ export class OrderService implements IOrderService {
 
       // 5. Generate individual tickets within the same transaction
       for (const item of order.items as any[]) {
+        // El fee de la línea quedó fijado al crear la orden; acá solo se reparte
+        // entre sus entradas. No se vuelve a leer la regla vigente: si el tope
+        // cambió mientras se pagaba, esta compra se cobra como se mostró.
+        const ticketFees = splitEvenly(Number(item.serviceFee ?? 0), item.quantity);
+        const ticketDiscounts = splitEvenly(Number(item.discountAmount ?? 0), item.quantity);
         for (let i = 0; i < item.quantity; i++) {
           const ticket = await queryRunner.manager.save('ticket', {
             orderItemUuid: item.uuid,
@@ -503,6 +521,8 @@ export class OrderService implements IOrderService {
             eventUuid: order.eventUuid,
             ticketTypeUuid: item.ticketTypeUuid,
             ticketNumber: this.generateTicketNumber(),
+            serviceFee: ticketFees[i],
+            discountAmount: ticketDiscounts[i],
             status: TicketStatus.ACTIVE,
             qrCode: null,
             qrUrl: null,

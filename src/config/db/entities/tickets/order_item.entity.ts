@@ -33,6 +33,14 @@ export class OrderItemEntity {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   subtotal: number;
 
+  /** Parte del descuento del cupón que le tocó a esta línea. */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  discountAmount: number;
+
+  /** Costo de servicio de todas las entradas de la línea, fijado al comprar. */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  serviceFee: number;
+
   // Relations
   @ManyToOne(() => OrderEntity, order => order.items)
   @JoinColumn({ name: 'orderUuid', referencedColumnName: 'uuid' })

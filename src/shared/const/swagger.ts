@@ -253,6 +253,7 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Admin — Notificaciones', 'Envío de notificaciones in-app (pruebas / admin)')
     .addTag('Admin — Backoffice', 'Home y dashboard consolidado por rol')
     .addTag('Admin — Parámetros', 'Parámetros de configuración y tokens internos')
+    .addTag('Admin — Costo de servicio', 'Tope del costo de servicio e informe por entrada para la productora')
     .addBearerAuth(
       {
         type: 'http',

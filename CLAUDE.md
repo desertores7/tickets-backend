@@ -151,7 +151,7 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
 ## Decisiones de negocio tomadas (NO cambiar sin consultar)
 
 - **Sin split de pagos de Mercado Pago**: se investigó y se descartó. El pago completo entra a la cuenta única de la ticketera; al organizador se le factura la comisión por separado. No hay OAuth por organizador ni `marketplace_fee`.
-- **Service fee**: 15% del subtotal, mostrado como ítem separado en el checkout de MP
+- **Service fee**: 10% por entrada sobre el precio ya descontado, con **tope por entrada** configurable por Admin (`system_parameter.SERVICE_FEE_CAP_ARS`, default 50000; `PUT /admin/service-fee/config`), mostrado como ítem separado en el checkout de MP. Cálculo en `orders/services/core/service-fee.ts` (centavos enteros). Se congela al crear la orden (`orders.serviceFeeRate/serviceFeeCap`, `order_item.serviceFee`, `ticket.serviceFee`): **nunca recalcular lo ya cobrado**. Informe por entrada para la productora: `GET /admin/service-fee/events/:eventUuid/report`. Órdenes previas: 15% sin tope
 - **Tabla `event_fee_summary`**: resumen materializado de fees por evento, actualizado con `INSERT ... ON DUPLICATE KEY UPDATE` (atómico, a prueba de pagos concurrentes). Consultable en `GET /api/v1/events/:eventId/fee-summary` (solo organizador dueño o admin)
 - **QR firmado**: HMAC-SHA256 con `QR_SECRET`, formato `base64url(payload).base64url(signature)`. Nunca IDs secuenciales.
 - **Storage local**: los QR y PDFs viven en el volumen Docker, servidos via `/static/` con ServeStaticModule. La interfaz de `StorageService` (`saveFile`, `deleteFile`, `fileExists`) se mantiene para poder migrar a S3 después sin tocar el resto.
