@@ -19,6 +19,25 @@ export class DatabaseConnectionManager {
         // una zona y les corre el día. Como string viajan intactas.
         dateStrings: ['DATE'],
         connectionLimit: 10,
+        /**
+         * Que el pool NO cierre las conexiones ociosas.
+         *
+         * Por defecto mysql2 cierra toda conexión que pasa `idleTimeout` (60 s)
+         * sin usarse, y entonces cada pico de tráfico vuelve a abrirlas. Con
+         * MySQL fuera del contenedor, abrir una conexión cuesta más que la
+         * consulta que va a correr por ella: un endpoint de diez consultas
+         * pagaba diez aperturas en paralelo y tardaba decenas de segundos,
+         * mientras que el mismo pedido repetido enseguida —ya con el pool
+         * caliente— tardaba un segundo.
+         *
+         * `maxIdle` igual a `connectionLimit` deja el pool entero ocioso pero
+         * abierto. El `idleTimeout` de 10 minutos no se alcanza nunca porque el
+         * keepalive toca las conexiones cada 4; se deja explícito y no en 0
+         * porque mysql2 trata el 0 como "sin límite" en unas versiones y como
+         * "cerrar ya" en otras.
+         */
+        maxIdle: 10,
+        idleTimeout: 600000,
         reconnect: true,
         keepAliveInitialDelay: 0,
         enableKeepAlive: true,
