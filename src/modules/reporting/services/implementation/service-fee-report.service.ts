@@ -144,7 +144,7 @@ export class ServiceFeeReportService {
     if (rate === null) return '—';
     const percent = `${round2(Number(rate) * 100)}%`;
     if (cap === null) return `${percent} (regla anterior, sin tope)`;
-    return isCappedServiceFee(finalPrice, fee, Number(cap))
+    return isCappedServiceFee(finalPrice, fee, Number(rate), Number(cap))
       ? `Tope por entrada (${formatMoney(Number(cap))})`
       : percent;
   }
@@ -189,8 +189,9 @@ export class ServiceFeeReportService {
     const note = sheet.addRow([
       'Cómo se calcula',
       'El costo de servicio lo paga el comprador y es un ingreso de la plataforma: la productora ' +
-        'recibe el valor de sus entradas. Es el 10% del precio de cada entrada, con un tope por ' +
-        'entrada. Cada compra conserva el costo con el que se pagó: si el tope cambió, las ' +
+        'recibe el valor de sus entradas. Es un porcentaje del precio de cada entrada, con un tope ' +
+        'por entrada; el porcentaje y el tope de cada compra figuran en "Regla aplicada". Cada ' +
+        'compra conserva el costo con el que se pagó: si la regla cambió, las ' +
         'entradas vendidas antes no se recalculan. El costo de servicio no se devuelve en los ' +
         'reembolsos.'
     ]);

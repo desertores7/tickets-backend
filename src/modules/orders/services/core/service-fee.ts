@@ -1,6 +1,6 @@
 /**
- * Costo de servicio (`BR-PAY-002`): 10% del valor de cada entrada, con un tope
- * por entrada que define el Administrador.
+ * Costo de servicio (`BR-PAY-002`): un porcentaje del valor de cada entrada
+ * (default 10%), con un tope por entrada. Los dos los define el Administrador.
  *
  * Se calcula entrada por entrada y no sobre el subtotal: una entrada de
  * $1.000.000 pagaría $100.000 de fee, y el tope existe justamente para eso.
@@ -9,15 +9,18 @@
  * `110.00000000000001` y el redondeo hacia arriba le cobra un peso de más.
  */
 
-export const SERVICE_FEE_RATE = 0.1;
-/** El mismo 10%, en puntos básicos, para operar con enteros. */
-const SERVICE_FEE_RATE_BPS = 1000;
+/** Clave del porcentaje en `system_parameter`, guardado como porcentaje ("10"). */
+export const SERVICE_FEE_RATE_PERCENT_PARAM_KEY = 'SERVICE_FEE_RATE_PERCENT';
+export const SERVICE_FEE_RATE_PERCENT_DEFAULT = 10;
 
 /** Clave del tope en `system_parameter`. */
 export const SERVICE_FEE_CAP_PARAM_KEY = 'SERVICE_FEE_CAP_ARS';
 export const SERVICE_FEE_CAP_DEFAULT = 50000;
 
 const toCents = (amount: number): number => Math.round(amount * 100);
+
+/** Tasa en puntos básicos (0.1 → 1000), para operar con enteros. */
+const toBps = (rate: number): number => Math.round(rate * 10000);
 
 /**
  * Fee de una entrada a partir de su precio final (ya con descuento).
@@ -27,20 +30,25 @@ const toCents = (amount: number): number => Math.round(amount * 100);
  * Hacia arriba, porque el redondeo no puede salir del bolsillo de la
  * plataforma. El tope se aplica después: nunca se cobra más que el tope.
  */
-export function ticketServiceFee(finalPrice: number, cap: number): number {
+export function ticketServiceFee(finalPrice: number, rate: number, cap: number): number {
   const priceCents = toCents(finalPrice);
   if (priceCents <= 0) return 0;
 
   const withFeeCents =
-    Math.ceil((priceCents * (10000 + SERVICE_FEE_RATE_BPS)) / 1_000_000) * 100;
+    Math.ceil((priceCents * (10000 + Math.max(toBps(rate), 0))) / 1_000_000) * 100;
   const feeCents = Math.min(withFeeCents - priceCents, Math.max(toCents(cap), 0));
   return feeCents / 100;
 }
 
-/** ¿Al fee de esta entrada lo limitó el tope y no el 10%? */
-export function isCappedServiceFee(finalPrice: number, fee: number, cap: number | null): boolean {
+/** ¿Al fee de esta entrada lo limitó el tope y no el porcentaje? */
+export function isCappedServiceFee(
+  finalPrice: number,
+  fee: number,
+  rate: number,
+  cap: number | null
+): boolean {
   if (cap === null) return false;
-  return toCents(fee) === toCents(cap) && toCents(finalPrice) * SERVICE_FEE_RATE_BPS > toCents(cap) * 10000;
+  return toCents(fee) === toCents(cap) && toCents(finalPrice) * toBps(rate) > toCents(cap) * 10000;
 }
 
 /**
@@ -85,6 +93,7 @@ export function allocateOrderServiceFees(
   lines: ServiceFeeLineInput[],
   discountAmount: number,
   eligibleTicketTypeUuids: string[] | null,
+  rate: number,
   cap: number
 ): ServiceFeeAllocation {
   const units: { line: number; priceCents: number; eligible: boolean }[] = [];
@@ -105,7 +114,7 @@ export function allocateOrderServiceFees(
   units.forEach((unit, i) => {
     const finalCents = unit.priceCents - discounts[i];
     result[unit.line].discountCents += discounts[i];
-    result[unit.line].feeCents += toCents(ticketServiceFee(finalCents / 100, cap));
+    result[unit.line].feeCents += toCents(ticketServiceFee(finalCents / 100, rate, cap));
   });
 
   const totalFeeCents = result.reduce((sum, r) => sum + r.feeCents, 0);

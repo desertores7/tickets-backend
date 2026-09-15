@@ -36,14 +36,33 @@ else
   exit 1
 fi
 
-echo "[deploy] 1/2 git pull — últimos cambios de main"
+echo "[deploy] 1/4 git pull — últimos cambios de main"
 cd "${TICKETS_DIR}"
 git checkout main 2>/dev/null || git checkout -B main
 git pull --ff-only origin main
 
-echo "[deploy] 2/2 Build y up solo ${COMPOSE_SERVICE} (--no-deps)"
+echo "[deploy] 2/4 Build de ${COMPOSE_SERVICE}"
 cd "${DEPLOY_PATH}"
 "${COMPOSE_CMD[@]}" build "${COMPOSE_SERVICE}"
+
+# Migraciones pendientes, con la imagen recién construida y ANTES de reemplazar
+# el contenedor. `migration:run` solo aplica las que falten en la tabla
+# `migrations`; si no hay ninguna, no hace nada.
+#
+# El orden importa: si el código nuevo arranca antes que su migración, cada
+# consulta a una columna nueva falla ("Unknown column ...") y la API queda caída
+# hasta que alguien la corra a mano. Ya pasó. Corriéndola acá, si la migración
+# falla, `set -e` corta el deploy y el contenedor anterior sigue atendiendo.
+#
+# `run --rm` levanta un contenedor descartable con el mismo env, red y volúmenes
+# del servicio; `--no-deps` no toca otros servicios; `-T` porque por SSH no hay
+# TTY. Una migración tiene que ser compatible con el código viejo, que sigue
+# vivo mientras corre (agregar columnas sí; renombrar o borrar, en dos pasos).
+echo "[deploy] 3/4 Migraciones pendientes"
+"${COMPOSE_CMD[@]}" run --rm --no-deps -T -e NODE_ENV=production "${COMPOSE_SERVICE}" \
+  node node_modules/typeorm/cli.js migration:run -d dist/config/db/data-source.js
+
+echo "[deploy] 4/4 Up solo ${COMPOSE_SERVICE} (--no-deps)"
 "${COMPOSE_CMD[@]}" up -d --no-deps "${COMPOSE_SERVICE}"
 
 echo "[deploy] Estado:"

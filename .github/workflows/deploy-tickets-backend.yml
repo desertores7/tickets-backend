@@ -6,6 +6,10 @@
 # fallan, no se toca el servidor. Antes el push a main entraba directo a
 # producción y el primer aviso de que algo estaba roto era la API caída.
 #
+# El script del servidor corre las migraciones pendientes entre el build y el
+# `up` (ver scripts/deploy-tickets-backend.sh). Si una migración falla, el deploy
+# se corta y queda el contenedor anterior.
+#
 # Secret DEPLOY_PATH = directorio del docker-compose.yml, ej. /docker/showpass
 # (NO pongas .../showpass-api/tickets-backend ahí)
 
@@ -15,10 +19,17 @@ on:
   push:
     branches:
       - main
+  # En un PR contra main corre solo la verificación: el resultado queda en el
+  # PR antes de mergear. El deploy sale únicamente del push a main.
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
+# Un grupo por rama: si fuera uno solo, abrir un PR cancelaría un deploy en
+# curso de main.
 concurrency:
-  group: deploy-showpass-api
+  group: deploy-showpass-api-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -67,6 +78,7 @@ jobs:
   deploy:
     name: SSH → build showpass-api
     needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

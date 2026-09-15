@@ -194,9 +194,9 @@ export class OrderService implements IOrderService {
     const discountAmount = coupon?.discountAmount ?? 0;
     const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
 
-    // `BR-PAY-002`: 10% por entrada con el tope vigente, sobre el precio ya
-    // descontado. Cada línea guarda su fee para que un cambio posterior del
-    // tope no toque lo ya vendido. El redondeo vive en `ticketServiceFee`.
+    // `BR-PAY-002`: porcentaje y tope vigentes, por entrada, sobre el precio ya
+    // descontado. Cada línea guarda su fee para que un cambio posterior de la
+    // regla no toque lo ya vendido. El redondeo vive en `ticketServiceFee`.
     const feeConfig = await this.serviceFeeConfig.getConfig();
     const fees = allocateOrderServiceFees(
       dto.items.map((item, i) => ({
@@ -206,6 +206,7 @@ export class OrderService implements IOrderService {
       })),
       discountAmount,
       coupon ? coupon.eligibleTicketTypeUuids : null,
+      feeConfig.rate,
       feeConfig.cap
     );
     const serviceFee = fees.serviceFee;

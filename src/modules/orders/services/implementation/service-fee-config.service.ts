@@ -3,7 +3,8 @@ import { ISystemParameterService } from '@modules/system-parameter/services/cont
 import {
   SERVICE_FEE_CAP_DEFAULT,
   SERVICE_FEE_CAP_PARAM_KEY,
-  SERVICE_FEE_RATE
+  SERVICE_FEE_RATE_PERCENT_DEFAULT,
+  SERVICE_FEE_RATE_PERCENT_PARAM_KEY
 } from '../core/service-fee';
 
 export interface ServiceFeeConfig {
@@ -14,21 +15,22 @@ export interface ServiceFeeConfig {
 }
 
 /**
- * Cuánto se lee el tope desde la base antes de volver a consultarla. Cada orden
- * lo necesita, y en una salida a la venta son miles de órdenes por minuto.
+ * Cuánto se lee la regla desde la base antes de volver a consultarla. Cada
+ * orden la necesita, y en una salida a la venta son miles de órdenes por minuto.
  */
 const CACHE_TTL_MS = 30_000;
 
 /**
- * Regla vigente del costo de servicio. El tope vive en `system_parameter` y lo
- * edita el Administrador; aplica a todos los eventos por igual.
+ * Regla vigente del costo de servicio. El porcentaje y el tope viven en
+ * `system_parameter` y los edita el Administrador; aplican a todos los eventos
+ * por igual.
  *
  * Un cambio impacta en las órdenes que se creen después, nunca en las ya
  * creadas: esas guardan su fee y la regla con la que se cobró.
  */
 @Injectable()
 export class ServiceFeeConfigService {
-  private cached: { cap: number; expiresAt: number } | null = null;
+  private cached: { config: ServiceFeeConfig; expiresAt: number } | null = null;
 
   constructor(
     @Inject('ISystemParameterService')
@@ -37,24 +39,45 @@ export class ServiceFeeConfigService {
 
   async getConfig(): Promise<ServiceFeeConfig> {
     if (!this.cached || this.cached.expiresAt <= Date.now()) {
-      const cap = await this.systemParameterService.getParameterAsNumber(
-        SERVICE_FEE_CAP_PARAM_KEY,
-        SERVICE_FEE_CAP_DEFAULT
-      );
-      this.cached = { cap, expiresAt: Date.now() + CACHE_TTL_MS };
+      const [ratePercent, cap] = await Promise.all([
+        this.systemParameterService.getParameterAsNumber(
+          SERVICE_FEE_RATE_PERCENT_PARAM_KEY,
+          SERVICE_FEE_RATE_PERCENT_DEFAULT
+        ),
+        this.systemParameterService.getParameterAsNumber(
+          SERVICE_FEE_CAP_PARAM_KEY,
+          SERVICE_FEE_CAP_DEFAULT
+        )
+      ]);
+      this.cached = {
+        config: { rate: ratePercent / 100, cap },
+        expiresAt: Date.now() + CACHE_TTL_MS
+      };
     }
-    return { rate: SERVICE_FEE_RATE, cap: this.cached.cap };
+    return this.cached.config;
   }
 
-  async updateCap(cap: number, userUuid: string): Promise<ServiceFeeConfig> {
+  async updateConfig(
+    input: { ratePercent: number; cap: number },
+    userUuid: string
+  ): Promise<ServiceFeeConfig> {
+    await this.systemParameterService.setParameter(
+      SERVICE_FEE_RATE_PERCENT_PARAM_KEY,
+      String(input.ratePercent),
+      'Porcentaje del costo de servicio sobre el valor de cada entrada. Lo edita el Administrador.',
+      'number',
+      userUuid
+    );
     await this.systemParameterService.setParameter(
       SERVICE_FEE_CAP_PARAM_KEY,
-      String(cap),
+      String(input.cap),
       'Tope del costo de servicio por entrada, en ARS. Lo edita el Administrador.',
       'number',
       userUuid
     );
-    this.cached = { cap, expiresAt: Date.now() + CACHE_TTL_MS };
-    return { rate: SERVICE_FEE_RATE, cap };
+
+    const config = { rate: input.ratePercent / 100, cap: input.cap };
+    this.cached = { config, expiresAt: Date.now() + CACHE_TTL_MS };
+    return config;
   }
 }

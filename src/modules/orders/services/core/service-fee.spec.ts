@@ -5,37 +5,44 @@ import {
   ticketServiceFee
 } from './service-fee';
 
+const RATE = 0.1;
+
 describe('ticketServiceFee', () => {
-  it('cobra el 10% de la entrada', () => {
-    expect(ticketServiceFee(100, 50000)).toBe(10);
-    expect(ticketServiceFee(25000, 50000)).toBe(2500);
+  it('cobra el porcentaje de la entrada', () => {
+    expect(ticketServiceFee(100, RATE, 50000)).toBe(10);
+    expect(ticketServiceFee(25000, RATE, 50000)).toBe(2500);
+  });
+
+  it('toma el porcentaje vigente que se le pasa', () => {
+    expect(ticketServiceFee(100, 0.15, 50000)).toBe(15);
+    expect(ticketServiceFee(10000, 0.075, 50000)).toBe(750);
   });
 
   it('redondea precio + fee al peso hacia arriba', () => {
     // $57,50 + 10% = $63,25 → $64
-    expect(ticketServiceFee(57.5, 50000)).toBe(6.5);
+    expect(ticketServiceFee(57.5, RATE, 50000)).toBe(6.5);
   });
 
-  it('cobra el tope cuando el 10% lo supera', () => {
-    expect(ticketServiceFee(1_000_000, 50000)).toBe(50000);
-    expect(ticketServiceFee(500_000, 50000)).toBe(50000);
-    expect(ticketServiceFee(499_990, 50000)).toBe(49999);
+  it('cobra el tope cuando el porcentaje lo supera', () => {
+    expect(ticketServiceFee(1_000_000, RATE, 50000)).toBe(50000);
+    expect(ticketServiceFee(500_000, RATE, 50000)).toBe(50000);
+    expect(ticketServiceFee(499_990, RATE, 50000)).toBe(49999);
   });
 
   it('toma el tope vigente que se le pasa', () => {
-    expect(ticketServiceFee(1_000_000, 30000)).toBe(30000);
+    expect(ticketServiceFee(1_000_000, RATE, 30000)).toBe(30000);
   });
 
   it('una entrada gratis no paga fee', () => {
-    expect(ticketServiceFee(0, 50000)).toBe(0);
+    expect(ticketServiceFee(0, RATE, 50000)).toBe(0);
   });
 });
 
 describe('isCappedServiceFee', () => {
-  it('distingue el tope del 10%', () => {
-    expect(isCappedServiceFee(1_000_000, 50000, 50000)).toBe(true);
-    expect(isCappedServiceFee(500_000, 50000, 50000)).toBe(false);
-    expect(isCappedServiceFee(1_000_000, 150000, null)).toBe(false);
+  it('distingue el tope del porcentaje', () => {
+    expect(isCappedServiceFee(1_000_000, 50000, RATE, 50000)).toBe(true);
+    expect(isCappedServiceFee(500_000, 50000, RATE, 50000)).toBe(false);
+    expect(isCappedServiceFee(1_000_000, 150000, 0.15, null)).toBe(false);
   });
 });
 
@@ -53,7 +60,7 @@ describe('allocateOrderServiceFees', () => {
   ];
 
   it('suma el fee de cada entrada, con el tope por entrada', () => {
-    const result = allocateOrderServiceFees(lines, 0, null, 50000);
+    const result = allocateOrderServiceFees(lines, 0, null, RATE, 50000);
     expect(result.lines).toEqual([
       { discountAmount: 0, serviceFee: 2000 },
       { discountAmount: 0, serviceFee: 50000 }
@@ -67,13 +74,14 @@ describe('allocateOrderServiceFees', () => {
       [{ ticketTypeUuid: 'general', quantity: 5, unitPrice: 100 }],
       50,
       null,
+      RATE,
       50000
     );
     expect(result.lines[0]).toEqual({ discountAmount: 50, serviceFee: 45 });
   });
 
   it('reparte el descuento solo entre las tandas alcanzadas', () => {
-    const result = allocateOrderServiceFees(lines, 5000, ['general'], 50000);
+    const result = allocateOrderServiceFees(lines, 5000, ['general'], RATE, 50000);
     expect(result.lines[0].discountAmount).toBe(5000);
     expect(result.lines[1].discountAmount).toBe(0);
     // $7.500 cada una → $750 de fee
@@ -88,6 +96,7 @@ describe('allocateOrderServiceFees', () => {
       ],
       100.01,
       null,
+      RATE,
       50000
     );
     const total = result.lines.reduce((sum, l) => sum + Math.round(l.discountAmount * 100), 0);
