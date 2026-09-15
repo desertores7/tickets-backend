@@ -46,7 +46,7 @@ modules/<nombre>/
 - Módulos se registran en `src/modules/controller.module.ts` y `src/modules/service.module.ts`
 - Entidades TypeORM en `src/config/db/entities/` (registrarlas en el sistema de entidades existente)
 - Migraciones en `src/migrations/` siguiendo el patrón de `1781635200000-InitialSchema.ts`. Las columnas FK a UUIDs deben ser `varchar(36)` (NO `char(36)`) — InnoDB rechaza FKs entre tipos distintos y todas las PKs existentes son `varchar(36)`
-- Migraciones en producción (dentro del contenedor, sobre código compilado — el script pnpm con ts-node NO funciona ahí): `docker exec -e NODE_ENV=production tickets-backend-api-1 node node_modules/typeorm/cli.js migration:run -d dist/config/db/data-source.js`
+- Migraciones en producción: **las corre el deploy** (`scripts/deploy-tickets-backend.sh`) con la imagen nueva, entre el build y el `up`; si fallan, el deploy se corta y queda el contenedor anterior. Por eso toda migración tiene que ser compatible con el código anterior (agregar columnas sí; renombrar/borrar en dos deploys). A mano, si hace falta (sobre código compilado — el script pnpm con ts-node NO funciona ahí): `docker exec -e NODE_ENV=production showpass-api node node_modules/typeorm/cli.js migration:run -d dist/config/db/data-source.js`
 - Variables de entorno via `EnvService` (`src/config/env/`) — toda variable nueva se agrega a `env.config.ts` y `env.service.ts`, y al `.env.example`
 - DTOs con `class-validator` / `class-transformer`
 - Decoradores compartidos existentes: `@PaginationQuery`, `@FilterQuery`, `@SearchQuery`, `@OrderQuery`, `@User()`
