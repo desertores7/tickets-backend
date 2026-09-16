@@ -5,7 +5,11 @@ import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import { RedisService } from '@config/redis/redis.service';
-import { QUEUE_NAMES, ProcessWebhookJobData } from '@config/redis/bull-jobs.types';
+import {
+  QUEUE_NAMES,
+  ProcessChargebackJobData,
+  ProcessWebhookJobData
+} from '@config/redis/bull-jobs.types';
 import { PaymentProvider, PaymentStatus } from '@config/db/entities/tickets/payment.entity';
 import { OrderStatus } from '@modules/orders/services/core/order';
 import { IOrderService } from '@modules/orders/services/contracts/iorder.service';
@@ -364,6 +368,37 @@ export class PaymentService implements IPaymentService {
     });
 
     this.logger.log(`Webhook enqueued: ${idempotencyKey}`);
+  }
+
+  /**
+   * Aviso de contracargo (`BR-SUPPORT-004`). Se encola con el id y nada más: el
+   * estado, el monto y el plazo se releen de la API de MP.
+   *
+   * La ventana anti-duplicados es corta a propósito, al revés que la del pago:
+   * MP manda un aviso nuevo en **cada** cambio de estado de la misma disputa, y
+   * descartarlos por un día dejaría el contracargo congelado en su primer
+   * estado. Con 60 segundos alcanza para los reenvíos inmediatos.
+   */
+  async processChargebackWebhook(chargebackId: string): Promise<void> {
+    const idempotencyKey = `webhook:mercadopago:chargeback:${chargebackId}`;
+
+    const isFirst = await this.redisService.markIdempotency(idempotencyKey, 60);
+    if (!isFirst) {
+      this.logger.log(`Aviso de contracargo repetido, se descarta: ${chargebackId}`);
+      return;
+    }
+
+    const jobData: ProcessChargebackJobData = {
+      chargebackId,
+      receivedAt: new Date().toISOString()
+    };
+
+    await this.paymentsQueue.add('process-chargeback', jobData, {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 5000 }
+    });
+
+    this.logger.log(`Contracargo encolado: ${chargebackId}`);
   }
 
   async getPaymentByOrder(orderId: string, userId: string): Promise<Payment> {

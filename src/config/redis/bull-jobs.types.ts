@@ -38,6 +38,12 @@ export interface ProcessWebhookJobData {
   receivedAt: string;
 }
 
+/** Un contracargo avisado por Mercado Pago; el estado se relee de su API. */
+export interface ProcessChargebackJobData {
+  chargebackId: string;
+  receivedAt: string;
+}
+
 export interface ReleaseExpiredStockJobData {
   reservationId: string;
   ticketTypeId: string;

@@ -47,6 +47,7 @@ import { MpTokenService } from '@root/shared/mercadopago/mp-token.service';
 import { ReportingService } from './reporting/services/implementation/reporting.service';
 import { SalesExportService } from './reporting/services/implementation/sales-export.service';
 import { FavoriteService } from './favorites/services/implementation/favorite.service';
+import { ChargebackService } from './chargebacks/services/implementation/chargeback.service';
 import { ServiceFeeConfigService } from './orders/services/implementation/service-fee-config.service';
 import { ServiceFeeReportService } from './reporting/services/implementation/service-fee-report.service';
 
@@ -100,6 +101,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     StockService,
     FeeSummaryService,
     ServiceFeeConfigService,
+    ChargebackService,
     ServiceFeeReportService,
     EmailService,
     ImageCompressionService,
@@ -144,6 +146,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     StockService,
     FeeSummaryService,
     ServiceFeeConfigService,
+    ChargebackService,
     ServiceFeeReportService,
     EmailService,
     ImageCompressionService,
