@@ -27,6 +27,7 @@ import { OrderEntityData } from '../entities/tickets/order.entity';
 import { OrderItemEntityData } from '../entities/tickets/order_item.entity';
 import { TicketEntityData } from '../entities/tickets/ticket.entity';
 import { PaymentEntityData } from '../entities/tickets/payment.entity';
+import { ChargebackEntityData } from '../entities/tickets/chargeback.entity';
 import { CheckInLogEntityData } from '../entities/tickets/check_in_log.entity';
 import { EventFeeSummaryEntityData } from '../entities/tickets/event_fee_summary.entity';
 import { EventProducerEntityData } from '../entities/tickets/event_producer.entity';
@@ -81,6 +82,7 @@ export const entitiesData = [
   OrderItemEntityData,
   TicketEntityData,
   PaymentEntityData,
+  ChargebackEntityData,
   CheckInLogEntityData,
   EventFeeSummaryEntityData,
   EventProducerEntityData,

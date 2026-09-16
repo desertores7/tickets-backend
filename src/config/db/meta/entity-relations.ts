@@ -440,6 +440,11 @@ export const entityRelations = {
     ticket: 'ticket'
   },
 
+  chargeback: {
+    order: 'orders',
+    event: 'event'
+  },
+
   payout: {
     organization: 'organization',
     event: 'event'

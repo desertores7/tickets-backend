@@ -3,7 +3,12 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { DataSource } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
-import { QUEUE_NAMES, ProcessWebhookJobData } from '@config/redis/bull-jobs.types';
+import {
+  QUEUE_NAMES,
+  ProcessChargebackJobData,
+  ProcessWebhookJobData
+} from '@config/redis/bull-jobs.types';
+import { ChargebackService } from '@modules/chargebacks/services/implementation/chargeback.service';
 import { PaymentStatus } from '@config/db/entities/tickets/payment.entity';
 import { IOrderService } from '@modules/orders/services/contracts/iorder.service';
 import { MercadoPagoService } from '../services/implementation/mercadopago.service';
@@ -17,15 +22,24 @@ export class ProcessWebhookProcessor extends WorkerHost {
     private readonly mercadoPagoService: MercadoPagoService,
     @Inject('IOrderService') private readonly orderService: IOrderService,
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly chargebackService: ChargebackService
   ) {
     super();
   }
 
-  async process(job: Job<ProcessWebhookJobData>): Promise<void> {
+  // Una queue = un worker: este processor atiende todos los jobs de `payments`.
+  async process(job: Job<ProcessWebhookJobData | ProcessChargebackJobData>): Promise<void> {
+    if (job.name === 'process-chargeback') {
+      const { chargebackId } = job.data as ProcessChargebackJobData;
+      this.logger.log(`Sincronizando contracargo ${chargebackId} (job=${job.id})`);
+      await this.chargebackService.syncFromMercadoPago(chargebackId);
+      return;
+    }
+
     if (job.name !== 'process-webhook') return;
 
-    const { provider, payload } = job.data;
+    const { provider, payload } = job.data as ProcessWebhookJobData;
     this.logger.log(`Processing webhook job=${job.id} provider=${provider}`);
 
     if (provider !== 'mercadopago') {

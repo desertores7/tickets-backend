@@ -10,6 +10,8 @@ export interface IPaymentService {
     card: CardPaymentInput
   ): Promise<CardPaymentOutcome>;
   processWebhook(provider: string, payload: unknown): Promise<void>;
+  /** Aviso de contracargo de Mercado Pago (`BR-SUPPORT-004`). */
+  processChargebackWebhook(chargebackId: string): Promise<void>;
   /** `userId` acota la busqueda al dueño de la orden: sin eso el id es adivinable. */
   getPaymentByOrder(orderId: string, userId: string): Promise<Payment>;
   refundPayment(orderId: string, userId: string): Promise<void>;

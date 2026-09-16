@@ -160,6 +160,24 @@ export class PaymentController {
       .toString()
       .trim();
 
+    // Contracargo (`BR-SUPPORT-004`): el comprador disputó el pago con su
+    // banco. Antes caía en el `return` de abajo y nadie se enteraba hasta ver
+    // el descuento en la cuenta de MP, con el plazo de respuesta ya corriendo.
+    if (eventType === 'chargebacks' || eventType === 'chargeback') {
+      const chargebackId = (query['data.id'] ?? query['id'] ?? body?.data?.id ?? '').toString().trim();
+      if (!chargebackId) {
+        this.logger.warn('MP chargeback notification without id — discarded');
+        return;
+      }
+
+      try {
+        await this.paymentService.processChargebackWebhook(chargebackId);
+      } catch (err) {
+        this.logger.error('MP chargeback webhook failed — error swallowed to preserve 200 ACK', err);
+      }
+      return;
+    }
+
     if (eventType !== 'payment') {
       this.logger.log(`MP notification ignored (type=${eventType || 'unknown'}) — only payment events are processed`);
       return;
