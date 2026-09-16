@@ -54,6 +54,22 @@ export interface CardPaymentResult {
   rawResponse: Record<string, unknown>;
 }
 
+/** Un contracargo tal como lo describe Mercado Pago. */
+export interface MPChargebackResult {
+  mpChargebackId: string;
+  /** Primer pago disputado: en nuestro modelo un contracargo es de un pago. */
+  mpPaymentId: string | null;
+  amount: number;
+  currency: string;
+  status: string;
+  documentationRequired: boolean;
+  documentationStatus: string | null;
+  documentationDeadline: Date | null;
+  coverageApplied: boolean;
+  createdAt: Date | null;
+  raw: Record<string, unknown>;
+}
+
 export interface PaymentWebhookResult {
   orderId: string;
   internalStatus: PaymentStatus;
@@ -316,6 +332,60 @@ export class MercadoPagoService {
 
       throw error;
     }
+  }
+
+  /**
+   * Trae un contracargo de la API de MP (`BR-SUPPORT-004`).
+   *
+   * Por `fetch` y no por el SDK: la librería no expone el recurso `chargebacks`.
+   * Nunca se confía en el contenido de la notificación — el estado y el plazo
+   * salen siempre de esta consulta.
+   *
+   * Lanza ante un error de red o un 5xx para que BullMQ reintente. Un 404
+   * devuelve `null`: ese contracargo no es de esta cuenta y reintentarlo no lo
+   * va a cambiar.
+   */
+  async fetchChargeback(chargebackId: string): Promise<MPChargebackResult | null> {
+    const accessToken = this.envService.get('MERCADOPAGO_ACCESS_TOKEN');
+    if (!accessToken) {
+      throw new Error('MERCADOPAGO_ACCESS_TOKEN no configurado: no se puede consultar el contracargo');
+    }
+
+    const response = await fetch(`https://api.mercadopago.com/v1/chargebacks/${chargebackId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (response.status === 404) {
+      this.logger.warn(`Contracargo ${chargebackId} no encontrado en MP (404)`);
+      return null;
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`MP respondió ${response.status} al consultar el contracargo ${chargebackId}: ${body}`);
+    }
+
+    const data = (await response.json()) as Record<string, any>;
+    const payments = Array.isArray(data.payments) ? data.payments : [];
+    const toDate = (value: unknown): Date | null => {
+      if (!value) return null;
+      const date = new Date(String(value));
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    return {
+      mpChargebackId: String(data.id ?? chargebackId),
+      mpPaymentId: payments.length ? String(payments[0]) : null,
+      amount: Number(data.amount ?? 0),
+      currency: String(data.currency_id ?? 'ARS'),
+      status: String(data.status ?? 'unknown'),
+      documentationRequired: Boolean(data.documentation_required),
+      documentationStatus: data.documentation_status ? String(data.documentation_status) : null,
+      documentationDeadline: toDate(data.date_documentation_deadline),
+      coverageApplied: Boolean(data.coverage_applied),
+      createdAt: toDate(data.date_created),
+      raw: data
+    };
   }
 
   async processWebhookPayload(payload: MercadoPagoWebhookRequest): Promise<PaymentWebhookResult | null> {

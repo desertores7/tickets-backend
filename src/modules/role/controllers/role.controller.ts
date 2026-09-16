@@ -41,7 +41,9 @@ export class RoleController {
   @AdminAuth(CreateRoleRequest, null)
   @ApiOperation({
     summary: 'Crear rol',
-    description: 'This endpoint is for create role'
+    description:
+      'Administrator only. The names of the system roles are reserved: the guards authorize by role ' +
+      'name, so a duplicate name would make authorization ambiguous (`BR-ROLE-001`).'
   })
   @HttpCode(201)
   @Post()
@@ -64,7 +66,9 @@ export class RoleController {
   @AdminAuth(UpdateRoleRequest, null)
   @ApiOperation({
     summary: 'Actualizar rol',
-    description: 'This endpoint is for update user'
+    description:
+      'Administrator only. System roles cannot be renamed: the guards match by name, so renaming ' +
+      '"Administrador" would lock everyone out with no screen left to undo it (`BR-ROLE-001`).'
   })
   @HttpCode(200)
   @Put(':roleUuid')
@@ -79,7 +83,9 @@ export class RoleController {
   @AdminAuth(null, null)
   @ApiOperation({
     summary: 'Eliminar rol',
-    description: 'This endpoint is for delete role'
+    description:
+      'Administrator only, soft delete. System roles cannot be deleted, and a role with users ' +
+      'assigned answers 409 until they are reassigned (`BR-ROLE-001`).'
   })
   @HttpCode(200)
   @Delete(':roleUuid')

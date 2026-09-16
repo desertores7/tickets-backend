@@ -1,6 +1,6 @@
 import { DBRepository } from '@config/db/db.repository';
 import { TEntityResponse } from '@config/db/meta/db.types';
-import { BadRequestException, ConflictException, Inject } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject } from '@nestjs/common';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
@@ -10,6 +10,7 @@ import { IRoleCreate, IRoleUpdate } from '../core/role';
 import { RoleEntity } from '@config/db/entities/user/role.entity';
 import { UserRoleEntity } from '@config/db/entities/user/user_role.entity';
 import { v4 as uuidv4 } from 'uuid';
+import { isSystemRoleName } from '../../const/system-roles.const';
 
 export class RoleService implements IRoleService {
   constructor(
@@ -51,6 +52,15 @@ export class RoleService implements IRoleService {
   }
 
   async createRole(data: IRoleCreate, userId: string): Promise<void> {
+    // Los nombres de los roles del sistema están reservados (`BR-ROLE-001`):
+    // dos roles con el mismo nombre confunden a `RoleGuard`, que autoriza
+    // comparando nombres. Si falta uno, se repone desde la migración de seed.
+    if (isSystemRoleName(data.name)) {
+      throw new ForbiddenException(
+        `"${data.name.trim()}" es un rol del sistema y no se puede volver a crear`
+      );
+    }
+
     // Verificar si ya existe un rol con el mismo nombre
     const existingRole = await this.dbRepository.findOne({
       entity: 'role',
@@ -130,6 +140,15 @@ export class RoleService implements IRoleService {
 
     if (!role) throw new BadRequestException('Role not found');
 
+    // `RoleGuard` autoriza comparando el NOMBRE del rol: renombrar
+    // "Administrador" deja a todo el equipo sin acceso a su backoffice y no
+    // queda pantalla desde donde revertirlo (`BR-ROLE-001`).
+    if (isSystemRoleName(role.name)) {
+      throw new ForbiddenException(
+        `El rol "${role.name}" es del sistema y no se puede renombrar`
+      );
+    }
+
     // Verificar si ya existe otro rol con el mismo nombre (excluyendo el actual)
     const existingRole = await this.dbRepository.findOne({
       entity: 'role',
@@ -164,6 +183,27 @@ export class RoleService implements IRoleService {
     });
 
     if (!role) throw new BadRequestException('Role not found');
+
+    // Mismo motivo que en `updateRole`: sin el rol, los guards que lo exigen
+    // rechazan a todo el mundo (`BR-ROLE-001`).
+    if (isSystemRoleName(role.name)) {
+      throw new ForbiddenException(
+        `El rol "${role.name}" es del sistema y no se puede eliminar`
+      );
+    }
+
+    // Un rol borrado con gente asignada deja a esos usuarios sin permisos de un
+    // día para el otro. Primero se los reasigna.
+    const assigned = await this.dbRepository.findMany({
+      entity: 'user_role',
+      where: { roleUuid: id, isDeleted: IsNull() }
+    });
+
+    if (assigned.length > 0) {
+      throw new ConflictException(
+        `El rol "${role.name}" tiene ${assigned.length} usuario(s) asignado(s): reasignalos antes de eliminarlo`
+      );
+    }
 
     await this.dbRepository.update({
       entity: 'role',

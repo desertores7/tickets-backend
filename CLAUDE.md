@@ -135,7 +135,7 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
   - Idempotencia: `markIdempotency` (SET NX) — usada en webhooks
 - Queues definidas en `QUEUE_NAMES`: `tickets`, `notifications`, `payments`, `orders`, `waiting-room`, `maintenance`
 - **Regla crítica: una queue = exactamente un processor.** Dos `@Processor()` sobre la misma queue compiten por TODOS los jobs y se pierden silenciosamente (ya pasó una vez con orders/payments). Si un nuevo tipo de job necesita otro worker, crear una queue nueva.
-- Mapeo actual: `tickets`→GenerateQrProcessor, `notifications`→SendOrderTicketsEmailProcessor, `payments`→ProcessWebhookProcessor, `orders`→ReleaseExpiredStockProcessor, `maintenance`→CleanupExpiredAssetsProcessor
+- Mapeo actual: `tickets`→GenerateQrProcessor, `notifications`→SendOrderTicketsEmailProcessor, `payments`→ProcessWebhookProcessor (jobs `process-webhook` y `process-chargeback`), `orders`→ReleaseExpiredStockProcessor, `maintenance`→CleanupExpiredAssetsProcessor
 - Tipos de jobs en `src/config/redis/bull-jobs.types.ts` — todo tipado, sin `any`
 
 ## Flujo de compra (implementado)
