@@ -8,6 +8,7 @@ import {
   SupportRequestStatus
 } from '@config/db/entities/system/support_request.entity';
 import { NotificationEmailService } from '@modules/notifications/services/implementation/notification-email.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { IPaginationParams } from '@root/shared/decorators/pagination-query.decorator';
 import { ISearchParams } from '@root/shared/decorators/search-query.decorator';
 import {
@@ -33,7 +34,8 @@ export class SupportService implements ISupportService {
     private readonly envService: EnvService,
     private readonly notificationEmailService: NotificationEmailService,
     private readonly dbRepository: DBRepository,
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly adminNotifier: AdminNotifierService
   ) {}
 
   async contact(data: ISupportContactData): Promise<{ message: string }> {
@@ -42,6 +44,14 @@ export class SupportService implements ISupportService {
     // perder (`33` §16). Si el insert falla igual se sigue: mejor un mail sin
     // registro que una consulta que se cae del todo.
     await this.persist(data);
+
+    // Aviso in-app al Admin (`33` §3). Sin email: la consulta ya llega a la
+    // casilla de soporte, un segundo correo sería ruido. Sin await: el
+    // formulario es público y no puede demorarse por esto.
+    void this.adminNotifier.notifyAdmins(
+      'Consulta de soporte nueva',
+      `${TYPE_LABELS[data.type]} — ${data.email}. Está en Consultas.`
+    );
 
     const supportTo =
       this.envService.get('SUPPORT_EMAIL') ||

@@ -7,6 +7,9 @@ import { EnvModule } from '@config/env/env.module';
 import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
+import { EmailService } from '@root/shared/auth/services/email.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
+import { UserNotificationService } from '@modules/notifications/services/implementation/user-notification.service';
 import { EventChangeService } from './services/implementation/event-change.service';
 import { CloseEndedEventSalesProcessor } from './processors/close-ended-event-sales.processor';
 
@@ -25,7 +28,17 @@ const CLOSE_SALES_INTERVAL_MS = 60 * 1000;
     NotificationsModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.EVENT_LIFECYCLE })
   ],
-  providers: [UserPermissionService, EventChangeService, CloseEndedEventSalesProcessor],
+  providers: [
+    UserPermissionService,
+    EventChangeService,
+    CloseEndedEventSalesProcessor,
+    // Este módulo arma su propio `EventChangeService`, así que tiene que
+    // proveer todo lo que inyecta: el aviso al Admin por cancelación o cambio
+    // material sale de ahí.
+    EmailService,
+    AdminNotifierService,
+    { provide: 'IUserNotificationService', useClass: UserNotificationService }
+  ],
   exports: [EventChangeService]
 })
 export class EventLifecycleModule implements OnModuleInit {
