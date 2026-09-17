@@ -1,7 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TTicketTypeResponse } from '@modules/event/services/contracts/ievent.service';
-
-export type TicketTypeStatus = 'upcoming' | 'available' | 'sold_out' | 'expired';
+import {
+  getTicketSalesStatus,
+  TicketSalesStatus
+} from '@modules/event/services/core/ticket-sales-policy';
 
 export class TicketTypeResponse {
   @ApiProperty() uuid: string;
@@ -17,12 +19,14 @@ export class TicketTypeResponse {
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
   @ApiProperty({ nullable: true }) saleEndDate: Date | null;
   @ApiProperty() isActive: boolean;
+  @ApiProperty({ description: 'Habilitación manual de venta; independiente de la baja lógica.' })
+  salesEnabled: boolean;
   @ApiProperty() sortOrder: number;
   @ApiProperty({
-    enum: ['upcoming', 'available', 'sold_out', 'expired'],
-    description: 'Estado calculado de la tanda según ventana de venta y stock'
+    enum: ['disabled', 'upcoming', 'available', 'sold_out', 'expired'],
+    description: 'Estado calculado según habilitación manual, ventana de venta y stock confirmado'
   })
-  status: TicketTypeStatus;
+  status: TicketSalesStatus;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 
@@ -40,8 +44,9 @@ export class TicketTypeResponse {
     this.saleStartDate = data.saleStartDate;
     this.saleEndDate = data.saleEndDate;
     this.isActive = data.isActive;
+    this.salesEnabled = data.salesEnabled;
     this.sortOrder = data.sortOrder;
-    this.status = TicketTypeResponse.computeStatus(data);
+    this.status = getTicketSalesStatus(data);
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;
   }
@@ -53,21 +58,7 @@ export class TicketTypeResponse {
    * - sold_out: sin stock disponible (availableQuantity === 0)
    * - available: dentro de la ventana y con stock
    */
-  static computeStatus(data: TTicketTypeResponse): TicketTypeStatus {
-    const now = new Date();
-
-    if (data.saleStartDate && now < new Date(data.saleStartDate)) {
-      return 'upcoming';
-    }
-
-    if (data.saleEndDate && now > new Date(data.saleEndDate)) {
-      return 'expired';
-    }
-
-    if (data.availableQuantity <= 0) {
-      return 'sold_out';
-    }
-
-    return 'available';
+  static computeStatus(data: TTicketTypeResponse): TicketSalesStatus {
+    return getTicketSalesStatus(data);
   }
 }

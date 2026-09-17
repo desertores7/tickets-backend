@@ -53,6 +53,9 @@ export class TicketTypeEntity {
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  salesEnabled: boolean;
+
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
 

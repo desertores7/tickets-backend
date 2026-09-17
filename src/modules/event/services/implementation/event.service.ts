@@ -53,6 +53,7 @@ import {
   TEventListItem,
   TEventDetailItem,
   TEventResponse,
+  TTicketTypeMapSectors,
   TTicketTypeResponse
 } from '../contracts/ievent.service';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
@@ -60,6 +61,7 @@ import { normalizeLineup } from '../core/event-change.helpers';
 import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
+import { selectCurrentTicketType } from '../core/ticket-sales-policy';
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
 import {
@@ -517,6 +519,7 @@ export class EventService implements IEventService {
     ticketType.saleStartDate = data.saleStartDate ?? null;
     ticketType.saleEndDate = data.saleEndDate ?? null;
     ticketType.isActive = true;
+    ticketType.salesEnabled = true;
     ticketType.sortOrder = data.sortOrder ?? 0;
 
     const saved = await this.dbRepository.create({ entity: 'ticket_type', data: ticketType });
@@ -535,6 +538,33 @@ export class EventService implements IEventService {
   ): Promise<TTicketTypeResponse> {
     await this.assertOwnership(eventUuid, loggedUser);
     return this.applyTicketTypeUpdate(eventUuid, ticketTypeUuid, data, loggedUser);
+  }
+
+  async setTicketTypeSalesState(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    enabled: boolean,
+    loggedUser: string
+  ): Promise<TTicketTypeResponse> {
+    await this.assertOwnership(eventUuid, loggedUser);
+    const ticketType = await this.dbRepository.findOne({
+      entity: 'ticket_type',
+      where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
+    });
+    if (!ticketType) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    if (ticketType.salesEnabled !== enabled) {
+      await this.dbRepository.update({
+        entity: 'ticket_type',
+        where: { uuid: ticketTypeUuid },
+        data: { salesEnabled: enabled }
+      });
+    }
+
+    return {
+      ...ticketType,
+      salesEnabled: enabled
+    } as TTicketTypeResponse;
   }
 
   /**
@@ -1010,6 +1040,12 @@ export class EventService implements IEventService {
         await this.dbRepository.create({ entity: 'event_map', data: created, queryRunner });
         map = created;
       } else {
+        // Serializa el reemplazo completo con PATCHes de vínculos tanda↔sector.
+        await this.dbRepository.query(
+          'SELECT uuid FROM event_map WHERE uuid = ? FOR UPDATE',
+          [existing.uuid],
+          queryRunner
+        );
         const patch: Partial<EventMapEntity> = {};
         if (data.name !== undefined) patch.name = data.name.trim() || existing.name;
         if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
@@ -1063,6 +1099,18 @@ export class EventService implements IEventService {
       await queryRunner.release();
     }
 
+    const ticketTypes = await this.getTicketTypes(map.eventUuid);
+    const ticketTypesByUuid = new Map(ticketTypes.map(ticket => [ticket.uuid, ticket]));
+    const resolvedSectors = sectors.map(sector => ({
+      ...sector,
+      activeTicketTypeUuid:
+        selectCurrentTicketType(
+          sector.ticketTypeUuids
+            .map(uuid => ticketTypesByUuid.get(uuid))
+            .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
+        )?.uuid ?? null
+    }));
+
     return {
       uuid: map.uuid,
       eventUuid: map.eventUuid,
@@ -1071,9 +1119,86 @@ export class EventService implements IEventService {
       canvasWidth: map.canvasWidth,
       canvasHeight: map.canvasHeight,
       analysis: map.analysis ?? null,
-      sectors,
-      ticketTypes: await this.getTicketTypes(map.eventUuid)
+      sectors: resolvedSectors,
+      ticketTypes
     };
+  }
+
+  async setTicketTypeMapSectors(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    sectorUuids: string[],
+    loggedUser: string
+  ): Promise<TTicketTypeMapSectors> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+    const requestedSectorUuids = [...new Set(sectorUuids)];
+    const queryRunner = this.dbRepository.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // El lock serializa este cambio con otras reasignaciones del mismo mapa.
+      const maps = (await this.dbRepository.query(
+        'SELECT uuid FROM event_map WHERE eventUuid = ? LIMIT 1 FOR UPDATE',
+        [event.uuid],
+        queryRunner
+      )) as Array<{ uuid: string }>;
+      const map = maps[0];
+      if (!map) throw new BadRequestException('Mapa del evento no encontrado');
+
+      const ticketTypes = (await this.dbRepository.query(
+        'SELECT uuid FROM ticket_type WHERE uuid = ? AND eventUuid = ? AND isActive = 1 LIMIT 1 FOR UPDATE',
+        [ticketTypeUuid, event.uuid],
+        queryRunner
+      )) as Array<{ uuid: string }>;
+      if (!ticketTypes.length) {
+        throw new BadRequestException('Tipo de entrada no encontrado');
+      }
+
+      if (requestedSectorUuids.length) {
+        const placeholders = requestedSectorUuids.map(() => '?').join(', ');
+        const sectors = (await this.dbRepository.query(
+          `SELECT uuid FROM event_map_sector WHERE mapUuid = ? AND uuid IN (${placeholders})`,
+          [map.uuid, ...requestedSectorUuids],
+          queryRunner
+        )) as Array<{ uuid: string }>;
+        if (sectors.length !== requestedSectorUuids.length) {
+          throw new BadRequestException('Uno o más sectores no pertenecen al mapa de este evento');
+        }
+      }
+
+      await this.dbRepository.query(
+        `DELETE link
+         FROM event_map_sector_ticket_type link
+         INNER JOIN event_map_sector sector ON sector.uuid = link.sectorUuid
+         WHERE sector.mapUuid = ? AND link.ticketTypeUuid = ?`,
+        [map.uuid, ticketTypeUuid],
+        queryRunner
+      );
+
+      if (requestedSectorUuids.length) {
+        const links = requestedSectorUuids.map(sectorUuid => {
+          const link = new EventMapSectorTicketTypeEntity();
+          link.uuid = uuidv4();
+          link.sectorUuid = sectorUuid;
+          link.ticketTypeUuid = ticketTypeUuid;
+          return link;
+        });
+        await this.dbRepository.createMany({
+          entity: 'event_map_sector_ticket_type',
+          data: links,
+          queryRunner
+        });
+      }
+
+      await queryRunner.commitTransaction();
+      return { ticketTypeUuid, sectorUuids: requestedSectorUuids };
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async uploadMapBaseImage(
@@ -1239,16 +1364,26 @@ export class EventService implements IEventService {
       bySector.set(link.sectorUuid, arr);
     }
 
-    const mappedSectors: TEventMapSector[] = sectors.map(s => ({
-      uuid: s.uuid,
-      name: s.name,
-      level: s.level ?? null,
-      geometry: s.geometry,
-      sortOrder: s.sortOrder,
-      isNumbered: !!s.isNumbered,
-      capacity: s.capacity ?? null,
-      ticketTypeUuids: bySector.get(s.uuid) ?? []
-    }));
+    const ticketTypesByUuid = new Map(ticketTypes.map(ticket => [ticket.uuid, ticket]));
+    const mappedSectors: TEventMapSector[] = sectors.map(s => {
+      const ticketTypeUuids = bySector.get(s.uuid) ?? [];
+      return {
+        uuid: s.uuid,
+        name: s.name,
+        level: s.level ?? null,
+        geometry: s.geometry,
+        sortOrder: s.sortOrder,
+        isNumbered: !!s.isNumbered,
+        capacity: s.capacity ?? null,
+        ticketTypeUuids,
+        activeTicketTypeUuid:
+          selectCurrentTicketType(
+            ticketTypeUuids
+              .map(uuid => ticketTypesByUuid.get(uuid))
+              .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
+          )?.uuid ?? null
+      };
+    });
 
     return {
       uuid: map.uuid,
@@ -1433,7 +1568,8 @@ export class EventService implements IEventService {
       sortOrder: sector.sortOrder,
       isNumbered: !!sector.isNumbered,
       capacity: sector.capacity ?? null,
-      ticketTypeUuids: ticketTypesBySector.get(sector.uuid) ?? []
+      ticketTypeUuids: ticketTypesBySector.get(sector.uuid) ?? [],
+      activeTicketTypeUuid: null
     }));
   }
 

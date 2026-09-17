@@ -29,6 +29,8 @@ export type TEventMapSector = {
   isNumbered: boolean;
   capacity: number | null;
   ticketTypeUuids: string[];
+  /** Tanda comprable ahora para este sector, según habilitación, ventana y stock. */
+  activeTicketTypeUuid: string | null;
 };
 
 export type TEventMap = {
@@ -71,6 +73,11 @@ export type TUpsertEventMap = {
    */
   analysis?: Record<string, unknown> | null;
   sectors: TUpsertEventMapSector[];
+};
+
+export type TTicketTypeMapSectors = {
+  ticketTypeUuid: string;
+  sectorUuids: string[];
 };
 
 import type { TEventImages } from '../../controllers/responses/event-images.response';
@@ -273,6 +280,13 @@ export interface IEventService {
     loggedUser: string
   ): Promise<TTicketTypeResponse>;
 
+  setTicketTypeSalesState(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    enabled: boolean,
+    loggedUser: string
+  ): Promise<TTicketTypeResponse>;
+
   /** Alta masiva: una sola request para todas las tandas de un evento. */
   createTicketTypes(
     eventUuid: string,
@@ -318,6 +332,13 @@ export interface IEventService {
   ): Promise<TEventMap>;
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
+
+  setTicketTypeMapSectors(
+    eventUuid: string,
+    ticketTypeUuid: string,
+    sectorUuids: string[],
+    loggedUser: string
+  ): Promise<TTicketTypeMapSectors>;
 
   uploadMapBaseImage(
     eventUuid: string,

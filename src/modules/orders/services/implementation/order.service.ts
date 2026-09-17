@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
 import { OrderEntity } from '@config/db/entities/tickets/order.entity';
@@ -40,6 +40,10 @@ import { IUserNotificationService } from '@modules/notifications/services/contra
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { ICouponService } from '@modules/coupons/services/contracts/icoupon.service';
 import { getEventSalesBlockReason } from '@modules/event/services/core/event-sales-gate';
+import {
+  selectCurrentTicketType,
+  TicketSalesCandidate
+} from '@modules/event/services/core/ticket-sales-policy';
 import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
 import { ServiceFeeConfigService } from './service-fee-config.service';
 
@@ -125,6 +129,10 @@ export class OrderService implements IOrderService {
         })
       )
     );
+    const sequence = await this.getTicketTypeSequenceState(
+      dto.eventUuid,
+      ticketTypes.filter(ticket => ticket !== null)
+    );
 
     for (let i = 0; i < dto.items.length; i++) {
       const item = dto.items[i];
@@ -142,6 +150,12 @@ export class OrderService implements IOrderService {
         );
       }
 
+      if (!ticketType.salesEnabled) {
+        throw new UnprocessableEntityException(
+          `La tanda "${ticketType.name}" está desactivada`
+        );
+      }
+
       // Validar ventana de venta de la tanda (saleStartDate / saleEndDate)
       if (ticketType.saleStartDate && now < new Date(ticketType.saleStartDate)) {
         throw new UnprocessableEntityException(
@@ -151,6 +165,21 @@ export class OrderService implements IOrderService {
       if (ticketType.saleEndDate && now > new Date(ticketType.saleEndDate)) {
         throw new UnprocessableEntityException(
           `La tanda "${ticketType.name}" ya cerró su período de venta`
+        );
+      }
+
+      if (ticketType.availableQuantity <= 0) {
+        throw new UnprocessableEntityException(
+          `Se agotaron las entradas "${ticketType.name}"`
+        );
+      }
+
+      if (
+        sequence.assignedTicketTypeUuids.has(ticketType.uuid) &&
+        !sequence.currentTicketTypeUuids.has(ticketType.uuid)
+      ) {
+        throw new UnprocessableEntityException(
+          `La tanda "${ticketType.name}" no es la vigente para ese sector`
         );
       }
 
@@ -711,6 +740,55 @@ export class OrderService implements IOrderService {
   private stripRelations(entity: any): any {
     const { user, event, items, tickets, orderItem, ticketType, order, ...fields } = entity;
     return fields;
+  }
+
+  private async getTicketTypeSequenceState(
+    eventUuid: string,
+    requestedTicketTypes: TicketSalesCandidate[]
+  ): Promise<{
+    assignedTicketTypeUuids: Set<string>;
+    currentTicketTypeUuids: Set<string>;
+  }> {
+    const requestedUuids = requestedTicketTypes.map(ticket => ticket.uuid);
+    if (!requestedUuids.length) {
+      return {
+        assignedTicketTypeUuids: new Set(),
+        currentTicketTypeUuids: new Set()
+      };
+    }
+
+    const requestedLinks = await this.dbRepository.findMany({
+      entity: 'event_map_sector_ticket_type',
+      where: { ticketTypeUuid: In(requestedUuids) }
+    });
+    const assignedTicketTypeUuids = new Set(requestedLinks.map(link => link.ticketTypeUuid));
+    const sectorUuids = [...new Set(requestedLinks.map(link => link.sectorUuid))];
+    if (!sectorUuids.length) {
+      return { assignedTicketTypeUuids, currentTicketTypeUuids: new Set() };
+    }
+
+    const sectorLinks = await this.dbRepository.findMany({
+      entity: 'event_map_sector_ticket_type',
+      where: { sectorUuid: In(sectorUuids) }
+    });
+    const siblingUuids = [...new Set(sectorLinks.map(link => link.ticketTypeUuid))];
+    const siblings = (await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { eventUuid, uuid: In(siblingUuids), isActive: true }
+    })) as TicketSalesCandidate[];
+    const byUuid = new Map(siblings.map(ticket => [ticket.uuid, ticket]));
+    const currentTicketTypeUuids = new Set<string>();
+
+    for (const sectorUuid of sectorUuids) {
+      const sectorTickets = sectorLinks
+        .filter(link => link.sectorUuid === sectorUuid)
+        .map(link => byUuid.get(link.ticketTypeUuid))
+        .filter((ticket): ticket is TicketSalesCandidate => Boolean(ticket));
+      const current = selectCurrentTicketType(sectorTickets);
+      if (current) currentTicketTypeUuids.add(current.uuid);
+    }
+
+    return { assignedTicketTypeUuids, currentTicketTypeUuids };
   }
 
   private generateOrderNumber(): string {
