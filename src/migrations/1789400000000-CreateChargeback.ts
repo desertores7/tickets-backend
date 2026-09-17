@@ -38,7 +38,7 @@ export class CreateChargeback1789400000000 implements MigrationInterface {
         KEY \`IDX_chargeback_event\` (\`eventUuid\`),
         CONSTRAINT \`FK_chargeback_order\` FOREIGN KEY (\`orderUuid\`) REFERENCES \`orders\` (\`uuid\`) ON DELETE SET NULL,
         CONSTRAINT \`FK_chargeback_event\` FOREIGN KEY (\`eventUuid\`) REFERENCES \`event\` (\`uuid\`) ON DELETE SET NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
   }
 

@@ -13,6 +13,11 @@ export class EventMapSectorResponse {
   @ApiProperty() isNumbered: boolean;
   @ApiProperty({ nullable: true }) capacity: number | null;
   @ApiProperty({ type: [String] }) ticketTypeUuids: string[];
+  @ApiProperty({
+    nullable: true,
+    description: 'UUID de la única tanda comprable actualmente en este sector.'
+  })
+  activeTicketTypeUuid: string | null;
 
   constructor(data: {
     uuid: string;
@@ -23,6 +28,7 @@ export class EventMapSectorResponse {
     isNumbered: boolean;
     capacity: number | null;
     ticketTypeUuids: string[];
+    activeTicketTypeUuid: string | null;
   }) {
     this.uuid = data.uuid;
     this.name = data.name;
@@ -32,6 +38,17 @@ export class EventMapSectorResponse {
     this.isNumbered = data.isNumbered;
     this.capacity = data.capacity;
     this.ticketTypeUuids = data.ticketTypeUuids;
+    this.activeTicketTypeUuid = data.activeTicketTypeUuid;
+  }
+}
+
+export class TicketTypeMapSectorsResponse {
+  @ApiProperty() ticketTypeUuid: string;
+  @ApiProperty({ type: [String] }) sectorUuids: string[];
+
+  constructor(data: { ticketTypeUuid: string; sectorUuids: string[] }) {
+    this.ticketTypeUuid = data.ticketTypeUuid;
+    this.sectorUuids = data.sectorUuids;
   }
 }
 

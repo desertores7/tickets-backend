@@ -46,6 +46,7 @@ import { SetSalesClosedRequest } from './requests/event-operation.request';
 import { ExtendRefundWindowRequest } from './requests/extend-refund-window.request';
 import { CreateTicketTypeRequest } from './requests/create-ticket-type.request';
 import { UpdateTicketTypeRequest } from './requests/update-ticket-type.request';
+import { SetTicketTypeSalesStateRequest } from './requests/set-ticket-type-sales-state.request';
 import {
   BulkCreateTicketTypesRequest,
   BulkDeleteTicketTypesRequest,
@@ -81,10 +82,11 @@ import {
   MapAnalysisQueuedResponse,
   MapAnalysisStatusResponse
 } from './responses/map-analysis-job.response';
-import { EventMapResponse } from './responses/event-map.response';
+import { EventMapResponse, TicketTypeMapSectorsResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import {
   SetMapBaseFromMediaRequest,
+  SetTicketTypeMapSectorsRequest,
   UpsertEventMapRequest
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
@@ -613,6 +615,31 @@ export class EventController {
     return new EventMapResponse(map);
   }
 
+  @UserAuth(SetTicketTypeMapSectorsRequest, TicketTypeMapSectorsResponse)
+  @ApiOperation({
+    summary: 'Actualizar sectores de una tanda',
+    description:
+      'Reemplaza únicamente los vínculos de la tanda con sectores del mapa. ' +
+      'No modifica geometrías ni otros sectores; un array vacío deja la tanda sin sector.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Mapa')
+  @Patch(':eventUuid/map/ticket-types/:ticketTypeUuid')
+  async setTicketTypeMapSectors(
+    @Param('eventUuid') eventUuid: string,
+    @Param('ticketTypeUuid') ticketTypeUuid: string,
+    @Body() body: SetTicketTypeMapSectorsRequest,
+    @User() loggedUser: string
+  ): Promise<TicketTypeMapSectorsResponse> {
+    const assignment = await this._eventService.setTicketTypeMapSectors(
+      eventUuid,
+      ticketTypeUuid,
+      body.sectorUuids,
+      loggedUser
+    );
+    return new TicketTypeMapSectorsResponse(assignment);
+  }
+
   @UserAuth(null, EventMapResponse)
   @ApiOperation({ summary: 'Subir imagen base del mapa', description: 'Multipart field `baseImage`. Max 8MB.' })
   @ApiConsumes('multipart/form-data')
@@ -1126,6 +1153,30 @@ export class EventController {
     @User() loggedUser: string
   ): Promise<void> {
     await this._eventService.deleteTicketTypes(eventUuid, data.uuids, loggedUser);
+  }
+
+  @UserAuth(SetTicketTypeSalesStateRequest, TicketTypeResponse)
+  @ApiOperation({
+    summary: 'Actualizar venta de tanda',
+    description:
+      'Activa o pausa manualmente una tanda sin eliminarla ni modificar su stock o reservas.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Tandas')
+  @Patch(':eventUuid/ticket-types/:ticketTypeUuid/sales-state')
+  async setTicketTypeSalesState(
+    @Param('eventUuid') eventUuid: string,
+    @Param('ticketTypeUuid') ticketTypeUuid: string,
+    @Body() data: SetTicketTypeSalesStateRequest,
+    @User() loggedUser: string
+  ): Promise<TicketTypeResponse> {
+    const ticketType = await this._eventService.setTicketTypeSalesState(
+      eventUuid,
+      ticketTypeUuid,
+      data.enabled,
+      loggedUser
+    );
+    return new TicketTypeResponse(ticketType);
   }
 
   @UserAuth(UpdateTicketTypeRequest, TicketTypeResponse)

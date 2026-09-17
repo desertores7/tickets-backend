@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
@@ -169,6 +170,17 @@ export class UpsertEventMapRequest {
   @ValidateNested({ each: true })
   @Type(() => UpsertEventMapSectorDto)
   sectors: UpsertEventMapSectorDto[];
+}
+
+export class SetTicketTypeMapSectorsRequest {
+  @ApiProperty({
+    type: [String],
+    description: 'Conjunto final de sectores del mapa asociados a la tanda. Un array vacío la deja sin sector.'
+  })
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  sectorUuids: string[];
 }
 
 export class SetMapBaseFromMediaRequest {
