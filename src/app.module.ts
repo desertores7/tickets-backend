@@ -15,6 +15,7 @@ import { CheckInModule } from './modules/check-in/checkin.module';
 import { EventCashSyncModule } from './modules/event-cash/event-cash-sync.module';
 import { RefundsModule } from './modules/refunds/refunds.module';
 import { EventLifecycleModule } from './modules/event/event-lifecycle.module';
+import { AdminAlertsModule } from './modules/admin-alerts/admin-alerts.module';
 import { QrGenerationModule } from './modules/qr-generation/qr-generation.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorageModule } from './shared/services/storage.module';
@@ -77,7 +78,8 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     CheckInModule,
     EventCashSyncModule,
     RefundsModule,
-    EventLifecycleModule
+    EventLifecycleModule,
+    AdminAlertsModule
   ],
   controllers: [AppController],
   providers: [

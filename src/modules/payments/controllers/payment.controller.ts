@@ -170,6 +170,12 @@ export class PaymentController {
         return;
       }
 
+      // Misma regla que para los pagos: sin esto cualquiera podía hacernos
+      // consultar ids a la API de MP mandando avisos falsos.
+      if (!this.isSignatureAccepted(xSignature, xRequestId, query, `chargebackId=${chargebackId}`)) {
+        return;
+      }
+
       try {
         await this.paymentService.processChargebackWebhook(chargebackId);
       } catch (err) {
@@ -188,23 +194,8 @@ export class PaymentController {
       return;
     }
 
-    const secret = this.envService.get('MERCADOPAGO_WEBHOOK_SECRET');
-
-    if (secret && xSignature) {
-      // MP signs using data.id from query params (?data.id=...), not the JSON body.
-      const dataId = query['data.id']?.trim() || undefined;
-      const valid = this.verifySignature(xSignature, xRequestId ?? '', dataId, secret);
-      if (!valid) {
-        this.logger.warn(
-          `MP webhook signature invalid — discarded (requestId=${xRequestId ?? 'missing'}, dataId=${dataId ?? 'missing'})`
-        );
-        return;
-      }
-    } else if (secret && !xSignature) {
-      // IPN legacy no incluye x-signature. Es seguro procesarla igual: el estado del pago
-      // se obtiene siempre re-consultando la API de MP con nuestro access token, nunca
-      // se confía en el contenido de la notificación.
-      this.logger.warn(`MP notification without x-signature accepted (IPN legacy, paymentId=${paymentId})`);
+    if (!this.isSignatureAccepted(xSignature, xRequestId, query, `paymentId=${paymentId}`)) {
+      return;
     }
 
     const normalizedPayload: MercadoPagoWebhookRequest = {
@@ -261,6 +252,39 @@ export class PaymentController {
    * - data.id comes from URL query param `data.id` (not the JSON body).
    * - Omit manifest segments when the corresponding value is missing.
    */
+  /**
+   * ¿Se procesa el aviso? Vale para pagos y contracargos por igual.
+   *
+   * - Con secreto y firma: la firma tiene que validar; si no, se descarta.
+   * - Con secreto y sin firma: se acepta con un warning. La IPN legacy no firma,
+   *   y es seguro porque del aviso solo se usa el id: el estado se relee de la
+   *   API de MP con nuestro access token.
+   * - Sin secreto configurado: se acepta (entorno local).
+   */
+  private isSignatureAccepted(
+    xSignature: string | undefined,
+    xRequestId: string | undefined,
+    query: Record<string, string>,
+    resourceLabel: string
+  ): boolean {
+    const secret = this.envService.get('MERCADOPAGO_WEBHOOK_SECRET');
+    if (!secret) return true;
+
+    if (!xSignature) {
+      this.logger.warn(`MP notification without x-signature accepted (IPN legacy, ${resourceLabel})`);
+      return true;
+    }
+
+    // MP firma con el data.id de la query (?data.id=...), no con el body.
+    const dataId = query['data.id']?.trim() || undefined;
+    if (this.verifySignature(xSignature, xRequestId ?? '', dataId, secret)) return true;
+
+    this.logger.warn(
+      `MP webhook signature invalid — discarded (${resourceLabel}, requestId=${xRequestId ?? 'missing'}, dataId=${dataId ?? 'missing'})`
+    );
+    return false;
+  }
+
   private verifySignature(
     xSignature: string,
     requestId: string,

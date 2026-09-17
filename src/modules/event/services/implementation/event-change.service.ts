@@ -20,6 +20,7 @@ import { OrderStatus } from '@config/db/entities/tickets/order.entity';
 import { EnvService } from '@config/env/env.service';
 import { NotificationEmailService } from '@modules/notifications/services/implementation/notification-email.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
+import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
 import {
   resolveRefundWindowEndsAt,
@@ -89,7 +90,8 @@ export class EventChangeService {
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly userPermission: UserPermissionService,
     private readonly notificationEmail: NotificationEmailService,
-    private readonly envService: EnvService
+    private readonly envService: EnvService,
+    private readonly adminNotifier: AdminNotifierService
   ) {}
 
   async listChanges(eventUuid: string, loggedUser: string): Promise<TEventChangesResult> {
@@ -540,6 +542,14 @@ export class EventChangeService {
 
     await this.dbRepository.create({ entity: 'event_change', data: row });
 
+    // Aviso al Admin (`33` §3): una cancelación siempre, y un cambio material
+    // cuando hay entradas vendidas. En los dos casos se abre una ventana de
+    // reembolso y es el Admin quien decide cuándo liquidarle a la productora
+    // (`BR-PAY-005`). Sin await: el aviso no puede demorar ni tumbar el cambio.
+    if (params.type === 'cancellation' || shouldNotify) {
+      void this.notifyAdminsOfChange(params, hasSales, refundWindowEndsAt);
+    }
+
     // SMTP a N compradores no puede bloquear el PATCH (fácilmente 10–30s).
     if (shouldNotify) {
       void this.deliverMaterialChangeEmails(row.uuid).catch(err => {
@@ -557,6 +567,36 @@ export class EventChangeService {
 
     const nameByUser = await this.resolveUserNames([saved.createdByUuid]);
     return this.toItem(saved, nameByUser.get(saved.createdByUuid ?? '') ?? null);
+  }
+
+  private async notifyAdminsOfChange(
+    params: {
+      event: Pick<EventEntity, 'name'>;
+      type: EventChangeType;
+      reason: string | null;
+      changes: EventChangeFieldSnapshot[];
+    },
+    hasSales: boolean,
+    refundWindowEndsAt: Date | null
+  ): Promise<void> {
+    const cancelado = params.type === 'cancellation';
+    const title = cancelado ? 'Evento cancelado' : 'Cambio material en un evento con ventas';
+
+    const detalle = cancelado
+      ? `${params.event.name} fue cancelado${params.reason ? ` (motivo: ${params.reason})` : ''}.`
+      : `${params.event.name} cambió ${params.changes
+          .map(c => `${c.label.toLowerCase()}: ${humanizeChangeValue(c.after)}`)
+          .join(', ')}.`;
+
+    const ventas = hasSales
+      ? ` Tiene entradas vendidas: los compradores pueden pedir el reembolso` +
+        `${refundWindowEndsAt ? ` hasta el ${formatDateTimeAr(refundWindowEndsAt)}` : ''}. ` +
+        'Conviene no liquidarle a la productora hasta que cierre esa ventana.'
+      : ' No tiene entradas vendidas.';
+
+    await this.adminNotifier.notifyAdmins(title, `${detalle}${ventas}`, {
+      email: { actionPath: '/admin/events', actionLabel: 'Ver eventos' }
+    });
   }
 
   /**
