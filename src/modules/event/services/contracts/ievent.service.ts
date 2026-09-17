@@ -5,7 +5,9 @@ import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
 import { EventFeeSummary } from '@modules/orders/services/core/fee-summary';
 import { EventMediaKind } from '@config/db/entities/tickets/event_media.entity';
-import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
+
+import type { MapSectorLayout } from '../core/map-grid';
+import type { GridAnalysis } from '../core/map-grid-analysis';
 import { BannerImages, BannerVariant } from '../../controllers/const/banner-variant.const';
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { EVENT_ORDER_COLUMNS, eventFilters } from '../../controllers/const/event.filters';
@@ -24,7 +26,9 @@ export type TEventMapSector = {
   name: string;
   /** Piso impreso en el plano; null en salas de un nivel. Identidad = (level, name). */
   level: string | null;
-  geometry: EventMapSectorGeometry;
+  /** Layout en grilla 24×24: fuente de verdad. null solo en filas sin migrar. */
+  layout: MapSectorLayout | null;
+  color: string | null;
   sortOrder: number;
   isNumbered: boolean;
   capacity: number | null;
@@ -39,13 +43,17 @@ export type TEventMap = {
   eventUuid: string;
   name: string;
   baseImageUrl: string | null;
-  canvasWidth: number;
-  canvasHeight: number;
   /**
-   * Layout abstracto de la IA (MapGridOverlay). Null si el mapa es a mano o
-   * aún no se guardó análisis.
+   * Análisis en forma canónica de celdas para el editor de grilla. Null si el
+   * mapa es a mano o aún no se guardó análisis.
    */
-  analysis: Record<string, unknown> | null;
+  analysis: GridAnalysis | null;
+  /** Grilla fija del mapa. */
+  grid: { cols: number; rows: number };
+  /** Celdas del escenario en la grilla. */
+  stageLayout: MapSectorLayout;
+  /** La migración a grilla dejó solapes: hay que re-analizar / re-editar. */
+  needsReanalysis: boolean;
   sectors: TEventMapSector[];
   /** Tandas del evento (agrupadas con el mapa para compra / sectores). */
   ticketTypes: TTicketTypeResponse[];
@@ -55,7 +63,8 @@ export type TUpsertEventMapSector = {
   uuid?: string;
   name: string;
   level?: string | null;
-  geometry: EventMapSectorGeometry;
+  layout: unknown;
+  color?: string | null;
   sortOrder?: number;
   isNumbered?: boolean;
   capacity?: number | null;
@@ -64,14 +73,15 @@ export type TUpsertEventMapSector = {
 
 export type TUpsertEventMap = {
   name?: string;
-  canvasWidth?: number;
-  canvasHeight?: number;
+
   baseImageUrl?: string | null;
   /**
    * Si viene en el body (incluido null), se persiste. Si se omite, se conserva
    * el analysis ya guardado (p. ej. upserts parciales de vínculos tanda↔sector).
    */
   analysis?: Record<string, unknown> | null;
+  /** Omitido = se conserva; null = default por posición del escenario. */
+  stageLayout?: unknown;
   sectors: TUpsertEventMapSector[];
 };
 

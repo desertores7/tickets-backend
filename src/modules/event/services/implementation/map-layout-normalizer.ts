@@ -1,4 +1,5 @@
 import { applySpatialPlacement, oppositeEdge, parseBox } from './map-spatial-layout';
+import { isSectorLayout, layoutBounds } from '../core/map-grid';
 import type {
   AiEventMapArea,
   AiEventMapCategory,
@@ -437,6 +438,12 @@ function parseCell(raw: unknown): AiEventMapCell | null {
     colSpan: Math.round(colSpan),
     rowSpan: Math.round(rowSpan)
   };
+}
+
+function parseCellList(raw: unknown): AiEventMapCell[] | null {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const cells = raw.map(parseCell).filter((c): c is AiEventMapCell => !!c);
+  return cells.length ? cells : null;
 }
 
 /**
@@ -963,6 +970,8 @@ function normalizeGroups(
       outline: parseOutline(g.outline),
       box: parseBox(g.box),
       cell: parseCell(g.cell),
+      unitCells: parseCellList(g.unitCells),
+      footprintCells: parseCellList(g.footprintCells),
       containedBy:
         g.containedBy === null || g.containedBy === undefined || g.containedBy === ''
           ? null
@@ -1434,9 +1443,18 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
   const anyGroupFallback = groups.some(g => g.requiresGeometryFallback);
   const layoutFallback = anyGroupFallback || Boolean(layoutRaw.requiresGeometryFallback);
 
+  // Escenario en la grilla (prompt 24×24): `stageLayout` en la raíz.
+  const rawStageLayout = coalesced.stageLayout ?? layoutRaw.stageLayout;
+  const stage = resolveStage(rawStage, groups);
+  if (isSectorLayout(rawStageLayout)) {
+    stage.layout = rawStageLayout;
+    stage.cell = layoutBounds(rawStageLayout);
+    stage.visible = true;
+  }
+
   return {
     mapArea,
-    stage: resolveStage(rawStage, groups),
+    stage,
     categories,
     layout: {
       requiresGeometryFallback: layoutFallback,

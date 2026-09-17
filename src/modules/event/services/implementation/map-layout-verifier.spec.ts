@@ -3,10 +3,20 @@ import {
   AiEventMapLayoutGroup,
   AnalyzeMapResult
 } from '../contracts/ievent-ai.service';
-import { collectDeclaredCounts, verifyMapLayout } from './map-layout-verifier';
+import {
+  collectDeclaredCounts,
+  fixStructuralIssues,
+  needsVisionRepair,
+  verifyMapLayout
+} from './map-layout-verifier';
+
+let nextRow = 1;
 
 /** Grupo con los defaults del normalizador; cada test pisa lo que le importa. */
 function group(patch: Partial<AiEventMapLayoutGroup> = {}): AiEventMapLayoutGroup {
+  // Cada grupo en su propia fila de la grilla: los tests que no miran
+  // geometría no arrastran un CELL_OVERLAP.
+  const row = ((nextRow++ - 1) % 24) + 1;
   return {
     id: 'grupo',
     elementType: 'table',
@@ -14,11 +24,11 @@ function group(patch: Partial<AiEventMapLayoutGroup> = {}): AiEventMapLayoutGrou
     position: 'center',
     lane: null,
     stackOrder: 0,
-    // Con recuadro por defecto para que los tests de conteo no arrastren además
-    // un MISSING_GROUP_BOX; el caso sin recuadro tiene su propio test.
-    box: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 },
+    box: null,
     outline: null,
-    cell: null,
+    // Con celda por defecto para que los tests de conteo no arrastren además
+    // un MISSING_GROUP_CELLS; el caso sin celdas tiene su propio test.
+    cell: { col: 1, row, colSpan: 2, rowSpan: 1 },
     containedBy: null,
     containedAt: null,
     shape: 'rect',
@@ -218,8 +228,8 @@ describe('map-layout-verifier', () => {
     });
   });
 
-  describe('geometría', () => {
-    it('avisa cuando un sector llegó sin recuadro', () => {
+  describe('geometría en celdas', () => {
+    it('avisa cuando un sector llegó sin celdas', () => {
       const res = result([
         group({ id: 'centro', rows: 1, columns: 2, labels: ['1', '2'], count: 2 }),
         group({
@@ -229,23 +239,86 @@ describe('map-layout-verifier', () => {
           columns: null,
           labels: ['11', '12'],
           count: 2,
-          box: null
+          cell: null
         })
       ]);
 
       const warnings = verifyMapLayout(res, new Map());
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]!.code).toBe('MISSING_GROUP_BOX');
+      expect(warnings[0]!.code).toBe('MISSING_GROUP_CELLS');
       expect(warnings[0]!.groupId).toBe('lateral');
     });
 
-    it('no avisa nada cuando todos los sectores traen recuadro', () => {
+    it('no exige unitCells del modelo (las genera el rasterizado)', () => {
+      const res = result([
+        group({
+          id: 'mesas',
+          rows: 1,
+          columns: 2,
+          labels: ['1', '2'],
+          count: 2,
+          unitCells: [{ col: 1, row: 20, colSpan: 1, rowSpan: 1 }]
+        })
+      ]);
+
+      expect(verifyMapLayout(res, new Map())).toEqual([]);
+    });
+
+    it('avisa cuando dos sectores comparten celdas', () => {
+      const res = result([
+        group({
+          id: 'a',
+          layoutType: 'zone',
+          labels: ['A'],
+          cell: { col: 1, row: 22, colSpan: 4, rowSpan: 2 }
+        }),
+        group({
+          id: 'b',
+          layoutType: 'zone',
+          labels: ['B'],
+          cell: { col: 3, row: 23, colSpan: 4, rowSpan: 2 }
+        })
+      ]);
+
+      const warnings = verifyMapLayout(res, new Map());
+
+      expect(warnings.map(w => w.code)).toEqual(['CELL_OVERLAP']);
+      expect(warnings[0]!.groupId).toBe('b');
+    });
+
+    it('no avisa nada cuando todos los sectores traen celdas sin solapes', () => {
       const res = result([
         group({ id: 'centro', rows: 1, columns: 2, labels: ['1', '2'], count: 2 })
       ]);
 
       expect(verifyMapLayout(res, new Map())).toHaveLength(0);
+    });
+  });
+
+  describe('repair condicional', () => {
+    it('solo pide visión por labels/sectores faltantes o pisos', () => {
+      expect(needsVisionRepair([{ code: 'CELL_OVERLAP', groupId: 'a', message: '' }])).toBe(false);
+      expect(needsVisionRepair([{ code: 'MISSING_GROUP_CELLS', groupId: 'a', message: '' }])).toBe(
+        false
+      );
+      expect(
+        needsVisionRepair([{ code: 'DECLARED_COUNT_MISMATCH', groupId: 'a', message: '' }])
+      ).toBe(true);
+    });
+
+    it('re-dimensiona en código una grilla con rows × columns incoherente', () => {
+      const res = result([
+        group({
+          id: 'mesas',
+          rows: 3,
+          columns: 5,
+          labels: Array.from({ length: 10 }, (_, i) => `${i + 1}`)
+        })
+      ]);
+
+      expect(fixStructuralIssues(res)).toBe(1);
+      expect(res.layout.groups[0]).toMatchObject({ rows: 2, columns: 5 });
     });
   });
 });

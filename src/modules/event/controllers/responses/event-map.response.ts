@@ -1,14 +1,28 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { EventMapSectorGeometry } from '@config/db/entities/tickets/event_map_sector.entity';
+import { GridAnalysisResponse } from './analyze-from-map.response';
+import type { GridAnalysis } from '@modules/event/services/core/map-grid-analysis';
 import { TicketTypeResponse } from './ticket-type.response';
 import type { TEventMap } from '@modules/event/services/contracts/ievent.service';
+import type { MapSectorLayout } from '@modules/event/services/core/map-grid';
+import { MapSectorLayoutDto } from '../requests/upsert-event-map.request';
+
+export class MapGridSizeResponse {
+  @ApiProperty({ example: 24 }) cols: number;
+  @ApiProperty({ example: 24 }) rows: number;
+}
 
 export class EventMapSectorResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() name: string;
   @ApiProperty({ nullable: true, description: 'Piso impreso; null en salas de un nivel.' })
   level: string | null;
-  @ApiProperty() geometry: EventMapSectorGeometry;
+  @ApiProperty({
+    type: MapSectorLayoutDto,
+    nullable: true,
+    description: 'Celdas del sector en la grilla 24×24 (fuente de verdad).'
+  })
+  layout: MapSectorLayout | null;
+  @ApiProperty({ nullable: true }) color: string | null;
   @ApiProperty() sortOrder: number;
   @ApiProperty() isNumbered: boolean;
   @ApiProperty({ nullable: true }) capacity: number | null;
@@ -23,7 +37,8 @@ export class EventMapSectorResponse {
     uuid: string;
     name: string;
     level: string | null;
-    geometry: EventMapSectorGeometry;
+    layout: MapSectorLayout | null;
+    color: string | null;
     sortOrder: number;
     isNumbered: boolean;
     capacity: number | null;
@@ -33,7 +48,8 @@ export class EventMapSectorResponse {
     this.uuid = data.uuid;
     this.name = data.name;
     this.level = data.level;
-    this.geometry = data.geometry;
+    this.layout = data.layout;
+    this.color = data.color;
     this.sortOrder = data.sortOrder;
     this.isNumbered = data.isNumbered;
     this.capacity = data.capacity;
@@ -62,13 +78,23 @@ export class EventMapResponse {
   @ApiProperty() eventUuid: string;
   @ApiProperty() name: string;
   @ApiPropertyOptional({ nullable: true }) baseImageUrl: string | null;
-  @ApiProperty() canvasWidth: number;
-  @ApiProperty() canvasHeight: number;
+
   @ApiPropertyOptional({
+    type: GridAnalysisResponse,
     nullable: true,
-    description: 'Layout abstracto de la IA para MapGridOverlay; null si no hay.'
+    description:
+      'Análisis en celdas para el editor de grilla (sin box/outline/pesos). ' +
+      'El escenario está en `stageLayout`. Null si no hay.'
   })
-  analysis: Record<string, unknown> | null;
+  analysis: GridAnalysis | null;
+  @ApiProperty({ type: MapGridSizeResponse, description: 'Grilla fija 24×24, índices 1-based.' })
+  grid: MapGridSizeResponse;
+  @ApiProperty({ type: MapSectorLayoutDto, description: 'Celdas del escenario.' })
+  stageLayout: MapSectorLayout;
+  @ApiProperty({
+    description: 'true si la migración a grilla dejó solapes sin resolver: re-analizar o re-editar.'
+  })
+  needsReanalysis: boolean;
   @ApiProperty({ type: [EventMapSectorResponse] }) sectors: EventMapSectorResponse[];
   @ApiProperty({
     type: [TicketTypeResponse],
@@ -81,9 +107,11 @@ export class EventMapResponse {
     this.eventUuid = data.eventUuid;
     this.name = data.name;
     this.baseImageUrl = data.baseImageUrl;
-    this.canvasWidth = data.canvasWidth;
-    this.canvasHeight = data.canvasHeight;
+
     this.analysis = data.analysis ?? null;
+    this.grid = data.grid;
+    this.stageLayout = data.stageLayout;
+    this.needsReanalysis = data.needsReanalysis;
     this.sectors = data.sectors.map(s => new EventMapSectorResponse(s));
     this.ticketTypes = (data.ticketTypes ?? []).map(tt => new TicketTypeResponse(tt));
   }

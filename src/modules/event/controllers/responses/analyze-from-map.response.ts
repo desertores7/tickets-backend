@@ -1,446 +1,128 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import type {
-  AiEventMapArea,
-  AiEventMapBox,
-  AiEventMapCategory,
-  AiEventMapCategoryAssignment,
-  AiEventMapCell,
-  AiEventMapLayout,
-  AiEventMapLayoutGroup,
-  AiEventMapPoint,
-  AiEventMapStage,
-  AnalyzeMapResult,
-  MapContainedAt,
-  MapElementType,
-  MapGroupOrdering,
-  MapGroupPosition,
-  MapLabelOrientation,
-  MapLayoutType,
-  MapShapeKind,
-  MapShapeNotch,
-  MapStageAlignment,
-  MapStagePosition,
-  SaleMode,
-  SelectionUnit
-} from '../../services/contracts/ievent-ai.service';
+import { MapSectorLayout, defaultStageLayout } from '@modules/event/services/core/map-grid';
+import {
+  GridAnalysis,
+  GridAnalysisCategory,
+  GridAnalysisGroup,
+  stageLayoutOfAnalysis,
+  toGridAnalysis
+} from '@modules/event/services/core/map-grid-analysis';
+import type { AnalyzeMapResult } from '../../services/contracts/ievent-ai.service';
+import { MapGridCellDto, MapSectorLayoutDto } from '../requests/upsert-event-map.request';
 
-const SALE_MODE_ENUM: SaleMode[] = ['whole_unit', 'per_person', 'general_admission'];
-const SELECTION_UNIT_ENUM: SelectionUnit[] = [
-  'table',
-  'seat',
-  'box',
-  'palco',
-  'ticket',
-  'section'
-];
-const ELEMENT_TYPE_ENUM: MapElementType[] = [
-  'table',
-  'box',
-  'palco',
-  'seat',
-  'zone',
-  'section'
-];
-const STAGE_POSITION_ENUM: MapStagePosition[] = ['top', 'bottom', 'left', 'right', 'center'];
-const STAGE_ALIGNMENT_ENUM: MapStageAlignment[] = ['start', 'center', 'end'];
-const LAYOUT_TYPE_ENUM: MapLayoutType[] = ['column', 'row', 'grid', 'zone', 'freeform'];
-const GROUP_POSITION_ENUM: MapGroupPosition[] = [
-  'top_left',
-  'top_center',
-  'top_right',
-  'left',
-  'center',
-  'right',
-  'bottom_left',
-  'bottom_center',
-  'bottom_right'
-];
-const GROUP_ORDERING_ENUM: MapGroupOrdering[] = [
-  'top_to_bottom',
-  'bottom_to_top',
-  'left_to_right',
-  'right_to_left',
-  'row_major',
-  'column_major'
-];
-const SHAPE_ENUM: MapShapeKind[] = ['rect', 'l', 'u', 'ring', 'trapezoid', 'corner_cut'];
-const LABEL_ORIENTATION_ENUM: MapLabelOrientation[] = ['horizontal', 'vertical'];
-const SHAPE_NOTCH_ENUM: MapShapeNotch[] = [
-  'top',
-  'bottom',
-  'left',
-  'right',
-  'top_left',
-  'top_right',
-  'bottom_left',
-  'bottom_right'
-];
-const CONTAINED_AT_ENUM: MapContainedAt[] = [
-  'top',
-  'top_left',
-  'top_right',
-  'center',
-  'bottom',
-  'bottom_left',
-  'bottom_right'
-];
+/**
+ * Análisis en forma canónica de celdas (grilla 24×24).
+ *
+ * La ocupación sale solo de `cell` / `unitCells` / `footprintCells`. No viajan
+ * recuadros 0..1, contornos, pesos ni `confidence`. El escenario vive en
+ * `stageLayout` del mapa (o de la respuesta del job).
+ */
 
-export class AiEventMapPointResponse implements AiEventMapPoint {
-  @ApiProperty({ example: 0.1 })
-  x: number;
-
-  @ApiProperty({ example: 0.2 })
-  y: number;
+export class GridSizeResponse {
+  @ApiProperty({ example: 24 }) cols: number;
+  @ApiProperty({ example: 24 }) rows: number;
 }
 
-export class AiEventMapBoxResponse implements AiEventMapBox {
-  @ApiProperty({ example: 0.08, description: 'Borde izquierdo 0..1 sobre el ancho de la imagen' })
-  x: number;
-
-  @ApiProperty({ example: 0.21, description: 'Borde superior 0..1 sobre el alto de la imagen' })
-  y: number;
-
-  @ApiProperty({ example: 0.09 })
-  w: number;
-
-  @ApiProperty({ example: 0.24 })
-  h: number;
+export class GridAreaResponse {
+  @ApiProperty({ example: 0.1 }) x: number;
+  @ApiProperty({ example: 0.05 }) y: number;
+  @ApiProperty({ example: 0.8 }) w: number;
+  @ApiProperty({ example: 0.9 }) h: number;
 }
 
-export class AiEventMapAreaResponse implements AiEventMapArea {
-  @ApiProperty({ example: 0.1 })
-  x: number;
-
-  @ApiProperty({ example: 0.2 })
-  y: number;
-
-  @ApiProperty({ example: 0.6 })
-  w: number;
-
-  @ApiProperty({ example: 0.5 })
-  h: number;
-
-  @ApiProperty({ example: 0.9 })
-  confidence: number;
+export class GridStageResponse {
+  @ApiProperty() visible: boolean;
+  @ApiProperty({ enum: ['top', 'bottom', 'left', 'right', 'center'], example: 'top' })
+  position: string;
 }
 
-export class AiEventMapCellResponse implements AiEventMapCell {
-  @ApiProperty({ example: 1 })
-  col: number;
-
-  @ApiProperty({ example: 1 })
-  row: number;
-
-  @ApiProperty({ example: 4 })
-  colSpan: number;
-
-  @ApiProperty({ example: 2 })
-  rowSpan: number;
+export class GridCategoryResponse implements GridAnalysisCategory {
+  @ApiProperty({ example: 'mesa-vip' }) id: string;
+  @ApiProperty({ example: 'Mesa VIP' }) label: string;
+  @ApiProperty({ nullable: true, example: 100000 }) detectedPrice: number | null;
+  @ApiProperty({ enum: ['table', 'box', 'palco', 'seat', 'zone', 'section'] }) elementType: string;
+  @ApiProperty({ enum: ['whole_unit', 'per_person', 'general_admission'] }) saleMode: string;
+  @ApiProperty({ enum: ['table', 'seat', 'box', 'palco', 'ticket', 'section'] })
+  selectionUnit: string;
+  @ApiProperty({ nullable: true }) detectedCapacity: number | null;
+  @ApiProperty({ nullable: true }) includedAdmissions: number | null;
+  @ApiProperty({ nullable: true, example: '#f5b301' }) color: string | null;
 }
 
-export class AiEventMapStageResponse implements AiEventMapStage {
-  @ApiProperty({ description: 'Si el escenario/frente es inferible en el mapa' })
-  visible: boolean;
-
-  @ApiProperty({ enum: STAGE_POSITION_ENUM, nullable: true, example: 'top' })
-  position: MapStagePosition | null;
-
-  @ApiProperty({ enum: STAGE_ALIGNMENT_ENUM, nullable: true, example: 'center' })
-  alignment: MapStageAlignment | null;
-
+export class GridGroupResponse implements GridAnalysisGroup {
+  @ApiProperty({ example: 'tables-main' }) id: string;
+  @ApiProperty({ enum: ['table', 'box', 'palco', 'seat', 'zone', 'section'] }) elementType: string;
+  @ApiProperty({ enum: ['column', 'row', 'grid', 'zone', 'freeform'] }) layoutType: string;
+  @ApiProperty({ type: [String], example: ['M1', 'M2'] }) labels: string[];
+  @ApiProperty({ nullable: true }) category: string | null;
   @ApiProperty({
-    description:
-      'true si el frente se dedujo por orientación en vez de estar dibujado en el flyer'
+    type: 'array',
+    items: { type: 'object' },
+    description: 'Bloques de categoría (from/to sobre labels) en grupos multicolor'
   })
-  inferred: boolean;
-
-  @ApiProperty({ description: '0–1' })
-  confidence: number;
-
-  @ApiPropertyOptional({
-    type: [AiEventMapPointResponse],
+  categoryAssignments: Array<Record<string, unknown>>;
+  @ApiProperty({ example: 50 }) count: number;
+  @ApiProperty({
+    type: MapGridCellDto,
     nullable: true,
-    description: 'Contorno opcional del escenario; null → el frontend sintetiza'
+    description: 'Bounding box del grupo; coincide siempre con unitCells / footprintCells'
   })
-  outline: AiEventMapPoint[] | null;
-
+  cell: GridAnalysisGroup['cell'];
   @ApiPropertyOptional({
-    type: AiEventMapBoxResponse,
-    nullable: true,
-    description: 'Recuadro del escenario en la imagen; null si no estaba dibujado'
+    type: [MapGridCellDto],
+    description: 'Celda de cada label (mesas/palcos/boxes), mismo orden que labels'
   })
-  box: AiEventMapBox | null;
-
+  unitCells?: GridAnalysisGroup['unitCells'];
   @ApiPropertyOptional({
-    enum: STAGE_POSITION_ENUM,
-    nullable: true,
-    example: 'bottom',
-    description:
-      'Borde donde el plano marca la entrada. El frente del venue es el borde opuesto.'
+    type: [MapGridCellDto],
+    description: 'Solo en zonas no rectangulares (L/U): celdas 1×1 ocupadas'
   })
-  entranceAt: MapStagePosition | null;
+  footprintCells?: GridAnalysisGroup['footprintCells'];
+  @ApiPropertyOptional() ordering?: string;
+  @ApiPropertyOptional() rows?: number;
+  @ApiPropertyOptional() columns?: number;
+  @ApiPropertyOptional({ description: 'Solo si no es rect y no hay footprintCells' })
+  shape?: string;
+  @ApiPropertyOptional() shapeNotch?: string;
+  @ApiPropertyOptional({ enum: ['vertical'] }) labelOrientation?: 'vertical';
+  @ApiPropertyOptional() level?: string;
 }
 
-export class AiEventMapCategoryResponse implements AiEventMapCategory {
-  @ApiProperty({ example: 'mesa-vip-chichero' })
-  id: string;
-
-  @ApiProperty({ example: 'Mesa VIP Chichero' })
-  label: string;
-
-  @ApiProperty({ nullable: true, example: 1000000 })
-  detectedPrice: number | null;
-
-  @ApiProperty({ enum: ELEMENT_TYPE_ENUM, example: 'table' })
-  elementType: MapElementType;
-
-  @ApiProperty({ enum: SALE_MODE_ENUM, example: 'whole_unit' })
-  saleMode: SaleMode;
-
-  @ApiProperty({ enum: SELECTION_UNIT_ENUM, example: 'table' })
-  selectionUnit: SelectionUnit;
-
-  @ApiProperty({
-    nullable: true,
-    example: 10,
-    description: 'Capacidad física máxima; null si no visible'
-  })
-  detectedCapacity: number | null;
-
-  @ApiProperty({
-    nullable: true,
-    example: 8,
-    description: 'Admisiones incluidas al comprar la unidad; distinto de capacity'
-  })
-  includedAdmissions: number | null;
-
-  @ApiProperty({
-    nullable: true,
-    example: '#f5b301',
-    description: 'Color con que el flyer pinta la categoría; null si no se distingue'
-  })
-  color: string | null;
-
-  @ApiProperty({ description: '0–1' })
-  confidence: number;
+export class GridLayoutResponse {
+  @ApiProperty({ type: [GridGroupResponse] }) groups: GridGroupResponse[];
 }
 
-export class AiEventMapCategoryAssignmentResponse implements AiEventMapCategoryAssignment {
-  @ApiProperty({ example: 'mesa-vip-chichero', description: 'categories.id' })
-  category: string;
-
+export class GridAnalysisResponse implements GridAnalysis {
+  @ApiProperty({ type: GridSizeResponse }) grid: GridSizeResponse;
   @ApiPropertyOptional({
-    nullable: true,
-    example: 1,
-    description: 'Fila inicial 1-based inclusive. null si el grupo no es grilla'
+    type: GridAreaResponse,
+    description: 'Solo en el job de análisis: recorte del plano dentro del flyer (0..1)'
   })
-  rowStart: number | null;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 2,
-    description: 'Fila final 1-based inclusive. null si el grupo no es grilla'
-  })
-  rowEnd: number | null;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 1,
-    description: 'Columna inicial 1-based inclusive. null si el grupo no es grilla'
-  })
-  columnStart: number | null;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 5,
-    description: 'Columna final 1-based inclusive. null si el grupo no es grilla'
-  })
-  columnEnd: number | null;
-
-  @ApiProperty({
-    example: 0,
-    description:
-      'Índice inclusive 0-based en labels[] (inicio). En grillas lo calcula el backend a partir del rectángulo'
-  })
-  from: number;
-
-  @ApiProperty({
-    example: 9,
-    description: 'Índice inclusive 0-based en labels[] (fin)'
-  })
-  to: number;
-}
-
-export class AiEventMapLayoutGroupResponse implements AiEventMapLayoutGroup {
-  @ApiProperty({ example: 'tables-main' })
-  id: string;
-
-  @ApiProperty({ enum: ELEMENT_TYPE_ENUM, example: 'table' })
-  elementType: MapElementType;
-
-  @ApiProperty({ enum: LAYOUT_TYPE_ENUM, example: 'grid' })
-  layoutType: MapLayoutType;
-
-  @ApiPropertyOptional({
-    type: AiEventMapBoxResponse,
-    nullable: true,
-    description:
-      'Recuadro del grupo en la imagen original, 0..1. Cuando todos los grupos lo traen, ' +
-      'position/lane/stackOrder y los pesos se derivan de acá.'
-  })
-  box: AiEventMapBox | null;
-
-  @ApiProperty({ enum: GROUP_POSITION_ENUM, example: 'center' })
-  position: MapGroupPosition;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 0,
-    description: '0 = más cerca del centro; mayor = más hacia afuera'
-  })
-  lane: number | null;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: 0,
-    description: '0 = arriba en un stack; mayor = más abajo'
-  })
-  stackOrder: number | null;
-
-  @ApiPropertyOptional({
-    type: [AiEventMapPointResponse],
-    nullable: true,
-    description: 'Contorno 0..1; null → el frontend reparte por pesos'
-  })
-  outline: AiEventMapPoint[] | null;
-
-  @ApiPropertyOptional({ type: AiEventMapCellResponse, nullable: true })
-  cell: AiEventMapCell | null;
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: null,
-    description: 'Id del grupo contenedor visual'
-  })
-  containedBy: string | null;
-
-  @ApiPropertyOptional({ enum: CONTAINED_AT_ENUM, nullable: true })
-  containedAt: MapContainedAt | null;
-
-  @ApiProperty({ enum: SHAPE_ENUM, example: 'rect' })
-  shape: MapShapeKind;
-
-  @ApiProperty({ enum: LABEL_ORIENTATION_ENUM, example: 'horizontal' })
-  labelOrientation: MapLabelOrientation;
-
-  @ApiPropertyOptional({ enum: SHAPE_NOTCH_ENUM, nullable: true })
-  shapeNotch: MapShapeNotch | null;
-
-  @ApiProperty({
-    example: 8,
-    description: 'Ancho relativo 1..10 — obligatorio para el motor de layout del frontend'
-  })
-  widthWeight: number;
-
-  @ApiProperty({
-    example: 4,
-    description: 'Alto relativo 1..10 — obligatorio para el motor de layout del frontend'
-  })
-  heightWeight: number;
-
-  @ApiPropertyOptional({ nullable: true, example: null })
-  level: string | null;
-
-  @ApiProperty({ example: 35 })
-  count: number;
-
-  @ApiPropertyOptional({ nullable: true, example: 7 })
-  rows: number | null;
-
-  @ApiPropertyOptional({ nullable: true, example: 5 })
-  columns: number | null;
-
-  @ApiPropertyOptional({
-    enum: GROUP_ORDERING_ENUM,
-    nullable: true,
-    example: 'row_major'
-  })
-  ordering: MapGroupOrdering | null;
-
-  @ApiProperty({
-    type: [String],
-    example: ['1', '2', '3'],
-    description: 'Labels en orden visual'
-  })
-  labels: string[];
-
-  @ApiPropertyOptional({
-    nullable: true,
-    example: null,
-    description:
-      'Categoría única del grupo; null si el grupo mezcla varias (grilla multicolor)'
-  })
-  category: string | null;
-
-  @ApiProperty({
-    type: [AiEventMapCategoryAssignmentResponse],
-    description:
-      'Bloques de categoría comercial: rectangulares en grillas, lineales en el resto'
-  })
-  categoryAssignments: AiEventMapCategoryAssignmentResponse[];
-
-  @ApiProperty({
-    description: 'true si este grupo necesita geometría exacta (freeform / irregular)'
-  })
-  requiresGeometryFallback: boolean;
-
-  @ApiProperty({ description: '0–1' })
-  confidence: number;
-}
-
-export class AiEventMapLayoutResponse implements AiEventMapLayout {
-  @ApiProperty({
-    description: 'true si algún grupo requiere análisis geométrico más lento'
-  })
-  requiresGeometryFallback: boolean;
-
-  @ApiProperty({ type: [AiEventMapLayoutGroupResponse] })
-  groups: AiEventMapLayoutGroupResponse[];
+  mapArea?: GridAreaResponse;
+  @ApiProperty({ type: GridStageResponse }) stage: GridStageResponse;
+  @ApiProperty({ type: [GridCategoryResponse] }) categories: GridCategoryResponse[];
+  @ApiProperty({ type: GridLayoutResponse }) layout: GridLayoutResponse;
 }
 
 /**
- * Respuesta pública del análisis.
+ * Resultado del job de análisis del plano: análisis en celdas + escenario.
  *
- * Omite `warnings` a propósito: las inconsistencias que detecta el verificador
- * son diagnóstico interno y viajan al log y a `event_ai_map_run`, no al
- * productor. Su destino es disparar la reparación dirigida del análisis, no
- * pedirle a quien subió un flyer que interprete un problema del modelo.
+ * Omite `warnings` a propósito: son diagnóstico interno (log y
+ * `event_ai_map_run`), no algo que el productor tenga que interpretar.
  */
-export class AnalyzeFromMapResponse implements Omit<AnalyzeMapResult, 'warnings'> {
-  @ApiPropertyOptional({
-    type: AiEventMapAreaResponse,
-    nullable: true,
-    description: 'Recuadro del plano dentro del flyer (0..1)'
-  })
-  mapArea: AiEventMapArea | null;
+export class AnalyzeFromMapResponse extends GridAnalysisResponse {
+  @ApiProperty({ type: MapSectorLayoutDto, description: 'Celdas del escenario' })
+  stageLayout: MapSectorLayout;
 
-  @ApiProperty({ type: AiEventMapStageResponse })
-  stage: AiEventMapStageResponse;
-
-  @ApiProperty({ type: [AiEventMapCategoryResponse] })
-  categories: AiEventMapCategoryResponse[];
-
-  @ApiProperty({
-    type: AiEventMapLayoutResponse,
-    description:
-      'Estructura física con pesos/forma; el frontend dibuja SVG con semantic-layout'
-  })
-  layout: AiEventMapLayoutResponse;
-
-  constructor(partial: AnalyzeMapResult) {
-    this.mapArea = partial.mapArea;
-    this.stage = partial.stage;
-    this.categories = partial.categories;
-    this.layout = partial.layout;
+  constructor(result: AnalyzeMapResult) {
+    super();
+    const stageLayout = stageLayoutOfAnalysis(result) ?? defaultStageLayout('top');
+    const grid = toGridAnalysis(result, { stageLayout, keepMapArea: true })!;
+    this.grid = grid.grid;
+    if (grid.mapArea) this.mapArea = grid.mapArea;
+    this.stage = grid.stage;
+    this.categories = grid.categories;
+    this.layout = grid.layout;
+    this.stageLayout = stageLayout;
   }
 }
