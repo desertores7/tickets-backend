@@ -72,6 +72,11 @@ export class OrgCatalogController {
   @ApiSearch()
   @ApiFilter(mpCatalogFilters)
   @ApiOrder(MP_CATALOG_ORDER_COLUMNS)
+  @ApiQuery({
+    name: 'organizationUuid',
+    required: false,
+    description: 'Solo Administrador: catálogo de esa productora (asistencia desde /admin).'
+  })
   @HttpCode(200)
   @Get('mp-catalog')
   async listMpCatalog(
@@ -79,13 +84,15 @@ export class OrgCatalogController {
     @PaginationParams() pagination: IPaginationParams,
     @SearchParams() search: ISearchParams,
     @FilterParams(mpCatalogFilters) filters: IFiltersParams<typeof mpCatalogFilters>,
-    @OrderParams() order: IOrderParams<typeof MP_CATALOG_ORDER_COLUMNS>
+    @OrderParams() order: IOrderParams<typeof MP_CATALOG_ORDER_COLUMNS>,
+    @Query('organizationUuid') organizationUuid?: string
   ): Promise<MpCatalogResponse> {
     const result = await this.catalogService.listMpCatalog(loggedUser, {
       pagination,
       search,
       filters,
-      order
+      order,
+      organizationUuid
     });
     return new MpCatalogResponse(
       result.items.map(i => new MpCatalogItemResponse(i)),
@@ -114,6 +121,11 @@ export class OrgCatalogController {
     required: false,
     description: 'Compat legacy: true to exclude inactive items (same as active=true).'
   })
+  @ApiQuery({
+    name: 'organizationUuid',
+    required: false,
+    description: 'Solo Administrador: ítems de esa productora (asistencia desde /admin).'
+  })
   @HttpCode(200)
   @Get('manual-items')
   async listManualItems(
@@ -122,14 +134,16 @@ export class OrgCatalogController {
     @SearchParams() search: ISearchParams,
     @FilterParams(manualItemFilters) filters: IFiltersParams<typeof manualItemFilters>,
     @OrderParams() order: IOrderParams<typeof MANUAL_ITEM_ORDER_COLUMNS>,
-    @Query('onlyActive') onlyActive?: string
+    @Query('onlyActive') onlyActive?: string,
+    @Query('organizationUuid') organizationUuid?: string
   ): Promise<ManualItemsResponse> {
     const result = await this.catalogService.listManualItems(loggedUser, {
       pagination,
       search,
       filters,
       order,
-      onlyActive: onlyActive === 'true'
+      onlyActive: onlyActive === 'true',
+      organizationUuid
     });
     return new ManualItemsResponse(
       result.items.map(i => new ManualItemResponse(i)),

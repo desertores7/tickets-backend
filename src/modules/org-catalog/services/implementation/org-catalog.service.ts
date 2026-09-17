@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { IsNull, Like } from 'typeorm';
 import { DBRepository } from '@config/db/db.repository';
+import { isAdministrador } from '@root/shared/services/is-administrador';
 import { MpCatalogItemEntity } from '@config/db/entities/tickets/mp_catalog_item.entity';
 import {
   MANUAL_ITEM_CATEGORIES,
@@ -36,7 +37,25 @@ import {
 export class OrgCatalogService implements IOrgCatalogService {
   constructor(private readonly dbRepository: DBRepository) {}
 
-  private async resolveOrganization(userUuid: string): Promise<OrganizationEntity> {
+  /**
+   * Productora sobre la que se opera. Por defecto la del usuario; un
+   * Administrador puede pedir la de otra (`organizationUuid`) para asistirla
+   * desde el editor de eventos de `/admin`. Para cualquier otro rol el
+   * parámetro se ignora.
+   */
+  private async resolveOrganization(
+    userUuid: string,
+    asOrganizationUuid?: string
+  ): Promise<OrganizationEntity> {
+    if (asOrganizationUuid && (await isAdministrador(this.dbRepository, userUuid))) {
+      const org = await this.dbRepository.findOne({
+        entity: 'organization',
+        where: { uuid: asOrganizationUuid, isDeleted: IsNull() } as never
+      });
+      if (!org) throw new NotFoundException('Productora no encontrada');
+      return org as OrganizationEntity;
+    }
+
     const membership = await this.dbRepository.findOne({
       entity: 'user_organization',
       where: { userUuid, isDeleted: IsNull() },
@@ -84,9 +103,10 @@ export class OrgCatalogService implements IOrgCatalogService {
       search?: ISearchParams;
       filters?: IFiltersParams<typeof mpCatalogFilters>;
       order?: IOrderParams<typeof MP_CATALOG_ORDER_COLUMNS>;
+      organizationUuid?: string;
     }
   ): Promise<IMpCatalogListResult> {
-    const org = await this.resolveOrganization(loggedUser);
+    const org = await this.resolveOrganization(loggedUser, opts?.organizationUuid);
 
     const page = Math.max(opts?.pagination?.page ?? 1, 1);
     const limit = opts?.pagination?.limit ?? 10;
@@ -147,9 +167,10 @@ export class OrgCatalogService implements IOrgCatalogService {
       filters?: IFiltersParams<typeof manualItemFilters>;
       order?: IOrderParams<typeof MANUAL_ITEM_ORDER_COLUMNS>;
       onlyActive?: boolean;
+      organizationUuid?: string;
     }
   ): Promise<IManualItemsListResult> {
-    const org = await this.resolveOrganization(loggedUser);
+    const org = await this.resolveOrganization(loggedUser, opts?.organizationUuid);
 
     const page = Math.max(opts?.pagination?.page ?? 1, 1);
     const limit = opts?.pagination?.limit ?? 10;

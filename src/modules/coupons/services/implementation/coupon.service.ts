@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { DataSource, In, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
+import { isAdministrador } from '@root/shared/services/is-administrador';
 import { CouponEntity } from '@config/db/entities/tickets/coupon.entity';
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { CouponRedemptionEntity } from '@config/db/entities/tickets/coupon_redemption.entity';
@@ -40,6 +41,9 @@ export class CouponService implements ICouponService {
   private async assertOwnsEvent(eventUuid: string, loggedUser: string): Promise<EventEntity> {
     const event = await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventUuid } });
     if (!event) throw new NotFoundException('Evento no encontrado');
+
+    // El Administrador asiste a cualquier productora desde `/admin/events`.
+    if (await isAdministrador(this.dbRepository, loggedUser)) return event as EventEntity;
 
     // `BR-COUPON-004`: solo la productora dueña crea cupones de su evento.
     const membership = await this.dbRepository.findOne({
