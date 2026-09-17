@@ -62,12 +62,22 @@ import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { selectCurrentTicketType } from '../core/ticket-sales-policy';
+import {
+  MAP_GRID_SIZE,
+  MapGridError,
+  MapGridItem,
+  MapSectorLayout,
+  assertNoOverlaps,
+  isSectorLayout,
+  isStageSectorName,
+  layoutToLegacyGeometry,
+  stageLayoutFromAnalysis,
+  validateSectorLayout
+} from '../core/map-grid';
+import { toGridAnalysis } from '../core/map-grid-analysis';
 import { IStockAlertService } from '@modules/stock-alerts/services/contracts/istock-alert.service';
 import { EventMapEntity } from '@config/db/entities/tickets/event_map.entity';
-import {
-  EventMapSectorEntity,
-  EventMapSectorGeometry
-} from '@config/db/entities/tickets/event_map_sector.entity';
+import { EventMapSectorEntity } from '@config/db/entities/tickets/event_map_sector.entity';
 import { EventMapSectorTicketTypeEntity } from '@config/db/entities/tickets/event_map_sector_ticket_type.entity';
 import { buildEventImages } from '../../controllers/responses/event-images.response';
 
@@ -1001,7 +1011,8 @@ export class EventService implements IEventService {
    * mapa: los sectores y los vínculos ya están en memoria, y releerlos eran
    * tres consultas más para devolver exactamente lo mismo.
    */
-  async upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
+  async upsertEventMap(eventUuid: string, input: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
+    const data = this.extractStageSector(input);
     const event = await this.assertOwnership(eventUuid, loggedUser);
     this.assertUniqueSectorNames(data.sectors);
     await this.validateSectorTicketTypes(event.uuid, data.sectors);
@@ -1010,6 +1021,15 @@ export class EventService implements IEventService {
       entity: 'event_map',
       where: { eventUuid: event.uuid }
     });
+
+    // La grilla se valida entera ANTES de abrir la transacción: un layout
+    // inválido o un solape es un 400, no un rollback.
+    const grid = this.resolveMapGrid(data, existing);
+    // Se persiste solo la forma canónica en celdas (sin box/outline/pesos).
+    const analysisToStore: Record<string, unknown> | null | undefined =
+      data.analysis === undefined
+        ? undefined
+        : toGridAnalysis(data.analysis, { stageLayout: grid.stageLayout });
 
     const queryRunner = this.dbRepository.createQueryRunner();
     await queryRunner.connect();
@@ -1023,6 +1043,8 @@ export class EventService implements IEventService {
       canvasWidth: number;
       canvasHeight: number;
       analysis: Record<string, unknown> | null;
+      stageLayout: MapSectorLayout;
+      needsReanalysis: boolean;
     };
     let sectors: TEventMapSector[];
 
@@ -1033,12 +1055,14 @@ export class EventService implements IEventService {
         created.eventUuid = event.uuid;
         created.name = data.name?.trim() || 'Mapa del evento';
         created.baseImageUrl = data.baseImageUrl ?? null;
-        created.canvasWidth = data.canvasWidth ?? 1000;
-        created.canvasHeight = data.canvasHeight ?? 1000;
-        created.analysis = data.analysis !== undefined ? data.analysis : null;
+        created.canvasWidth = 1000;
+        created.canvasHeight = 1000;
+        created.analysis = analysisToStore ?? null;
+        created.stageLayout = grid.stageLayout;
+        created.needsReanalysis = false;
         created.createdBy = loggedUser;
         await this.dbRepository.create({ entity: 'event_map', data: created, queryRunner });
-        map = created;
+        map = { ...created, stageLayout: grid.stageLayout, needsReanalysis: false };
       } else {
         // Serializa el reemplazo completo con PATCHes de vínculos tanda↔sector.
         await this.dbRepository.query(
@@ -1048,10 +1072,11 @@ export class EventService implements IEventService {
         );
         const patch: Partial<EventMapEntity> = {};
         if (data.name !== undefined) patch.name = data.name.trim() || existing.name;
-        if (data.canvasWidth !== undefined) patch.canvasWidth = data.canvasWidth;
-        if (data.canvasHeight !== undefined) patch.canvasHeight = data.canvasHeight;
         if (data.baseImageUrl !== undefined) patch.baseImageUrl = data.baseImageUrl;
-        if (data.analysis !== undefined) patch.analysis = data.analysis;
+        if (analysisToStore !== undefined) patch.analysis = analysisToStore;
+        // Guardar con la grilla validada limpia la marca de la migración.
+        patch.stageLayout = grid.stageLayout;
+        patch.needsReanalysis = false;
 
         if (Object.keys(patch).length) {
           // UPDATE directo en vez de `dbRepository.update`, que lee la fila con
@@ -1065,7 +1090,7 @@ export class EventService implements IEventService {
               ...fields.map(f => {
                 const value = (patch as Record<string, unknown>)[f];
                 // MySQL JSON column via raw query needs a string.
-                if (f === 'analysis') {
+                if (f === 'analysis' || f === 'stageLayout') {
                   return value == null ? null : JSON.stringify(value);
                 }
                 return value;
@@ -1081,16 +1106,18 @@ export class EventService implements IEventService {
           name: patch.name ?? existing.name,
           baseImageUrl:
             patch.baseImageUrl !== undefined ? patch.baseImageUrl : existing.baseImageUrl,
-          canvasWidth: patch.canvasWidth ?? existing.canvasWidth,
-          canvasHeight: patch.canvasHeight ?? existing.canvasHeight,
+          canvasWidth: existing.canvasWidth,
+          canvasHeight: existing.canvasHeight,
           analysis:
-            data.analysis !== undefined
-              ? data.analysis
-              : ((existing.analysis as Record<string, unknown> | null) ?? null)
+            analysisToStore !== undefined
+              ? analysisToStore
+              : ((existing.analysis as Record<string, unknown> | null) ?? null),
+          stageLayout: grid.stageLayout,
+          needsReanalysis: false
         };
       }
 
-      sectors = await this.replaceMapSectors(map.uuid, data.sectors, queryRunner);
+      sectors = await this.replaceMapSectors(map.uuid, data.sectors, grid.sectorLayouts, queryRunner);
       await queryRunner.commitTransaction();
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -1116,12 +1143,81 @@ export class EventService implements IEventService {
       eventUuid: map.eventUuid,
       name: map.name,
       baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
-      canvasWidth: map.canvasWidth,
-      canvasHeight: map.canvasHeight,
-      analysis: map.analysis ?? null,
+      analysis: toGridAnalysis(map.analysis, { stageLayout: map.stageLayout }),
+      grid: { cols: MAP_GRID_SIZE, rows: MAP_GRID_SIZE },
+      stageLayout: map.stageLayout,
+      needsReanalysis: map.needsReanalysis,
       sectors: resolvedSectors,
       ticketTypes
     };
+  }
+
+  /**
+   * El escenario ya no es un sector. Si un cliente lo sigue mandando como
+   * sector "ESCENARIO" sin tandas, se saca de la lista y (si no vino
+   * `stageLayout`) sus celdas pasan a ser las del escenario.
+   */
+  private extractStageSector(data: TUpsertEventMap): TUpsertEventMap {
+    const isStage = (s: TUpsertEventMap['sectors'][number]) =>
+      isStageSectorName(s.name) && !(s.ticketTypeUuids ?? []).length;
+    const stage = data.sectors.find(isStage);
+    if (!stage) return data;
+    return {
+      ...data,
+      stageLayout: data.stageLayout !== undefined ? data.stageLayout : (stage.layout ?? undefined),
+      sectors: data.sectors.filter(s => !isStage(s))
+    };
+  }
+
+  /**
+   * Valida el layout en grilla del guardado completo y resuelve el escenario.
+   *
+   * Reglas: cada sector trae `layout` válido dentro de 1..24; ninguna celda se
+   * repite entre sectores ni pisa el escenario.
+   */
+  private resolveMapGrid(
+    data: TUpsertEventMap,
+    existing: { stageLayout?: unknown; analysis?: unknown } | null
+  ): { stageLayout: MapSectorLayout; sectorLayouts: MapSectorLayout[] } {
+    try {
+      let stageLayout: MapSectorLayout;
+      const analysis = data.analysis !== undefined ? data.analysis : (existing?.analysis ?? null);
+      if (data.stageLayout === undefined) {
+        const previous = existing?.stageLayout;
+        stageLayout = isSectorLayout(previous) ? previous : stageLayoutFromAnalysis(analysis);
+      } else if (data.stageLayout === null) {
+        stageLayout = stageLayoutFromAnalysis(analysis);
+      } else {
+        stageLayout = validateSectorLayout(data.stageLayout, 'Escenario');
+      }
+
+      const sectorLayouts = data.sectors.map((sector, i) => {
+        const label = sector.name?.trim() || `Sector ${i + 1}`;
+        if (sector.layout === undefined || sector.layout === null) {
+          throw new MapGridError(
+            `"${label}": falta \`layout\` en grilla. La geometría 0..1 ya no se acepta como fuente.`
+          );
+        }
+        return validateSectorLayout(sector.layout, `"${label}"`);
+      });
+
+      const items: MapGridItem[] = [
+        { id: '__stage__', label: 'Escenario', layout: stageLayout },
+        ...sectorLayouts.map((layout, i) => ({
+          id: `s${i}`,
+          label: [data.sectors[i].level?.trim(), data.sectors[i].name?.trim() || `Sector ${i + 1}`]
+            .filter(Boolean)
+            .join(' · '),
+          layout
+        }))
+      ];
+      assertNoOverlaps(items);
+
+      return { stageLayout, sectorLayouts };
+    } catch (err) {
+      if (err instanceof MapGridError) throw new BadRequestException(err.message);
+      throw err;
+    }
   }
 
   async setTicketTypeMapSectors(
@@ -1245,6 +1341,8 @@ export class EventService implements IEventService {
       created.canvasWidth = 1000;
       created.canvasHeight = 1000;
       created.analysis = null;
+      created.stageLayout = null;
+      created.needsReanalysis = false;
       created.createdBy = loggedUser;
       await this.dbRepository.create({ entity: 'event_map', data: created });
       map = created;
@@ -1315,6 +1413,8 @@ export class EventService implements IEventService {
       created.canvasWidth = 1000;
       created.canvasHeight = 1000;
       created.analysis = null;
+      created.stageLayout = null;
+      created.needsReanalysis = false;
       created.createdBy = loggedUser;
       await this.dbRepository.create({ entity: 'event_map', data: created });
       map = created;
@@ -1338,6 +1438,8 @@ export class EventService implements IEventService {
     canvasWidth: number;
     canvasHeight: number;
     analysis?: Record<string, unknown> | null;
+    stageLayout?: unknown;
+    needsReanalysis?: boolean | number | null;
   }): Promise<TEventMap> {
     const [sectors, ticketTypes] = await Promise.all([
       this.dbRepository.findMany({
@@ -1365,13 +1467,19 @@ export class EventService implements IEventService {
     }
 
     const ticketTypesByUuid = new Map(ticketTypes.map(ticket => [ticket.uuid, ticket]));
-    const mappedSectors: TEventMapSector[] = sectors.map(s => {
+    const stageLayout = isSectorLayout(map.stageLayout)
+      ? map.stageLayout
+      : stageLayoutFromAnalysis(map.analysis);
+    // Filas "ESCENARIO" previas a la grilla: el escenario viaja en stageLayout.
+    const mappedSectors: TEventMapSector[] = sectors.filter(s => !isStageSectorName(s.name)).map(s => {
       const ticketTypeUuids = bySector.get(s.uuid) ?? [];
+      const layout = isSectorLayout(s.layout) ? s.layout : null;
       return {
         uuid: s.uuid,
         name: s.name,
         level: s.level ?? null,
-        geometry: s.geometry,
+        layout,
+        color: s.color ?? null,
         sortOrder: s.sortOrder,
         isNumbered: !!s.isNumbered,
         capacity: s.capacity ?? null,
@@ -1390,9 +1498,10 @@ export class EventService implements IEventService {
       eventUuid: map.eventUuid,
       name: map.name,
       baseImageUrl: this.storageService.toPublicUrl(map.baseImageUrl),
-      canvasWidth: map.canvasWidth,
-      canvasHeight: map.canvasHeight,
-      analysis: (map.analysis as Record<string, unknown> | null) ?? null,
+      analysis: toGridAnalysis(map.analysis, { stageLayout }),
+      grid: { cols: MAP_GRID_SIZE, rows: MAP_GRID_SIZE },
+      stageLayout,
+      needsReanalysis: !!map.needsReanalysis,
       sectors: mappedSectors,
       ticketTypes
     };
@@ -1409,6 +1518,8 @@ export class EventService implements IEventService {
       canvasWidth: number;
       canvasHeight: number;
       analysis?: Record<string, unknown> | null;
+      stageLayout?: unknown;
+      needsReanalysis?: boolean | number | null;
     } | null
   ): Promise<TEventMap> {
     if (map) return this.loadEventMap(map);
@@ -1419,9 +1530,10 @@ export class EventService implements IEventService {
       eventUuid,
       name: '',
       baseImageUrl: null,
-      canvasWidth: 0,
-      canvasHeight: 0,
       analysis: null,
+      grid: { cols: MAP_GRID_SIZE, rows: MAP_GRID_SIZE },
+      stageLayout: stageLayoutFromAnalysis(null),
+      needsReanalysis: false,
       sectors: [],
       ticketTypes
     };
@@ -1500,6 +1612,7 @@ export class EventService implements IEventService {
   private async replaceMapSectors(
     mapUuid: string,
     sectors: TUpsertEventMap['sectors'],
+    layouts: MapSectorLayout[],
     queryRunner: QueryRunner
   ): Promise<TEventMapSector[]> {
     // Los vinculos con tandas se van solos: la FK es ON DELETE CASCADE. Leer
@@ -1523,7 +1636,12 @@ export class EventService implements IEventService {
       sector.mapUuid = mapUuid;
       sector.name = src.name.trim();
       sector.level = src.level?.trim() || null;
-      sector.geometry = this.normalizeSectorGeometry(src.geometry);
+      const color = (src.color ?? '').trim().slice(0, 32) || null;
+      sector.layout = layouts[i];
+      sector.color = color;
+      // Columna legacy (solo para rollback de la migración): se deriva de las
+      // celdas y nunca se lee ni se expone.
+      sector.geometry = layoutToLegacyGeometry(layouts[i], color);
       sector.sortOrder = src.sortOrder ?? i;
       sector.isNumbered = src.isNumbered ?? false;
       sector.capacity = src.capacity ?? null;
@@ -1564,45 +1682,14 @@ export class EventService implements IEventService {
       uuid: sector.uuid,
       name: sector.name,
       level: sector.level ?? null,
-      geometry: sector.geometry,
+      layout: sector.layout,
+      color: sector.color,
       sortOrder: sector.sortOrder,
       isNumbered: !!sector.isNumbered,
       capacity: sector.capacity ?? null,
       ticketTypeUuids: ticketTypesBySector.get(sector.uuid) ?? [],
       activeTicketTypeUuid: null
     }));
-  }
-
-  private normalizeSectorGeometry(raw: EventMapSectorGeometry): EventMapSectorGeometry {
-    const color = raw.color?.trim() || undefined;
-    if (raw.type === 'polygon') {
-      const points = (raw.points ?? [])
-        .map(p => ({
-          x: Math.min(1, Math.max(0, Number(p.x))),
-          y: Math.min(1, Math.max(0, Number(p.y)))
-        }))
-        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
-      if (points.length < 3) {
-        throw new BadRequestException('Un polígono necesita al menos 3 puntos');
-      }
-      return { type: 'polygon', points, ...(color ? { color } : {}) };
-    }
-
-    const x = Math.min(1, Math.max(0, Number(raw.x)));
-    const y = Math.min(1, Math.max(0, Number(raw.y)));
-    const w = Math.min(1, Math.max(0.01, Number(raw.w)));
-    const h = Math.min(1, Math.max(0.01, Number(raw.h)));
-    if (![x, y, w, h].every(Number.isFinite)) {
-      throw new BadRequestException('Geometría de sector inválida');
-    }
-    return {
-      type: raw.type === 'ellipse' ? 'ellipse' : 'rect',
-      x,
-      y,
-      w,
-      h,
-      ...(color ? { color } : {})
-    };
   }
 
   private async removeStoredMapBase(eventUuid: string, url: string | undefined): Promise<void> {

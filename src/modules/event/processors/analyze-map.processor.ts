@@ -6,13 +6,11 @@ import { IEventAiService } from '../services/contracts/ievent-ai.service';
 import { MapAnalysisJobStore } from '../services/implementation/map-analysis-job.store';
 
 /**
- * Worker del análisis de mapas.
+ * Worker legacy del análisis de mapas (cola EVENT_AI).
  *
- * El análisis tarda entre uno y dos minutos — visión, verificación y, si hace
- * falta, una segunda pasada de reparación —, muy por encima de los 100 s que
- * aguanta el proxy delante de la API. Por eso el request encola y este worker
- * hace el trabajo: el productor consulta el estado cuando quiere, puede cerrar
- * la pestaña y volver, y nadie se queda mirando una petición abierta.
+ * `POST /events/ai/from-map` ahora corre el análisis en el request (síncrono).
+ * Este processor queda por si quedó un job viejo en Redis; no se encolan jobs
+ * nuevos desde el controller.
  */
 @Processor(QUEUE_NAMES.EVENT_AI)
 export class AnalyzeMapProcessor extends WorkerHost {

@@ -129,12 +129,22 @@ export const envSchema = z.object({
   EVENT_AI_MAP_MODEL: z.string().default('gpt-5.6-sol'),
   /**
    * reasoning_effort para EVENT_AI_MAP_MODEL (familia GPT-5 / o-series).
-   * `medium` = buen balance calidad/latencia (~30–60s).
-   * `high`/`xhigh` = más calidad, suele ir a 1–2 min.
+   * `low` = más rápido (~20–30s), alcanza en planos simples.
+   * `medium` = mejor lectura de wraps L/U y labels densos (~40–60s). Default.
+   * `high`/`xhigh` = 1–2 min; solo si hace falta.
    */
   EVENT_AI_MAP_REASONING_EFFORT: z
     .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
     .default('medium'),
+  /**
+   * Modelo de la pasada de reparación del mapa (solo corre si faltan labels o
+   * sectores). Vacío = mismo EVENT_AI_MAP_MODEL.
+   */
+  EVENT_AI_MAP_REPAIR_MODEL: z.string().optional(),
+  /** reasoning_effort de la reparación: es una corrección puntual, alcanza con poco. */
+  EVENT_AI_MAP_REPAIR_REASONING_EFFORT: z
+    .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .default('low'),
   /** Modelo de imagen (images.edit con flyer de referencia) */
   EVENT_AI_IMAGE_MODEL: z.string().default('gpt-image-2'),
   /**

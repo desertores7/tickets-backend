@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { EventEntity } from './event.entity';
 import { EventMapSectorEntity } from './event_map_sector.entity';
+import type { MapSectorLayout } from '@modules/event/services/core/map-grid';
 
 const tableName = 'event_map' as const;
 
@@ -40,6 +41,20 @@ export class EventMapEntity {
    */
   @Column({ type: 'json', nullable: true, default: null })
   analysis: Record<string, unknown> | null;
+
+  /**
+   * Celdas del escenario en la grilla 24×24. Ningún sector puede pisarlas.
+   * null = mapa sin layout de escenario (se usa el default por posición).
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  stageLayout: MapSectorLayout | null;
+
+  /**
+   * true si la migración a grilla dejó solapes que el pack no pudo resolver:
+   * el mapa tiene que re-analizarse o re-editarse antes de guardarse.
+   */
+  @Column({ type: 'boolean', default: false })
+  needsReanalysis: boolean;
 
   @CreateDateColumn({ type: 'timestamp', nullable: true, default: () => 'CURRENT_TIMESTAMP(3)' })
   createdAt: Date;

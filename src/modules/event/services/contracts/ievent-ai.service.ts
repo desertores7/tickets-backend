@@ -1,3 +1,5 @@
+import type { MapSectorLayout } from '../core/map-grid';
+
 export type FlyerTicketTypeExtraction = {
   name: string;
   price: number;
@@ -55,6 +57,9 @@ export type AnalyzeFlyersResult = {
 
 export type SuggestMapSectorItem = {
   name: string;
+  /** Posición en la grilla 24×24 (fuente de verdad). */
+  layout: MapSectorLayout;
+  /** @deprecated x/y/w/h 0..1 derivados de `layout`. */
   x: number;
   y: number;
   w: number;
@@ -191,6 +196,10 @@ export type AiEventMapStage = {
    * vuelta el mapa entero.
    */
   entranceAt: MapStagePosition | null;
+  /** Bounding box del escenario en la grilla 24×24 (tras rasterizar). */
+  cell?: AiEventMapCell | null;
+  /** Celdas del escenario: ningún grupo las pisa. */
+  layout?: MapSectorLayout | null;
 };
 
 export type AiEventMapCategory = {
@@ -260,8 +269,15 @@ export type AiEventMapLayoutGroup = {
    * análisis viejos o cuando el modelo lo omitió.
    */
   box: AiEventMapBox | null;
-  /** Ubicación en grilla de respaldo; null si no aplica. */
+  /**
+   * Bounding box del grupo en la grilla 24×24. Tras `rasterizeMapAnalysis`
+   * es exacto y no pisa a nadie.
+   */
   cell: AiEventMapCell | null;
+  /** Celda de cada label (mismo orden que `labels`). Lo llena el rasterizado. */
+  unitCells?: AiEventMapCell[] | null;
+  /** Celdas 1×1 ocupadas cuando la zona no es un rectángulo sólido (L/U). */
+  footprintCells?: AiEventMapCell[] | null;
   /** Grupo contenedor visual (anillos / L). */
   containedBy: string | null;
   /** Apoyo dentro del contenedor. */
@@ -315,17 +331,19 @@ export type AiEventMapLayout = {
  * - GRID_SHAPE_MISMATCH: filas × columnas no coincide con los labels de la grilla.
  * - CATEGORY_WITHOUT_GROUP: hay una categoría con precio que no tiene sector.
  * - DUPLICATE_LABEL: dos elementos con el mismo nombre dentro de un mismo nivel.
- * - MISSING_GROUP_BOX: algún grupo llegó sin recuadro, así que el mapa se armó
- *   con el placement semántico del modelo en vez de con la geometría. Es la
- *   advertencia que explica por qué un mapa salió desordenado, y la que dispara
- *   la reparación para pedir los recuadros faltantes.
+ * - MISSING_GROUP_CELLS: algún grupo llegó sin celdas en la grilla 24×24.
+ * - CELL_OVERLAP: dos grupos (o un grupo y el escenario) comparten una celda.
+ * - GRID_OVERLAP_UNRESOLVED: al rasterizar a la grilla 24×24 el grupo no
+ *   encontró lugar sin pisar a otro; el productor lo termina en el editor.
  */
 export type MapLayoutWarningCode =
   | 'DECLARED_COUNT_MISMATCH'
   | 'GRID_SHAPE_MISMATCH'
   | 'CATEGORY_WITHOUT_GROUP'
   | 'DUPLICATE_LABEL'
-  | 'MISSING_GROUP_BOX';
+  | 'MISSING_GROUP_CELLS'
+  | 'CELL_OVERLAP'
+  | 'GRID_OVERLAP_UNRESOLVED';
 
 export type MapLayoutWarning = {
   code: MapLayoutWarningCode;
@@ -345,6 +363,8 @@ export type AnalyzeMapResult = {
   stage: AiEventMapStage;
   categories: AiEventMapCategory[];
   layout: AiEventMapLayout;
+  /** Grilla fija sobre la que están las celdas (24×24). */
+  grid?: { cols: number; rows: number };
   /**
    * Diagnóstico interno; no viaja en la respuesta HTTP (ver
    * AnalyzeFromMapResponse). Vacío = el mapa pasó todas las verificaciones.

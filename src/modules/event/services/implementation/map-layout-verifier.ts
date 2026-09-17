@@ -25,6 +25,7 @@ import {
   MapLayoutWarningCode
 } from '../contracts/ievent-ai.service';
 import { normalizeMapLayout } from './map-layout-normalizer';
+import { expandCell, isSectorLayout, layoutKeys, parseCellKey } from '../core/map-grid';
 import { applySpatialPlacement } from './map-spatial-layout';
 
 /** Etiqueta legible de un grupo para los mensajes. */
@@ -158,31 +159,88 @@ function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
   return [...unique.values()];
 }
 
-/**
- * Grupos sin recuadro en la imagen.
- *
- * Sin recuadro no hay derivación espacial, y el mapa vuelve a armarse con el
- * `position` / `lane` / `stackOrder` que eligió el modelo — que es de donde
- * salen los mapas con la numeración perfecta y los bloques desordenados. Es una
- * sola advertencia para todo el mapa: si faltan los recuadros suelen faltar
- * varios, y N advertencias iguales no dicen más que una.
- */
-function checkMissingBoxes(result: AnalyzeMapResult): MapLayoutWarning[] {
-  const missing = result.layout.groups.filter(g => !g.box);
-  if (!missing.length) return [];
-
-  const sample = missing.slice(0, 3).map(describeGroup).join(', ');
-  const rest = missing.length > 3 ? ` y ${missing.length - 3} más` : '';
-
-  return [
-    warn(
-      'MISSING_GROUP_BOX',
-      missing.length === 1 ? missing[0]!.id : null,
-      `${missing.length} sector(es) sin recuadro en la imagen (${sample}${rest}): ` +
-        'la ubicación se resolvió sin geometría y el orden de los bloques puede no coincidir con el plano.'
-    )
-  ];
+/** Celdas 1×1 que ocupa un grupo según lo que declaró el modelo (cell o footprint). */
+function occupiedKeys(group: AiEventMapLayoutGroup): string[] {
+  // unitCells no cuenta: el modelo no las define, las genera el rasterizado.
+  const cells = group.footprintCells?.length
+    ? group.footprintCells
+    : group.cell
+      ? [group.cell]
+      : [];
+  const keys = new Set<string>();
+  for (const c of cells) for (const k of expandCell(c)) keys.add(k);
+  return [...keys];
 }
+
+/**
+ * Geometría en celdas de cada grupo (prompt 24×24).
+ *
+ * - MISSING_GROUP_CELLS: el grupo no trae `cell` ni `unitCells`, así que el
+ *   rasterizado lo ubica a ciegas.
+ *
+ * `unitCells` no se exige: las genera el rasterizado, uniformes.
+ */
+function checkGroupCells(result: AnalyzeMapResult): MapLayoutWarning[] {
+  const warnings: MapLayoutWarning[] = [];
+  const missing = result.layout.groups.filter(g => !g.cell && !g.unitCells?.length && !g.box);
+  if (missing.length) {
+    const sample = missing.slice(0, 3).map(describeGroup).join(', ');
+    const rest = missing.length > 3 ? ` y ${missing.length - 3} más` : '';
+    warnings.push(
+      warn(
+        'MISSING_GROUP_CELLS',
+        missing.length === 1 ? missing[0]!.id : null,
+        `${missing.length} sector(es) sin celdas en la grilla 24×24 (${sample}${rest}): ` +
+          'emití cell y unitCells para cada uno.'
+      )
+    );
+  }
+
+  return warnings;
+}
+
+/**
+ * Dos grupos (o un grupo y el escenario) que ocupan la misma celda. Una
+ * advertencia por par.
+ */
+function checkCellOverlaps(result: AnalyzeMapResult): MapLayoutWarning[] {
+  const owner = new Map<string, string>();
+  const labelOf = new Map<string, string>();
+  const stage = result.stage.layout;
+  if (stage && isSectorLayout(stage)) {
+    for (const k of layoutKeys(stage)) owner.set(k, STAGE_ID);
+    labelOf.set(STAGE_ID, 'el escenario');
+  }
+
+  const warnings: MapLayoutWarning[] = [];
+  const seenPairs = new Set<string>();
+  for (const group of result.layout.groups) {
+    labelOf.set(group.id, `el sector ${describeGroup(group)}`);
+    for (const k of occupiedKeys(group)) {
+      const prev = owner.get(k);
+      if (prev === undefined) {
+        owner.set(k, group.id);
+        continue;
+      }
+      if (prev === group.id) continue;
+      const pair = `${prev}|${group.id}`;
+      if (seenPairs.has(pair)) continue;
+      seenPairs.add(pair);
+      const { col, row } = parseCellKey(k);
+      warnings.push(
+        warn(
+          'CELL_OVERLAP',
+          group.id,
+          `${labelOf.get(group.id)} pisa a ${labelOf.get(prev)} en la celda (${col}, ${row}). ` +
+            'Ninguna celda puede pertenecer a dos sectores ni al escenario; usá footprintCells para las formas L/U.'
+        )
+      );
+    }
+  }
+  return warnings;
+}
+
+const STAGE_ID = '__stage__';
 
 /**
  * Corre todos los cruces sobre el layout ya normalizado.
@@ -212,7 +270,8 @@ export function verifyMapLayout(
 
   warnings.push(...checkCategoriesWithoutGroup(result));
   warnings.push(...checkDuplicateLabels(result));
-  warnings.push(...checkMissingBoxes(result));
+  warnings.push(...checkGroupCells(result));
+  warnings.push(...checkCellOverlaps(result));
 
   return warnings;
 }
@@ -294,6 +353,10 @@ export function mergeRepairedGroups(
     return {
       ...fixed,
       box,
+      // Sin celdas en la reparación se conservan las del análisis original.
+      cell: fixed.cell ?? group.cell,
+      unitCells: fixed.unitCells?.length ? fixed.unitCells : group.unitCells,
+      footprintCells: fixed.unitCells?.length || fixed.cell ? fixed.footprintCells : group.footprintCells,
       // Sin recuadro no hay geometría que mande, y el placement del análisis
       // original —que miró todo el plano— es mejor que el de la reparación, que
       // solo vio un recorte del problema. Con recuadro da igual lo que venga
@@ -328,4 +391,43 @@ export function mergeRepairedGroups(
     result: { ...original, categories, layout: { ...original.layout, groups } },
     changed: true
   };
+}
+
+/**
+ * Problemas que solo se arreglan mirando el plano otra vez: faltan labels o
+ * sectores, o falta el piso. GRID_SHAPE_MISMATCH entra porque una grilla con
+ * más lugares que labels casi siempre es un label que el modelo no listó
+ * (el caso inverso ya lo corrige el normalizador). Todo lo demás (solapes,
+ * celdas fuera de rango, celdas faltantes, unitCells) lo resuelven
+ * `fixStructuralIssues` y el rasterizado sin llamar al modelo.
+ */
+export const VISION_REPAIR_CODES: ReadonlySet<MapLayoutWarningCode> = new Set<MapLayoutWarningCode>([
+  'DECLARED_COUNT_MISMATCH',
+  'GRID_SHAPE_MISMATCH',
+  'CATEGORY_WITHOUT_GROUP',
+  'DUPLICATE_LABEL'
+]);
+
+export function needsVisionRepair(warnings: MapLayoutWarning[]): boolean {
+  return warnings.some(w => VISION_REPAIR_CODES.has(w.code));
+}
+
+/**
+ * Arreglos estructurales en código, sin segunda llamada: una grilla cuyo
+ * rows × columns no coincide con los labels se re-dimensiona conservando las
+ * columnas. Devuelve cuántos grupos tocó.
+ */
+export function fixStructuralIssues(result: AnalyzeMapResult): number {
+  let fixed = 0;
+  result.layout.groups = result.layout.groups.map(group => {
+    if (group.layoutType !== 'grid') return group;
+    const n = group.labels.length;
+    if (!n) return group;
+    const columns = Math.min(n, Math.max(1, group.columns ?? Math.ceil(Math.sqrt(n))));
+    const rows = Math.ceil(n / columns);
+    if (group.rows === rows && group.columns === columns) return group;
+    fixed++;
+    return { ...group, rows, columns };
+  });
+  return fixed;
 }

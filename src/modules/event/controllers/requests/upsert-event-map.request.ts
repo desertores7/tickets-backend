@@ -1,82 +1,83 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
   IsInt,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class EventMapPointDto {
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  x: number;
+/** Celda de la grilla fija 24×24, índices 1-based. */
+export class MapGridCellDto {
+  @ApiProperty({ minimum: 1, maximum: 24, example: 3 })
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  col: number;
 
-  @ApiProperty()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  y: number;
+  @ApiProperty({ minimum: 1, maximum: 24, example: 5 })
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  row: number;
+
+  @ApiProperty({ minimum: 1, maximum: 24, example: 4, description: 'En kind "cells" siempre 1' })
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  colSpan: number;
+
+  @ApiProperty({ minimum: 1, maximum: 24, example: 2, description: 'En kind "cells" siempre 1' })
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  rowSpan: number;
 }
 
-export class EventMapSectorGeometryDto {
-  @ApiProperty({ enum: ['rect', 'ellipse', 'polygon'] })
-  @IsIn(['rect', 'ellipse', 'polygon'])
-  type: 'rect' | 'ellipse' | 'polygon';
+/**
+ * Layout de un sector (o del escenario) en la grilla 24×24.
+ *
+ * - `rect`: bloque sólido → `cell`.
+ * - `cells`: forma libre → `cells` (solo 1×1, sin duplicados, idealmente
+ *   conexas en 4 direcciones).
+ *
+ * Bordes, spans y solapes se validan en el servicio.
+ */
+export class MapSectorLayoutDto {
+  @ApiProperty({ enum: ['rect', 'cells'] })
+  @IsIn(['rect', 'cells'])
+  kind: 'rect' | 'cells';
 
-  @ApiPropertyOptional({ description: '0–1 (rect/ellipse)' })
-  @ValidateIf(o => o.type === 'rect' || o.type === 'ellipse')
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  x?: number;
+  @ApiPropertyOptional({ type: MapGridCellDto, description: 'Obligatorio si kind = "rect"' })
+  @ValidateIf(o => o.kind === 'rect')
+  @IsObject()
+  @ValidateNested()
+  @Type(() => MapGridCellDto)
+  cell?: MapGridCellDto;
 
-  @ApiPropertyOptional()
-  @ValidateIf(o => o.type === 'rect' || o.type === 'ellipse')
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  y?: number;
-
-  @ApiPropertyOptional()
-  @ValidateIf(o => o.type === 'rect' || o.type === 'ellipse')
-  @IsNumber()
-  @Min(0.01)
-  @Max(1)
-  w?: number;
-
-  @ApiPropertyOptional()
-  @ValidateIf(o => o.type === 'rect' || o.type === 'ellipse')
-  @IsNumber()
-  @Min(0.01)
-  @Max(1)
-  h?: number;
-
-  @ApiPropertyOptional({ type: [EventMapPointDto], description: 'Polígono (≥3 puntos)' })
-  @ValidateIf(o => o.type === 'polygon')
+  @ApiPropertyOptional({
+    type: [MapGridCellDto],
+    description: 'Obligatorio si kind = "cells". Celdas 1×1, sin duplicados.'
+  })
+  @ValidateIf(o => o.kind === 'cells')
   @IsArray()
-  @ArrayMinSize(3)
+  @ArrayMinSize(1)
+  @ArrayMaxSize(24 * 24)
   @ValidateNested({ each: true })
-  @Type(() => EventMapPointDto)
-  points?: EventMapPointDto[];
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  color?: string;
+  @Type(() => MapGridCellDto)
+  cells?: MapGridCellDto[];
 }
 
 export class UpsertEventMapSectorDto {
@@ -99,11 +100,22 @@ export class UpsertEventMapSectorDto {
   @IsString()
   level?: string | null;
 
-  @ApiProperty({ type: EventMapSectorGeometryDto })
+  @ApiProperty({
+    type: MapSectorLayoutDto,
+    description:
+      'Posición del sector en la grilla 24×24. Única fuente de verdad: ninguna celda ' +
+      'puede repetirse entre sectores ni pisar el escenario.'
+  })
   @ValidateNested()
-  @Type(() => EventMapSectorGeometryDto)
+  @Type(() => MapSectorLayoutDto)
   @IsObject()
-  geometry: EventMapSectorGeometryDto;
+  layout: MapSectorLayoutDto;
+
+  @ApiPropertyOptional({ nullable: true, example: '#c8004a' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  color?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -135,17 +147,6 @@ export class UpsertEventMapRequest {
   @IsString()
   name?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsInt()
-  @Min(100)
-  canvasWidth?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsInt()
-  @Min(100)
-  canvasHeight?: number;
 
   @ApiPropertyOptional({
     description: 'Si se envía, actualiza la URL del plano (también vía POST base-image)'
@@ -164,6 +165,20 @@ export class UpsertEventMapRequest {
   @ValidateIf((_, v) => v !== null)
   @IsObject()
   analysis?: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({
+    type: MapSectorLayoutDto,
+    nullable: true,
+    description:
+      'Celdas del escenario. Si se omite se conserva el guardado (o el default según ' +
+      '`analysis.stage.position`). null = volver al default.'
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @ValidateNested()
+  @Type(() => MapSectorLayoutDto)
+  @IsObject()
+  stageLayout?: MapSectorLayoutDto | null;
 
   @ApiProperty({ type: [UpsertEventMapSectorDto] })
   @IsArray()

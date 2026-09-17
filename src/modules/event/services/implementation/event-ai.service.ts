@@ -32,15 +32,31 @@ import {
   HeroImageMimeType,
   HeroImageUsage,
   IEventAiService,
+  SuggestMapSectorItem,
   SuggestMapSectorsResult
 } from '../contracts/ievent-ai.service';
+import {
+  MAP_GRID_SIZE,
+  MapSectorLayout,
+  boxToCell,
+  cellToBox,
+  defaultStageLayout,
+  layoutBounds,
+  layoutKeys,
+  packLayouts
+} from '../core/map-grid';
+import { rasterizeMapAnalysis } from './map-grid-rasterizer';
+import { toGridAnalysis } from '../core/map-grid-analysis';
 import {
   normalizeMapLayout,
   summarizeMapLayout
 } from './map-layout-normalizer';
 import {
+  VISION_REPAIR_CODES,
   collectDeclaredCounts,
+  fixStructuralIssues,
   mergeRepairedGroups,
+  needsVisionRepair,
   verifyMapLayout
 } from './map-layout-verifier';
 import { parseJsonObjectLoose } from './parse-json-loose';
@@ -66,9 +82,12 @@ const MAP_EMPTY_CONTENT_RETRIES = 2;
  * el mapa se entrega con lo que hay y el productor lo termina en el editor.
  */
 const MAP_REPAIR_MAX_TOKENS = 12_000;
-/** Lado máximo del flyer enviado a visión (menos patches = menos latencia). */
-const MAP_VISION_MAX_EDGE_PX = 2048;
-const MAP_VISION_JPEG_QUALITY = 85;
+/**
+ * Lado máximo del flyer enviado a visión. 1536 baja patches/latencia vs 2048
+ * sin perder legibilidad de labels en planos típicos de sala.
+ */
+const MAP_VISION_MAX_EDGE_PX = 1536;
+const MAP_VISION_JPEG_QUALITY = 82;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
 const HOUR_TTL_SEC = 60 * 60;
@@ -365,7 +384,7 @@ export class EventAiService implements IEventAiService {
   /**
    * Una sola llamada vision → layout abstracto (stage + categories + groups).
    * Siempre usa EVENT_AI_MAP_MODEL (nunca EVENT_AI_EXTRACT_MODEL).
-   * Sin coordenadas; el frontend genera la geometría.
+   * El resultado sale rasterizado a la grilla 24×24 (`rasterizeMapAnalysis`).
    */
   private async analyzeSalesMap(
     client: OpenAI,
@@ -413,17 +432,47 @@ export class EventAiService implements IEventAiService {
       // El `count` que declaró el modelo se pierde al normalizar (se impone
       // labels.length), así que se lee del crudo y se cruza acá: es la señal
       // más confiable de que el modelo se olvidó elementos.
-      result.warnings = verifyMapLayout(result, collectDeclaredCounts(parsed, result));
+      const tVerify = Date.now();
+      const declaredCounts = collectDeclaredCounts(parsed, result);
+      result.warnings = verifyMapLayout(result, declaredCounts);
+      const verifyMs = Date.now() - tVerify;
 
-      // Reparación dirigida: el productor nunca ve el defecto, ve el mapa ya
-      // corregido. Una sola pasada — si no alcanzó, el mapa se entrega igual.
       if (result.warnings.length) {
         this.logger.warn(
           `[MAP] ${result.warnings.length} advertencia(s): ` +
             result.warnings.map(w => `${w.code}${w.groupId ? `(${w.groupId})` : ''}`).join(', ')
         );
-        repaired = await this.repairMapLayout(client, prepared.file, result, model, reasoningEffort);
       }
+
+      // Reparación con visión SOLO si falta algo que hay que volver a leer del
+      // plano (labels, sectores, pisos). Solapes, forma de grilla y celdas se
+      // arreglan abajo en código: no justifican otra llamada de minutos.
+      let repairMs = 0;
+      if (needsVisionRepair(result.warnings)) {
+        const tRepair = Date.now();
+        repaired = await this.repairMapLayout(
+          client,
+          prepared.file,
+          result,
+          this.envService.get('EVENT_AI_MAP_REPAIR_MODEL')?.trim() || model,
+          this.envService.get('EVENT_AI_MAP_REPAIR_REASONING_EFFORT')
+        );
+        repairMs = Date.now() - tRepair;
+      }
+
+      // Última etapa, determinística: grillas coherentes, unidades uniformes
+      // generadas acá y pack tipo Tetris sin solapes. Lo que se persiste y
+      // devuelve son celdas.
+      const tRaster = Date.now();
+      const fixedGrids = fixStructuralIssues(result);
+      const unplaced = rasterizeMapAnalysis(result);
+      const rasterMs = Date.now() - tRaster;
+      if (unplaced.length) {
+        this.logger.warn(`[MAP] Grupos sin lugar en la grilla: ${unplaced.join(', ')}`);
+      }
+      // Estado final para la traza: lo estructural ya quedó resuelto.
+      const unresolved = result.warnings.filter(w => w.code === 'GRID_OVERLAP_UNRESOLVED');
+      result.warnings = [...verifyMapLayout(result, declaredCounts), ...unresolved];
 
       await this.recordMapRun({
         userId,
@@ -444,7 +493,9 @@ export class EventAiService implements IEventAiService {
       });
 
       this.logger.log(
-        `[MAP] Timing: total=${Date.now() - t0}ms openai=${openaiMs}ms normalize=${normalizeMs}ms — ` +
+        `[MAP] Timing: total_ms=${Date.now() - t0} analyze_ms=${openaiMs} ` +
+          `normalize_ms=${normalizeMs} verify_ms=${verifyMs} repair_ms=${repairMs} ` +
+          `raster_ms=${rasterMs} fixed_grids=${fixedGrids} — ` +
           `model=${model} effort=${reasoningEffort} ` +
           `repaired=${repaired} groups=${summary.groups} labels=${summary.labels} ` +
           `tables=${summary.tables} boxes=${summary.boxes} palcos=${summary.palcos} ` +
@@ -502,7 +553,11 @@ export class EventAiService implements IEventAiService {
     model: string,
     reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   ): Promise<boolean> {
-    const problems = result.warnings.map(w => w.message);
+    // Solo lo que requiere visión; lo estructural se arregla en código.
+    const visionWarnings = result.warnings.filter(w => VISION_REPAIR_CODES.has(w.code));
+    const problems = visionWarnings.map(w => w.message);
+    const countVision = (ws: typeof result.warnings) =>
+      ws.filter(w => VISION_REPAIR_CODES.has(w.code)).length;
     const t0 = Date.now();
 
     try {
@@ -531,9 +586,9 @@ export class EventAiService implements IEventAiService {
 
       // La reparación vale solo si deja el mapa mejor que antes.
       const after = verifyMapLayout(merged.result, new Map());
-      if (after.length >= result.warnings.length) {
+      if (countVision(after) >= visionWarnings.length) {
         this.logger.warn(
-          `[MAP] Reparación descartada: ${result.warnings.length} → ${after.length} advertencias`
+          `[MAP] Reparación descartada: ${visionWarnings.length} → ${countVision(after)} problemas`
         );
         return false;
       }
@@ -562,25 +617,31 @@ export class EventAiService implements IEventAiService {
    */
   private layoutForRepair(result: AnalyzeMapResult): Record<string, unknown> {
     const affected = new Set(
-      result.warnings.map(w => w.groupId).filter((id): id is string => !!id)
+      result.warnings
+        .filter(w => VISION_REPAIR_CODES.has(w.code))
+        .map(w => w.groupId)
+        .filter((id): id is string => !!id)
     );
 
+    // Entrada mínima: los grupos señalados completos (sin unitCells, que no
+    // las define el modelo) y del resto solo id + cell, lo justo para no
+    // pisarlos. Los labels de todos los grupos solo van cuando hay pisos
+    // duplicados, que es el único problema que los necesita.
+    const needsAllLabels = result.warnings.some(w => w.code === 'DUPLICATE_LABEL');
+    const grid = toGridAnalysis(result, { stageLayout: result.stage.layout ?? null });
     return {
-      stage: result.stage,
-      categories: result.categories,
-      groups: result.layout.groups.map(g =>
-        affected.has(g.id)
-          ? g
-          : {
-              id: g.id,
-              elementType: g.elementType,
-              layoutType: g.layoutType,
-              position: g.position,
-              level: g.level,
-              count: g.labels.length,
-              category: g.category
-            }
-      )
+      stageLayout: result.stage.layout ?? null,
+      categories: grid?.categories ?? [],
+      groups: (grid?.layout.groups ?? []).map(g => {
+        if (affected.has(g.id)) {
+          const full = { ...g };
+          delete full.unitCells;
+          return full;
+        }
+        return needsAllLabels
+          ? { id: g.id, cell: g.cell, level: g.level ?? null, labels: g.labels }
+          : { id: g.id, cell: g.cell };
+      })
     };
   }
 
@@ -1373,22 +1434,41 @@ export class EventAiService implements IEventAiService {
         };
       }
 
-      const sectors = parsed.sectors.map((raw, i) => {
+      // La IA propone recuadros 0..1; se rasterizan a la grilla y se empacan
+      // sin solapes (ni con el escenario default) antes de devolverlos.
+      const drafts = parsed.sectors.map((raw, i) => {
         const name = String(
           raw.name ?? input.ticketTypes[i % input.ticketTypes.length]?.name ?? `Sector ${i + 1}`
         );
         const match = input.ticketTypes.find(t => t.name.toLowerCase() === name.toLowerCase());
         const tt = match ?? input.ticketTypes[i % input.ticketTypes.length];
-        return {
-          name,
+        const cell = boxToCell({
           x: clamp01(Number(raw.x) || 0.05),
           y: clamp01(Number(raw.y) || 0.05),
           w: Math.max(0.08, Math.min(0.9, Number(raw.w) || 0.25)),
-          h: Math.max(0.08, Math.min(0.9, Number(raw.h) || 0.2)),
+          h: Math.max(0.08, Math.min(0.9, Number(raw.h) || 0.2))
+        });
+        return {
+          id: String(i),
+          label: name,
+          layout: { kind: 'rect', cell } as MapSectorLayout,
           color: SECTOR_COLORS[i % SECTOR_COLORS.length],
           ticketTypeUuids: tt ? [tt.uuid] : []
         };
       });
+      const packed = packLayouts(
+        drafts.map(d => ({ id: d.id, label: d.label, layout: d.layout, rigid: true })),
+        new Set(layoutKeys(defaultStageLayout('top')))
+      );
+      if (packed.unresolved.length) {
+        return {
+          sectors: heuristic,
+          warning: 'La IA propuso sectores que no entran en la grilla; usamos una grilla automática.'
+        };
+      }
+      const sectors = drafts.map(d =>
+        suggestedSector(d.label, packed.layouts.get(d.id) ?? d.layout, d.color, d.ticketTypeUuids)
+      );
 
       return { sectors, warning: null };
     } catch (err) {
@@ -1408,26 +1488,48 @@ export class EventAiService implements IEventAiService {
   ): SuggestMapSectorsResult['sectors'] {
     const n = ticketTypes.length;
     if (!n) return [];
+    // Debajo del escenario default (filas 1–2), con una celda de aire entre
+    // bloques. Hasta 7 filas de sectores entran en las 21 filas libres.
     const cols = Math.min(3, n);
-    const rows = Math.ceil(n / cols);
-    const gap = 0.04;
-    const cellW = (1 - gap * (cols + 1)) / cols;
-    const cellH = (1 - gap * (rows + 1)) / rows;
+    const rows = Math.min(7, Math.ceil(n / cols));
+    const top = 4;
+    const gap = 1;
+    const spanCol = Math.max(1, Math.floor((MAP_GRID_SIZE - gap * (cols + 1)) / cols));
+    const spanRow = Math.max(1, Math.floor((MAP_GRID_SIZE - top + 1 - gap * rows) / rows));
 
-    return ticketTypes.map((tt, i) => {
+    return ticketTypes.slice(0, cols * rows).map((tt, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      return {
-        name: tt.name,
-        x: gap + col * (cellW + gap),
-        y: gap + row * (cellH + gap),
-        w: cellW,
-        h: cellH,
-        color: SECTOR_COLORS[i % SECTOR_COLORS.length],
-        ticketTypeUuids: [tt.uuid]
+      const cell = {
+        col: 1 + gap + col * (spanCol + gap),
+        row: top + row * (spanRow + gap),
+        colSpan: spanCol,
+        rowSpan: spanRow
       };
+      return suggestedSector(
+        tt.name,
+        { kind: 'rect', cell },
+        SECTOR_COLORS[i % SECTOR_COLORS.length],
+        [tt.uuid]
+      );
     });
   }
+}
+
+function suggestedSector(
+  name: string,
+  layout: MapSectorLayout,
+  color: string,
+  ticketTypeUuids: string[]
+): SuggestMapSectorItem {
+  const bounds = layoutBounds(layout);
+  return {
+    name,
+    layout,
+    ...cellToBox(bounds),
+    color,
+    ticketTypeUuids
+  };
 }
 
 const SECTOR_COLORS = ['#ff2bd6', '#3ddc97', '#ffb020', '#8b5cf6', '#4da3ff', '#ff4d6d'];

@@ -11,10 +11,14 @@ import {
 } from 'typeorm';
 import { EventMapEntity } from './event_map.entity';
 import { EventMapSectorTicketTypeEntity } from './event_map_sector_ticket_type.entity';
+import type { MapSectorLayout } from '@modules/event/services/core/map-grid';
 
 const tableName = 'event_map_sector' as const;
 
-/** Geometría de sector en coords normalizadas 0–1 sobre el canvas. */
+/**
+ * @deprecated Geometría legacy en coords normalizadas 0–1. Ya no es fuente de
+ * verdad: se deriva de `layout` (grilla 24×24) al guardar.
+ */
 export type EventMapSectorGeometry =
   | {
       type: 'rect';
@@ -23,6 +27,8 @@ export type EventMapSectorGeometry =
       w: number;
       h: number;
       color?: string;
+      labelOrientation?: 'horizontal' | 'vertical';
+      labelOffsetY?: number;
     }
   | {
       type: 'ellipse';
@@ -31,11 +37,15 @@ export type EventMapSectorGeometry =
       w: number;
       h: number;
       color?: string;
+      labelOrientation?: 'horizontal' | 'vertical';
+      labelOffsetY?: number;
     }
   | {
       type: 'polygon';
       points: Array<{ x: number; y: number }>;
       color?: string;
+      labelOrientation?: 'horizontal' | 'vertical';
+      labelOffsetY?: number;
     };
 
 @Entity(tableName, { database: DB_NAME.tickets, synchronize: false })
@@ -60,8 +70,21 @@ export class EventMapSectorEntity {
   @Column({ type: 'varchar', length: 120, nullable: true, default: null })
   level: string | null;
 
-  @Column({ type: 'json' })
-  geometry: EventMapSectorGeometry;
+  /**
+   * Layout en la grilla fija 24×24 (1-based). ÚNICA fuente de verdad de la
+   * posición del sector. null solo en filas previas a la migración que no se
+   * pudieron convertir.
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  layout: MapSectorLayout | null;
+
+  /** @deprecated Derivado de `layout` (compatibilidad). Nunca se lee como fuente. */
+  @Column({ type: 'json', nullable: true, default: null })
+  geometry: EventMapSectorGeometry | null;
+
+  /** Color con que se pinta el sector (antes vivía dentro de `geometry`). */
+  @Column({ type: 'varchar', length: 32, nullable: true, default: null })
+  color: string | null;
 
   @Column({ type: 'int', default: 0 })
   sortOrder: number;
