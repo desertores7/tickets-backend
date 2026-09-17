@@ -2335,6 +2335,9 @@ export class EventService implements IEventService {
     } else if (status === 'published') {
       c['isPublished'] = true;
       c['cancelledAt'] = IsNull();
+      // Lo que ya terminó vive en Finalizados: sin esta condición, el filtro de
+      // Publicados mostraba eventos con el cartel de Finalizado encima.
+      c['endDate'] = MoreThanOrEqual(new Date());
     } else if (status === 'cancelled') {
       c['cancelledAt'] = Not(IsNull());
     } else if (status === 'sales_closed') {
