@@ -87,6 +87,8 @@ const MAPS_BASE_PATH = 'events/maps';
 const MAX_GALLERY_ITEMS = 4;
 const MAX_GALLERY_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_MAP_BASE_BYTES = 8 * 1024 * 1024;
+/** Homónimos del mismo día que numeramos antes de caer al sufijo por timestamp. */
+const SLUG_MAX_ATTEMPTS = 50;
 
 @Injectable()
 export class EventService implements IEventService {
@@ -220,6 +222,29 @@ export class EventService implements IEventService {
     return this.withEventImages(event as TEventResponse);
   }
 
+  /**
+   * Slug libre a partir del deseado: `nombre-dd-mm-yyyy`, `…-2`, `…-3`…
+   *
+   * El productor no elige el slug (sale del título y la fecha), así que un
+   * choque no es un error suyo: dos fiestas distintas pueden llamarse igual el
+   * mismo día, y reanalizar el mismo flyer produce exactamente el mismo slug.
+   * Fallar ahí deja un borrador que no se puede guardar por un campo que la UI
+   * ni muestra.
+   */
+  private async resolveAvailableSlug(desired: string, excludeUuid?: string): Promise<string> {
+    const base = (desired ?? '').trim().slice(0, 240) || 'evento';
+    for (let attempt = 1; attempt <= SLUG_MAX_ATTEMPTS; attempt++) {
+      const candidate = attempt === 1 ? base : `${base}-${attempt}`;
+      const taken = await this.dbRepository.findOne({
+        entity: 'event',
+        where: { slug: candidate }
+      });
+      if (!taken || (excludeUuid && taken.uuid === excludeUuid)) return candidate;
+    }
+    // Caso patológico (más de SLUG_MAX_ATTEMPTS homónimos el mismo día).
+    return `${base}-${Date.now().toString(36)}`;
+  }
+
   async createEvent(data: IEventCreate, loggedUser: string): Promise<{ uuid: string }> {
     const org = await this.dbRepository.findOne({
       entity: 'organization',
@@ -240,11 +265,10 @@ export class EventService implements IEventService {
       throw new BadRequestException('La fecha de fin del evento debe ser futura');
     }
 
-    const existing = await this.dbRepository.findOne({
-      entity: 'event',
-      where: { slug: data.slug }
-    });
-    if (existing) throw new BadRequestException('El slug ya está en uso');
+    // El slug lo deriva el frontend de título + fecha, así que dos eventos con el
+    // mismo nombre el mismo día chocan solos. Al productor no se le puede pedir
+    // que resuelva un choque de slugs que nunca vio: se numera y sigue.
+    const slug = await this.resolveAvailableSlug(data.slug);
 
     const event = new EventEntity();
     event.uuid = uuidv4();
@@ -252,7 +276,7 @@ export class EventService implements IEventService {
     event.description = data.description ?? null;
     event.content = normalizeEventContent(data.content);
     event.socialLinks = normalizeSocialLinks(data.socialLinks);
-    event.slug = data.slug;
+    event.slug = slug;
     event.bannerUrl = data.bannerUrl ?? null;
     event.startDate = data.startDate;
     event.endDate = data.endDate;
@@ -317,14 +341,7 @@ export class EventService implements IEventService {
     }
 
     if (data.slug !== undefined && data.slug !== event.slug) {
-      const slugTaken = await this.dbRepository.findOne({
-        entity: 'event',
-        where: { slug: data.slug }
-      });
-      if (slugTaken && slugTaken.uuid !== event.uuid) {
-        throw new BadRequestException('El slug ya está en uso');
-      }
-      patch.slug = data.slug;
+      patch.slug = await this.resolveAvailableSlug(data.slug, event.uuid);
     }
 
     if (Object.keys(patch).length) {
@@ -1478,6 +1495,7 @@ export class EventService implements IEventService {
         uuid: s.uuid,
         name: s.name,
         level: s.level ?? null,
+        familyLabel: s.familyLabel ?? null,
         layout,
         color: s.color ?? null,
         sortOrder: s.sortOrder,
@@ -1636,6 +1654,7 @@ export class EventService implements IEventService {
       sector.mapUuid = mapUuid;
       sector.name = src.name.trim();
       sector.level = src.level?.trim() || null;
+      sector.familyLabel = src.familyLabel?.trim().slice(0, 160) || null;
       const color = (src.color ?? '').trim().slice(0, 32) || null;
       sector.layout = layouts[i];
       sector.color = color;
@@ -1682,6 +1701,7 @@ export class EventService implements IEventService {
       uuid: sector.uuid,
       name: sector.name,
       level: sector.level ?? null,
+      familyLabel: sector.familyLabel ?? null,
       layout: sector.layout,
       color: sector.color,
       sortOrder: sector.sortOrder,

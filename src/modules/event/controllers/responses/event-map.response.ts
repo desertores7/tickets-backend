@@ -17,6 +17,11 @@ export class EventMapSectorResponse {
   @ApiProperty({ nullable: true, description: 'Piso impreso; null en salas de un nivel.' })
   level: string | null;
   @ApiProperty({
+    nullable: true,
+    description: 'Categoría comercial del sector ("Mesa VIP Callao"). null en mapas viejos.'
+  })
+  familyLabel: string | null;
+  @ApiProperty({
     type: MapSectorLayoutDto,
     nullable: true,
     description: 'Celdas del sector en la grilla 24×24 (fuente de verdad).'
@@ -37,6 +42,7 @@ export class EventMapSectorResponse {
     uuid: string;
     name: string;
     level: string | null;
+    familyLabel: string | null;
     layout: MapSectorLayout | null;
     color: string | null;
     sortOrder: number;
@@ -48,6 +54,7 @@ export class EventMapSectorResponse {
     this.uuid = data.uuid;
     this.name = data.name;
     this.level = data.level;
+    this.familyLabel = data.familyLabel;
     this.layout = data.layout;
     this.color = data.color;
     this.sortOrder = data.sortOrder;

@@ -71,6 +71,17 @@ export class EventMapSectorEntity {
   level: string | null;
 
   /**
+   * Categoría comercial a la que pertenece la unidad ("Mesa VIP Callao").
+   *
+   * Las filas de esta tabla son unidades del plano y se llaman como la
+   * numeración impresa ("1".."10"), que se repite entre sectores distintos. Sin
+   * este campo la categoría había que adivinarla por el nombre y cuatro
+   * sectores de mesas colapsaban en uno solo. null = mapa viejo o sector suelto.
+   */
+  @Column({ type: 'varchar', length: 160, nullable: true, default: null })
+  familyLabel: string | null;
+
+  /**
    * Layout en la grilla fija 24×24 (1-based). ÚNICA fuente de verdad de la
    * posición del sector. null solo en filas previas a la migración que no se
    * pudieron convertir.

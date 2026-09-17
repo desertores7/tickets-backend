@@ -100,6 +100,18 @@ export class UpsertEventMapSectorDto {
   @IsString()
   level?: string | null;
 
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Categoría comercial del sector ("Mesa VIP Callao"). Las unidades se llaman ' +
+      '"1".."10" en todos los sectores, así que sin esto la categoría no se puede ' +
+      'deducir del nombre.'
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  familyLabel?: string | null;
+
   @ApiProperty({
     type: MapSectorLayoutDto,
     description:
