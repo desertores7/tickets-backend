@@ -35,6 +35,18 @@ const RAMP_SECONDS = Number(__ENV.RAMP_SECONDS || 30);
 const MAX_QTY = Number(__ENV.MAX_QTY || 2);
 const CANCEL = __ENV.CANCEL !== '0';
 
+/**
+ * `PRELOGIN=1`: los compradores inician sesión repartidos en
+ * `LOGIN_WINDOW_SECONDS` y recién después, todos juntos, compran.
+ *
+ * Es el escenario más realista de una salida a la venta anunciada: la gente ya
+ * está con la sesión abierta esperando la hora. Y además aísla la medición: el
+ * login usa bcrypt, que por diseño quema CPU, y si entra en la misma ventana
+ * que la compra se come todo el tiempo y tapa lo que se quiere medir.
+ */
+const PRELOGIN = __ENV.PRELOGIN === '1';
+const LOGIN_WINDOW_SECONDS = Number(__ENV.LOGIN_WINDOW_SECONDS || 120);
+
 const ordersCreated = new Counter('orders_created');
 const soldOut = new Counter('orders_sold_out');
 const throttled = new Counter('responses_429');
@@ -50,7 +62,7 @@ export const options = {
       executor: 'per-vu-iterations',
       vus: BUYERS,
       iterations: 1,
-      maxDuration: `${RAMP_SECONDS + 300}s`
+      maxDuration: `${(PRELOGIN ? LOGIN_WINDOW_SECONDS : 0) + RAMP_SECONDS + 300}s`
     }
   },
   thresholds: {
@@ -62,6 +74,9 @@ export const options = {
 
 export function setup() {
   requireEnv(['EVENT_UUID', 'EVENT_SLUG', 'LOAD_TEST_PASSWORD']);
+  // Hora de apertura común a todos los compradores: la comparten porque `setup`
+  // corre una sola vez y su resultado llega a cada VU.
+  return { opensAt: Date.now() + LOGIN_WINDOW_SECONDS * 1000 };
 }
 
 function track(res) {
@@ -69,17 +84,38 @@ function track(res) {
   if (res.status >= 500) serverErrors.add(1);
 }
 
-export default function () {
-  // Reparte las llegadas a lo largo de la rampa en vez de disparar todo en el
-  // mismo milisegundo.
-  sleep(Math.random() * RAMP_SECONDS);
-  const started = Date.now();
+export default function (data) {
   const buyerIndex = exec.vu.idInTest;
+  let token;
 
-  const token = login(buyerIndex);
-  if (!token) {
-    orderOk.add(false);
-    return;
+  if (PRELOGIN) {
+    // Sesión abierta antes de la apertura, repartida en la ventana de login.
+    sleep(Math.random() * LOGIN_WINDOW_SECONDS);
+    token = login(buyerIndex);
+    if (!token) {
+      orderOk.add(false);
+      return;
+    }
+    // Esperar la hora de apertura; después, la rampa de llegadas.
+    const waitMs = (data?.opensAt ?? Date.now()) - Date.now();
+    if (waitMs > 0) sleep(waitMs / 1000);
+    sleep(Math.random() * RAMP_SECONDS);
+  } else {
+    // Reparte las llegadas a lo largo de la rampa en vez de disparar todo en el
+    // mismo milisegundo.
+    sleep(Math.random() * RAMP_SECONDS);
+  }
+
+  // El cronómetro arranca en la apertura: lo que se mide es cuánto tarda el
+  // comprador en tener su reserva, sin contar la espera previa.
+  const started = Date.now();
+
+  if (!PRELOGIN) {
+    token = login(buyerIndex);
+    if (!token) {
+      orderOk.add(false);
+      return;
+    }
   }
 
   const detail = http.get(`${API}/events/by-slug/${EVENT_SLUG}`, {

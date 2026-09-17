@@ -19,18 +19,31 @@ function arg(name) {
 }
 
 async function readRedisStock(uuids) {
+  // Redis no está publicado a internet (y así tiene que ser): desde una máquina
+  // de afuera esto no conecta. El chequeo de Redis se hace en el servidor; acá
+  // se omite sin ensuciar la salida.
+  if (process.env.SKIP_REDIS === '1') return null;
+
   try {
     const Redis = require('ioredis');
+    // Un solo intento y sin cola offline: si no está, se sabe enseguida y no
+    // quedan reintentos escupiendo errores mientras corre el resto.
+    const options = {
+      lazyConnect: true,
+      connectTimeout: 3000,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      retryStrategy: () => null
+    };
     const redis = process.env.REDIS_URL
-      ? new Redis(process.env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000, maxRetriesPerRequest: 1 })
+      ? new Redis(process.env.REDIS_URL, options)
       : new Redis({
           host: process.env.REDIS_IP || process.env.REDIS_HOST || 'localhost',
           port: Number(process.env.REDIS_PORT || 6379),
           password: process.env.REDIS_PASSWORD || undefined,
-          lazyConnect: true,
-          connectTimeout: 3000,
-          maxRetriesPerRequest: 1
+          ...options
         });
+    redis.on('error', () => undefined);
     await redis.connect();
     const values = await redis.mget(uuids.map(u => `stock:${u}`));
     await redis.quit();

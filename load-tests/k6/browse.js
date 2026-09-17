@@ -9,9 +9,18 @@
  */
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { Counter } from 'k6/metrics';
 import { API, EVENT_SLUG, EVENT_UUID, baseHeaders, requireEnv } from './lib/config.js';
 
+/** Iteraciones por segundo; cada una son 3 pedidos (listado, detalle y mapa). */
 const PEAK_RPS = Number(__ENV.PEAK_RPS || 200);
+
+const throttled = new Counter('responses_429');
+const serverErrors = new Counter('responses_5xx');
+const gatewayErrors = new Counter('responses_502_504');
+const cloudflareErrors = new Counter('responses_cloudflare_52x');
+const otherErrors = new Counter('responses_4xx');
+const timeouts = new Counter('timeouts');
 
 export const options = {
   scenarios: {
@@ -42,16 +51,37 @@ export function setup() {
   requireEnv(['EVENT_UUID', 'EVENT_SLUG']);
 }
 
+/**
+ * Sin esto, "45% falló" no dice nada: no es lo mismo que la API rechace por
+ * límite de peticiones (429), que se caiga (5xx), que corte el proxy de
+ * Cloudflare (502/520/524) o que el pedido se quede sin respuesta (timeout).
+ * Cada caso se arregla distinto.
+ */
+function track(res) {
+  if (res.status === 0) {
+    timeouts.add(1);
+    return;
+  }
+  if (res.status === 429) throttled.add(1);
+  else if (res.status === 502 || res.status === 503 || res.status === 504) gatewayErrors.add(1);
+  else if (res.status >= 520 && res.status <= 527) cloudflareErrors.add(1);
+  else if (res.status >= 500) serverErrors.add(1);
+  else if (res.status >= 400 && res.status !== 404) otherErrors.add(1);
+}
+
 export default function () {
   const params = name => ({ headers: baseHeaders(), tags: { name } });
 
   const list = http.get(`${API}/events?page=1&limit=12`, params('GET /events'));
+  track(list);
   check(list, { 'listado 200': r => r.status === 200 });
 
   const detail = http.get(`${API}/events/by-slug/${EVENT_SLUG}`, params('GET /events/by-slug'));
+  track(detail);
   check(detail, { 'detalle 200': r => r.status === 200 });
 
   const map = http.get(`${API}/events/${EVENT_UUID}/map/public`, params('GET /events/:uuid/map/public'));
+  track(map);
   // Un evento sin mapa responde 404 y está bien.
   check(map, { 'mapa 200/404': r => r.status === 200 || r.status === 404 });
 
