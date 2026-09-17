@@ -25,9 +25,14 @@ import {
   buildMapRepairUserText
 } from '../../const/map-repair.prompt';
 import {
+  EVENT_SOCIAL_NETWORKS,
+  type EventSocialNetwork
+} from '../../const/event-social-network.const';
+import {
   AnalyzeFlyersResult,
   AnalyzeMapResult,
   FlyerEventExtraction,
+  FlyerSocialLinkExtraction,
   MapLayoutWarning,
   HeroImageMimeType,
   HeroImageUsage,
@@ -89,7 +94,7 @@ const MAP_REPAIR_MAX_TOKENS = 12_000;
 const MAP_VISION_MAX_EDGE_PX = 1536;
 const MAP_VISION_JPEG_QUALITY = 82;
 const HERO_TIMEOUT_MS = 5 * 60_000;
-const EXTRACT_MAX_OUTPUT_TOKENS = 1200;
+const EXTRACT_MAX_OUTPUT_TOKENS = 2200;
 const HOUR_TTL_SEC = 60 * 60;
 /** Reintentos ante 429/5xx de OpenAI (no bucles infinitos). */
 const TRANSIENT_MAX_ATTEMPTS = 3;
@@ -137,6 +142,7 @@ Return ONLY a JSON object with this exact shape:
 {
   "title": string,
   "description": string,
+  "content": string,
   "startDate": string,
   "endDate": string,
   "venueName": string,
@@ -145,18 +151,159 @@ Return ONLY a JSON object with this exact shape:
   "venueCountry": string,
   "googleMapsQuery": string,
   "ticketTypes": [{ "name": string, "price": number, "quantity": number | null }],
-  "artistsLineup": string | null
+  "artistsLineup": string | null,
+  "socialLinks": [{ "network": string, "url": string, "label": string | null }]
 }
 Rules:
 - title: event name as shown on the flyer (never invent a URL slug).
-- description: 2–4 short sentences in Spanish; include artists if visible.
+- description: SHORT card summary, Spanish (Argentina), 1–2 sentences, HARD LIMIT 180 characters. What it is + who plays + the strongest hook printed on the flyer. No emojis, no hashtags, no "no te lo pierdas", no prices, no addresses, no line breaks.
+- content: long body for the public event page ("Sobre el evento"), Spanish (Argentina), professional and neutral — informative, not a sales pitch.
+  * HTML only, and ONLY these tags: <p>, <strong>, <em>, <ul>, <li>, <br>. No headings, no links, no classes, no styles, no emojis, no markdown.
+  * 2–3 short <p> paragraphs (the night/show, the artists and what the audience will find) plus, when the flyer prints practical data, ONE final <ul> with one <li> per item using a bold lead: <li><strong>Apertura:</strong> 22:00</li>, promos ("mujeres gratis hasta las 00:00"), cumpleañeros, edad mínima, dress code, accesos, estacionamiento, reservas.
+  * Only facts printed on the flyer. Do NOT invent history, capacity, sponsors, ticket links, refund policies or anything not visible. If the flyer has almost no text, write one honest <p> and nothing else.
+  * Never repeat the title as the first line and never restate the full date/venue block (they already have their own fields).
 - Today is ${todayIso}. The current calendar year is ${year}.
 - startDate / endDate: prefer ISO 8601 (YYYY-MM-DDTHH:mm:ss). If only a date is shown, assume start 20:00 and end 23:00. If end missing, start + 3 hours (or next day if overnight, e.g. OPEN 22HRS → end ~01:00).
 - YEAR RULE (critical): Argentine flyers often show day+month only (e.g. "10 SAB OCT") with NO year. When the year is missing or ambiguous, you MUST use ${year}. Never default to 2023, 2024, or any year before ${year} unless that exact year is printed on the flyer.
+- venueCity: the real city / locality ("Buenos Aires", "Córdoba", "Rosario"). A neighbourhood or zone printed on the flyer ("Microcentro", "Palermo", "Zona Norte") is NOT a city: it goes into venueAddress and venueCity holds the city it belongs to.
+- venueAddress: street + number as printed, plus the neighbourhood when the flyer shows one.
 - venueCountry default "Argentina".
 - googleMapsQuery: best single Maps search string.
 - ticketTypes only if prices/sectors appear; price in ARS number; quantity null if unknown.
-- artistsLineup: comma-separated names or null.`;
+- artistsLineup: comma-separated names or null.
+- socialLinks: ONLY what the flyer prints, [] if nothing. network is one of "instagram" | "facebook" | "youtube" | "spotify" | "tiktok" | "x" | "whatsapp" | "website" | "other".
+  * A phone number for reservas/entradas is network "whatsapp" and url is the number exactly as printed (the backend turns it into a wa.me link). label can say what it is ("Reservas").
+  * Handles go as the full URL: @lugar on Instagram → "https://instagram.com/lugar".
+  * Never invent accounts and never repeat the same account twice.`;
+}
+
+/** Tags que sobreviven en el “Contenido del evento” que escribe la IA. */
+const AI_CONTENT_ALLOWED_TAGS = ['p', 'strong', 'em', 'b', 'i', 'ul', 'ol', 'li', 'br'];
+/** Tags de bloque que se degradan a <p> en vez de descartarse. */
+const AI_CONTENT_BLOCK_TO_P = ['div', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+const AI_CONTENT_MAX_CHARS = 8000;
+
+/**
+ * Whitelist de HTML para el contenido generado por la IA.
+ *
+ * El editor del productor es Tiptap y el render público sanitiza aparte, pero lo
+ * que guardamos en la base tiene que entrar limpio: sin scripts, sin estilos y
+ * sin tags que el editor no sepa representar (si no, el productor abre la tab y
+ * ve su texto deformado).
+ */
+function sanitizeAiContentHtml(raw: unknown): string {
+  const value = typeof raw === 'string' ? raw : '';
+  if (!value.trim()) return '';
+
+  let html = value
+    .replace(/```+\s*html?/gi, ' ')
+    .replace(/```+/g, ' ')
+    .replace(/<\s*(script|style)[\s\S]*?<\s*\/\s*\1\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+
+  html = html.replace(/<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (_match, closing, tag) => {
+    const name = String(tag).toLowerCase();
+    const slash = closing === '/' ? '/' : '';
+    if (AI_CONTENT_ALLOWED_TAGS.includes(name)) return `<${slash}${name}>`;
+    if (AI_CONTENT_BLOCK_TO_P.includes(name)) return `<${slash}p>`;
+    return ' ';
+  });
+
+  html = html
+    .replace(/<p>\s*<\/p>/gi, '')
+    .replace(/<li>\s*<\/li>/gi, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '')
+    .trim();
+
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').trim();
+  if (!text) return '';
+  // Texto plano (el modelo ignoró el HTML): un párrafo por línea.
+  if (!/<[a-z]/i.test(html)) {
+    return text
+      .split(/\n+/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => `<p>${line}</p>`)
+      .join('')
+      .slice(0, AI_CONTENT_MAX_CHARS);
+  }
+  return html.slice(0, AI_CONTENT_MAX_CHARS);
+}
+
+/**
+ * Teléfono impreso en el flyer → link wa.me.
+ *
+ * Los flyers escriben “11 2345-6789”, “(011) 15 2345 6789” o “+54 9 11…”. wa.me
+ * necesita E.164 sin signos y, para móviles argentinos, con el 9 después del 54.
+ */
+function whatsAppUrlFromPrinted(raw: string): string | null {
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('54')) {
+    let rest = digits.slice(2).replace(/^0+/, '');
+    if (!rest.startsWith('9')) rest = `9${rest}`;
+    digits = `54${rest}`;
+  } else {
+    const local = digits.replace(/^0+/, '');
+    if (local.length < 8) return null;
+    digits = `549${local}`;
+  }
+  if (digits.length < 12 || digits.length > 15) return null;
+  return `https://wa.me/${digits}`;
+}
+
+const AI_SOCIAL_HANDLE_BASE: Partial<Record<EventSocialNetwork, string>> = {
+  instagram: 'https://instagram.com/',
+  facebook: 'https://facebook.com/',
+  tiktok: 'https://www.tiktok.com/@',
+  x: 'https://x.com/',
+  youtube: 'https://youtube.com/'
+};
+
+/** Redes del flyer → filas guardables (URL absoluta, sin duplicados). */
+function normalizeAiSocialLinks(raw: unknown): FlyerSocialLinkExtraction[] {
+  if (!Array.isArray(raw)) return [];
+  const out: FlyerSocialLinkExtraction[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const candidate = String((item as { network?: unknown }).network ?? '')
+      .trim()
+      .toLowerCase();
+    const network: EventSocialNetwork = (
+      EVENT_SOCIAL_NETWORKS as readonly string[]
+    ).includes(candidate)
+      ? (candidate as EventSocialNetwork)
+      : 'other';
+    const printed = String((item as { url?: unknown }).url ?? '').trim();
+    if (!printed) continue;
+
+    let url: string | null = null;
+    if (network === 'whatsapp') {
+      url = /^https?:\/\//i.test(printed) ? printed : whatsAppUrlFromPrinted(printed);
+    } else if (/^https?:\/\//i.test(printed)) {
+      url = printed;
+    } else {
+      const base = AI_SOCIAL_HANDLE_BASE[network];
+      url = base ? `${base}${printed.replace(/^@/, '')}` : `https://${printed.replace(/^\/+/, '')}`;
+    }
+    if (!url) continue;
+
+    const key = `${network}|${url.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const label = String((item as { label?: unknown }).label ?? '')
+      .trim()
+      .slice(0, 60);
+    out.push({ network, url: url.slice(0, 500), label: label || null });
+    if (out.length >= 8) break;
+  }
+
+  return out;
 }
 
 /**
@@ -1071,6 +1218,7 @@ export class EventAiService implements IEventAiService {
       description: String(raw.description ?? '')
         .trim()
         .slice(0, 4000),
+      content: sanitizeAiContentHtml(raw.content),
       startDate: coerceExtractionDateYear(String(raw.startDate ?? '').trim()),
       endDate: coerceExtractionDateYear(String(raw.endDate ?? '').trim()),
       venueName: String(raw.venueName ?? '')
@@ -1093,7 +1241,8 @@ export class EventAiService implements IEventAiService {
       artistsLineup:
         raw.artistsLineup === null || raw.artistsLineup === undefined
           ? null
-          : String(raw.artistsLineup).trim().slice(0, 500) || null
+          : String(raw.artistsLineup).trim().slice(0, 500) || null,
+      socialLinks: normalizeAiSocialLinks(raw.socialLinks)
     };
   }
 

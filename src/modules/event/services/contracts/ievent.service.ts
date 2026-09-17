@@ -26,6 +26,8 @@ export type TEventMapSector = {
   name: string;
   /** Piso impreso en el plano; null en salas de un nivel. Identidad = (level, name). */
   level: string | null;
+  /** Categoría comercial de la unidad ("Mesa VIP Callao"). null = mapa viejo. */
+  familyLabel: string | null;
   /** Layout en grilla 24×24: fuente de verdad. null solo en filas sin migrar. */
   layout: MapSectorLayout | null;
   color: string | null;
@@ -63,6 +65,7 @@ export type TUpsertEventMapSector = {
   uuid?: string;
   name: string;
   level?: string | null;
+  familyLabel?: string | null;
   layout: unknown;
   color?: string | null;
   sortOrder?: number;

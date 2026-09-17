@@ -1,6 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { EVENT_SOCIAL_NETWORKS } from '../../const/event-social-network.const';
+import type { EventSocialNetwork } from '../../const/event-social-network.const';
 import type {
   FlyerEventExtraction,
+  FlyerSocialLinkExtraction,
   FlyerTicketTypeExtraction,
   HeroImageMimeType,
   HeroImageUsage
@@ -17,12 +20,28 @@ export class FlyerTicketTypeExtractionResponse implements FlyerTicketTypeExtract
   quantity?: number | null;
 }
 
+export class FlyerSocialLinkExtractionResponse implements FlyerSocialLinkExtraction {
+  @ApiProperty({ enum: EVENT_SOCIAL_NETWORKS })
+  network: EventSocialNetwork;
+
+  @ApiProperty({ description: 'URL absoluta (el WhatsApp llega ya como wa.me)' })
+  url: string;
+
+  @ApiProperty({ required: false, nullable: true })
+  label?: string | null;
+}
+
 export class FlyerEventExtractionResponse implements FlyerEventExtraction {
   @ApiProperty({ description: 'Título del evento (no slug)' })
   title: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Resumen corto para cards (≤180 caracteres)' })
   description: string;
+
+  @ApiProperty({
+    description: 'HTML del “Contenido del evento” (p/strong/em/ul/li/br). ‘’ si el flyer no trae texto.'
+  })
+  content: string;
 
   @ApiProperty({ description: 'ISO o DD/MM/YYYY HH:mm' })
   startDate: string;
@@ -50,6 +69,9 @@ export class FlyerEventExtractionResponse implements FlyerEventExtraction {
 
   @ApiProperty({ required: false, nullable: true })
   artistsLineup?: string | null;
+
+  @ApiProperty({ type: [FlyerSocialLinkExtractionResponse] })
+  socialLinks: FlyerSocialLinkExtractionResponse[];
 }
 
 export class HeroImageUsageDetailsResponse {
