@@ -1,7 +1,8 @@
 import { join, resolve } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AppThrottlerGuard } from './shared/guards/app-throttler.guard';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { AppController } from './app.controller';
@@ -86,7 +87,7 @@ import { DbRetryInterceptor } from './shared/interceptors/db-retry.interceptor';
     AppService,
     UserJwtStrategy,
     DiscordAlertService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AppThrottlerGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: DbRetryInterceptor }
   ],
