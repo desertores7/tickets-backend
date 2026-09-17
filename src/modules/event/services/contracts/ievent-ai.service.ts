@@ -1,3 +1,4 @@
+import type { EventSocialNetwork } from '../../const/event-social-network.const';
 import type { MapSectorLayout } from '../core/map-grid';
 
 export type FlyerTicketTypeExtraction = {
@@ -6,9 +7,18 @@ export type FlyerTicketTypeExtraction = {
   quantity?: number | null;
 };
 
+/** Red social impresa en el flyer (el WhatsApp de contacto casi siempre). */
+export type FlyerSocialLinkExtraction = {
+  network: EventSocialNetwork;
+  url: string;
+  label?: string | null;
+};
+
 export type FlyerEventExtraction = {
   title: string;
   description: string;
+  /** HTML del “Contenido del evento” (Sobre el evento). '' si no hay material. */
+  content: string;
   startDate: string;
   endDate: string;
   venueName: string;
@@ -18,6 +28,7 @@ export type FlyerEventExtraction = {
   googleMapsQuery: string;
   ticketTypes: FlyerTicketTypeExtraction[];
   artistsLineup?: string | null;
+  socialLinks: FlyerSocialLinkExtraction[];
 };
 
 export type HeroImageUsage = {

@@ -6,6 +6,7 @@ export const EVENT_SOCIAL_NETWORKS = [
   'spotify',
   'tiktok',
   'x',
+  'whatsapp',
   'website',
   'other'
 ] as const;
