@@ -65,6 +65,8 @@ export interface IOrgCatalogService {
       search?: ISearchParams;
       filters?: IFiltersParams<typeof mpCatalogFilters>;
       order?: IOrderParams<typeof MP_CATALOG_ORDER_COLUMNS>;
+      /** Solo Administrador: opera sobre esa productora en vez de la propia. */
+      organizationUuid?: string;
     }
   ): Promise<IMpCatalogListResult>;
 
@@ -77,6 +79,8 @@ export interface IOrgCatalogService {
       order?: IOrderParams<typeof MANUAL_ITEM_ORDER_COLUMNS>;
       /** Compat legacy: `?onlyActive=true` desde el picker de caja. */
       onlyActive?: boolean;
+      /** Solo Administrador: opera sobre esa productora en vez de la propia. */
+      organizationUuid?: string;
     }
   ): Promise<IManualItemsListResult>;
 

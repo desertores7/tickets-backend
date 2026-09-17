@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { In, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
+import { isAdministrador } from '@root/shared/services/is-administrador';
 import { StockAlertEntity } from '@config/db/entities/tickets/stock_alert.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
@@ -31,6 +32,9 @@ export class StockAlertService implements IStockAlertService {
   private async assertOwnsEvent(eventUuid: string, loggedUser: string): Promise<void> {
     const event = await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventUuid } });
     if (!event) throw new NotFoundException('Evento no encontrado');
+
+    // El Administrador asiste a cualquier productora desde `/admin/events`.
+    if (await isAdministrador(this.dbRepository, loggedUser)) return;
 
     const membership = await this.dbRepository.findOne({
       entity: 'user_organization',
