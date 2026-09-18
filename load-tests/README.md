@@ -71,8 +71,8 @@ Confirma que el límite de 60/min se cuenta por comprador y no por Cloudflare.
 Correr **sin** `BYPASS_TOKEN`, para agotar a propósito el cupo de tu IP:
 
 ```bash
-docker run --rm -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
-  -e EVENT_UUID -e EVENT_SLUG -e LOAD_TEST_PASSWORD -e BUYERS=100 /scripts/on-sale.js
+docker run --rm -e EVENT_UUID -e EVENT_SLUG -e LOAD_TEST_PASSWORD \
+  -v "$PWD/load-tests/k6:/scripts" grafana/k6 run -e BUYERS=100 /scripts/on-sale.js
 ```
 
 Mientras corre, abrir el sitio desde **el celular con datos móviles** (otra IP)
@@ -86,8 +86,8 @@ e iniciar sesión.
 ### Corrida 1 — navegación
 
 ```bash
-docker run --rm -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
-  -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e PEAK_RPS=200 /scripts/browse.js
+docker run --rm -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN \
+  -v "$PWD/load-tests/k6:/scripts" grafana/k6 run -e PEAK_RPS=200 /scripts/browse.js
 ```
 
 Subir `PEAK_RPS` por escalones (200 → 500 → 1000) mientras `http_req_failed`
@@ -96,11 +96,13 @@ siga debajo del 1 %.
 ### Corrida 2 — salida a la venta
 
 ```bash
-docker run --rm -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
-  -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
-  -e BUYERS=500 -e RAMP_SECONDS=30 /scripts/on-sale.js
+docker run --rm -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
+  -v "$PWD/load-tests/k6:/scripts" grafana/k6 run -e BUYERS=500 -e RAMP_SECONDS=30 /scripts/on-sale.js
 ```
 
+> Las variables del entorno van con `-e` **antes** de `grafana/k6`: así Docker
+> las pasa al contenedor. Después de `run` son flags de k6, que exige
+> `-e NOMBRE=valor`; un nombre solo llega vacío.
 Escalones: `BUYERS=500` → `2000` → `5000`. Frenar en el primero que dé
 `responses_5xx` o un p95 de `POST /orders` arriba de 2 s. Para 5.000 hacen falta
 5.000 usuarios sembrados.
@@ -157,8 +159,8 @@ del servidor de correo.
 2. Crear órdenes pendientes (viven 10 minutos, los pasos 2 a 3 van seguidos):
 
    ```bash
-   docker run --rm -i -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
-     -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
+   docker run --rm -i -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
+     -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
      -e BUYERS=50 -e PRELOGIN=1 -e CANCEL=0 -e EMAIL_TO=info@showpass.com.ar /scripts/on-sale.js
    ```
 
