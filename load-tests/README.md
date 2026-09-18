@@ -136,9 +136,64 @@ La API corre en 6 réplicas (`showpass-showpass-api-1..6`): los comandos `docker
 van con el nombre de cada contenedor; los `docker compose`, con el del servicio
 (`showpass-api`), y abarcan las 6.
 
+## Post-pago: QR, PDF y emails
+
+Mide cuánto tarda en llegar la última entrada cuando se pagan muchas órdenes
+juntas. No pasa por Mercado Pago: `confirm-test-orders` llama al mismo
+`confirmPayment` que el webhook, y de ahí en adelante todo es real (entradas,
+colas, PDF, email).
+
+**Límite de Gmail**: el SMTP es Gmail (~500 emails por día, contando los
+reales). Cada orden es un email. Empezar con 50; pasar ese número deja a los
+compradores reales sin entradas hasta el día siguiente.
+
+1. Redirigir los emails de prueba a una casilla propia (`user.email` es único:
+   quedan como `info+loadtest-00001@showpass.com.ar`):
+
+   ```bash
+   node load-tests/scripts/redirect-emails.js --to info@showpass.com.ar
+   ```
+
+2. Crear órdenes pendientes (viven 10 minutos, los pasos 2 a 3 van seguidos):
+
+   ```bash
+   docker run --rm -i -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
+     -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
+     -e BUYERS=50 -e PRELOGIN=1 -e CANCEL=0 /scripts/on-sale.js
+   ```
+
+3. En el servidor, pagarlas:
+
+   ```bash
+   cd /docker/showpass
+   docker compose run --rm --no-deps -T showpass-api \
+     node dist/scripts/load-test/confirm-test-orders.js --event <uuid> --limit 50
+   ```
+
+   Imprime la hora de inicio.
+
+4. Seguir la generación desde la PC y los emails en el servidor:
+
+   ```bash
+   node load-tests/scripts/watch-delivery.js --event "$EVENT_UUID" --since <hora del paso 3>
+   docker compose logs --since 30m showpass-api | grep -c "Tickets email sent"
+   docker compose logs --since 30m showpass-api | grep -i "No se pudo enviar el email"
+   ```
+
+5. Devolver los emails antes de limpiar:
+
+   ```bash
+   node load-tests/scripts/redirect-emails.js --restore
+   ```
+
+Bien: todas las entradas con PDF en menos de 2 minutos, emails enviados = órdenes,
+ninguna alerta de "Entradas que no salieron" en el panel.
+
 ## Limpieza
 
-Con las órdenes ya vencidas o canceladas:
+Con las órdenes ya vencidas o canceladas. Si hubo órdenes pagadas, el script
+devuelve el cupo en MySQL, resta el resumen de fees e imprime los `INCRBY` de
+Redis para correr en el servidor:
 
 ```bash
 node load-tests/scripts/cleanup.js            # muestra qué borraría

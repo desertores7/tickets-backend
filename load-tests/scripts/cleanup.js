@@ -8,6 +8,12 @@
  * real. Se niega a correr si quedan órdenes de prueba en `pending_payment`,
  * porque todavía tienen stock reservado en Redis: hay que esperar a que venzan
  * (10 minutos) o cancelarlas, si no ese stock queda perdido.
+ *
+ * Si hubo prueba de post-pago (`confirm-test-orders`), las órdenes pagadas
+ * descontaron cupo y sumaron al resumen de fees del evento. Antes de borrarlas
+ * se devuelve el cupo a `ticket_type.availableQuantity` y se resta lo que
+ * sumaron en `event_fee_summary`. El stock de Redis no se toca desde acá (no
+ * está publicado): el script imprime los `INCRBY` para correr en el servidor.
  */
 const { connect, LOAD_TEST_EMAIL_DOMAIN } = require('./db');
 
@@ -31,9 +37,81 @@ const STEPS = [
   ['`user`', 'uuid IN (SELECT uuid FROM tmp_loadtest_users)']
 ];
 
+/**
+ * Deshace lo que sumaron las órdenes de prueba pagadas: cupo en MySQL y
+ * resumen de fees. Devuelve el cupo por tanda, para el aviso de Redis.
+ */
+async function revertPaidOrders(conn) {
+  const [items] = await conn.query(
+    `SELECT oi.ticketTypeUuid, SUM(oi.quantity) AS cantidad
+       FROM order_item oi
+       JOIN orders o ON o.uuid = oi.orderUuid
+      WHERE o.status = 'paid' AND o.userUuid IN (SELECT uuid FROM tmp_loadtest_users)
+      GROUP BY oi.ticketTypeUuid`
+  );
+  if (!items.length) return [];
+
+  const [fees] = await conn.query(
+    `SELECT o.eventUuid, COUNT(*) AS ordenes, SUM(q.cantidad) AS entradas,
+            SUM(o.total) AS bruto, SUM(o.subtotal) AS monto, SUM(o.serviceFee) AS fee
+       FROM orders o
+       JOIN (SELECT orderUuid, SUM(quantity) AS cantidad FROM order_item GROUP BY orderUuid) q
+         ON q.orderUuid = o.uuid
+      WHERE o.status = 'paid' AND o.userUuid IN (SELECT uuid FROM tmp_loadtest_users)
+      GROUP BY o.eventUuid`
+  );
+
+  for (const i of items) console.log(`  cupo a devolver: tanda ${i.ticketTypeUuid} +${i.cantidad}`);
+  for (const f of fees) {
+    console.log(`  resumen de fees: evento ${f.eventUuid} -${f.ordenes} órdenes, -${f.entradas} entradas`);
+  }
+  if (!confirm) return items;
+
+  await conn.beginTransaction();
+  try {
+    for (const i of items) {
+      await conn.query(
+        'UPDATE ticket_type SET availableQuantity = availableQuantity + ? WHERE uuid = ?',
+        [Number(i.cantidad), i.ticketTypeUuid]
+      );
+    }
+    for (const f of fees) {
+      await conn.query(
+        `UPDATE event_fee_summary
+            SET totalOrdersPaid = totalOrdersPaid - ?, totalTicketsSold = totalTicketsSold - ?,
+                grossAmount = grossAmount - ?, ticketAmount = ticketAmount - ?,
+                serviceFeeAmount = serviceFeeAmount - ?, updatedAt = NOW(3)
+          WHERE eventUuid = ?`,
+        [f.ordenes, f.entradas, f.bruto, f.monto, f.fee, f.eventUuid]
+      );
+    }
+    // Sin esto, el DELETE de más abajo borraría las órdenes y el cupo ya
+    // devuelto se volvería a devolver si el script se corta y se repite.
+    await conn.query(
+      `UPDATE orders SET status = 'cancelled'
+        WHERE status = 'paid' AND userUuid IN (SELECT uuid FROM tmp_loadtest_users)`
+    );
+    await conn.commit();
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  }
+  return items;
+}
+
 (async () => {
   const conn = await connect();
   try {
+    const [[{ redirigidos }]] = await conn.query(
+      "SELECT COUNT(*) AS redirigidos FROM `user` WHERE email LIKE '%+loadtest-%'"
+    );
+    if (Number(redirigidos) > 0) {
+      throw new Error(
+        `Hay ${redirigidos} compradores de prueba con el email redirigido. ` +
+          'Primero: node load-tests/scripts/redirect-emails.js --restore'
+      );
+    }
+
     const [[{ pendientes }]] = await conn.query(
       `SELECT COUNT(*) AS pendientes FROM orders o JOIN \`user\` u ON u.uuid = o.userUuid
         WHERE u.email LIKE ? AND o.status = 'pending_payment'`,
@@ -55,9 +133,12 @@ const STEPS = [
       [`%@${LOAD_TEST_EMAIL_DOMAIN}`]
     );
 
+    let restored = [];
     try {
       const [[{ usuarios }]] = await conn.query('SELECT COUNT(*) AS usuarios FROM tmp_loadtest_users');
       console.log(`Compradores de prueba: ${usuarios}`);
+
+      restored = await revertPaidOrders(conn);
 
       for (const [table, where] of STEPS) {
         if (!confirm) {
@@ -75,6 +156,14 @@ const STEPS = [
     }
 
     console.log(confirm ? 'Limpieza terminada.' : 'Nada borrado. Repetí con --confirm para borrar.');
+    if (confirm && restored.length) {
+      console.log('\nFalta devolver el cupo en Redis. En el servidor (REDIS_PASSWORD del .env del backend):');
+      for (const i of restored) {
+        console.log(
+          `  docker exec redis-ta63-redis-1 redis-cli -a "$REDIS_PASSWORD" INCRBY stock:${i.ticketTypeUuid} ${i.cantidad}`
+        );
+      }
+    }
   } finally {
     await conn.end();
   }

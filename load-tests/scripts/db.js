@@ -10,6 +10,14 @@ const mysql = require('mysql2/promise');
 /** Todos los compradores de prueba comparten este dominio: así se los encuentra y se los borra. */
 const LOAD_TEST_EMAIL_DOMAIN = 'showpass-loadtest.invalid';
 
+/**
+ * Condición SQL (sobre el alias `u` de `user`) que identifica a un comprador de
+ * prueba. Cubre también a los redirigidos a una casilla real para la prueba de
+ * post-pago (`redirect-emails.js`), que quedan como `casilla+loadtest-00001@dominio`.
+ */
+const LOAD_TEST_USER_SQL =
+  "(u.email LIKE '%@showpass-loadtest.invalid' OR u.email LIKE '%+loadtest-%')";
+
 function loadTestEmail(index) {
   return `loadtest+${String(index).padStart(5, '0')}@${LOAD_TEST_EMAIL_DOMAIN}`;
 }
@@ -31,4 +39,4 @@ async function connect() {
   });
 }
 
-module.exports = { connect, loadTestEmail, LOAD_TEST_EMAIL_DOMAIN };
+module.exports = { connect, loadTestEmail, LOAD_TEST_EMAIL_DOMAIN, LOAD_TEST_USER_SQL };
