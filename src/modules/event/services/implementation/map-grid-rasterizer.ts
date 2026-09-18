@@ -6,6 +6,7 @@ import type {
   AnalyzeMapResult
 } from '../contracts/ievent-ai.service';
 import {
+  MAP_GRID_SCALE,
   MAP_GRID_SIZE,
   MapGridCell,
   MapSectorLayout,
@@ -20,7 +21,9 @@ import {
   layoutKeys,
   packLayouts,
   isSectorLayout,
-  parseCellKey
+  parseCellKey,
+  scaleModelCell,
+  scaleModelLayout
 } from '../core/map-grid';
 
 /**
@@ -42,11 +45,11 @@ const FULL_AREA: AiEventMapArea = { x: 0, y: 0, w: 1, h: 1, confidence: 1 };
 
 /** Margen de una celda alrededor del contenido al estirar los recuadros. */
 /** Una zona recortada nunca baja de esto: si no, desaparece del plano. */
-const MIN_ZONE_SPAN = 3;
+const MIN_ZONE_SPAN = 3 * MAP_GRID_SCALE;
 
-const MARGIN = 1 / MAP_GRID_SIZE;
+const MARGIN = MAP_GRID_SCALE / MAP_GRID_SIZE;
 /** Franja reservada al escenario cuando no vino dibujado. */
-const STAGE_BAND = 2 / MAP_GRID_SIZE;
+const STAGE_BAND = (2 * MAP_GRID_SCALE) / MAP_GRID_SIZE;
 
 function labelsOf(group: AiEventMapLayoutGroup): string[] {
   if (group.labels.length) return group.labels;
@@ -155,9 +158,13 @@ function categorySizeKey(group: AiEventMapLayoutGroup): string {
  *    del bloque y el mapa termina sin entrar en la vista.
  */
 function normalizeUnitSize(elementType: string, size: UnitSize): UnitSize {
-  if (elementType === 'table' || elementType === 'seat') return { uw: 1, uh: 1 };
-  if (size.uw === size.uh) return { uw: 1, uh: 1 };
-  return size.uw > size.uh ? { uw: 2, uh: 1 } : { uw: 1, uh: 2 };
+  // Una unidad mínima es una celda DEL MODELO, o sea `MAP_GRID_SCALE` celdas de
+  // la grilla. La escala no la agranda en pantalla: hay el doble de celdas y
+  // cada una mide la mitad.
+  const unit = MAP_GRID_SCALE;
+  if (elementType === 'table' || elementType === 'seat') return { uw: unit, uh: unit };
+  if (size.uw === size.uh) return { uw: unit, uh: unit };
+  return size.uw > size.uh ? { uw: 2 * unit, uh: unit } : { uw: unit, uh: 2 * unit };
 }
 
 /** El más chico: unificar nunca agranda unidades (evita pisar vecinos). */
@@ -358,7 +365,10 @@ function nestChildInParentCorner(
 
   const union = unionCells(parent, child);
   // Ancho del notch ≈ 55–60 % del bloque; el brazo de la L se queda con el resto.
-  const notchW = Math.max(2, Math.min(union.colSpan - 1, Math.round(union.colSpan * 0.58)));
+  const notchW = Math.max(
+    2 * MAP_GRID_SCALE,
+    Math.min(union.colSpan - 1, Math.round(union.colSpan * 0.58))
+  );
   const notchH = Math.max(1, Math.min(child.rowSpan, union.rowSpan - 1));
   const childCell: MapGridCell = {
     col: notch === 'top_left' ? union.col : union.col + union.colSpan - notchW,
@@ -389,7 +399,7 @@ function applyTetrisZoneNests(
   if (zones.length < 2) return nests;
 
   /** Solo bandas chicas anidan: el wrap (FANS) no se mete dentro de CAMPO. */
-  const MAX_NEST_CHILD_ROW_SPAN = 2;
+  const MAX_NEST_CHILD_ROW_SPAN = 2 * MAP_GRID_SCALE;
 
   type Cand = {
     parent: AiEventMapLayoutGroup;
@@ -531,7 +541,113 @@ function clampZonesToRigidExtent(
   }
 }
 
+/**
+ * Alinea cada zona con el bloque vendible que tiene arriba o abajo.
+ *
+ * En el plano, el CAMPO GENERAL arranca y termina donde arranca y termina el
+ * bloque de mesas: es el espacio que queda delante de ellas. El modelo, en
+ * cambio, le da un rango de columnas propio, y la zona queda corrida —medio
+ * bloque a la izquierda de la grilla— con el mapa entero desbalanceado.
+ *
+ * Además de lo feo, el corrimiento bloquea el compactado: las columnas que
+ * quedan entre la grilla y una columna lateral no están vacías (la zona las
+ * ocupa más abajo), así que el compactado por eje no las puede sacar y el
+ * lateral queda suelto a tres o cuatro celdas. Alinear la zona libera esas
+ * columnas y el compactado hace el resto.
+ */
+function alignZonesToNeighbour(
+  groups: AiEventMapLayoutGroup[],
+  baseCells: Map<string, MapGridCell>
+): void {
+  const rigid = groups
+    .filter(isRigid)
+    .map(g => baseCells.get(g.id))
+    .filter((c): c is MapGridCell => !!c);
+  if (!rigid.length) return;
+
+  for (const g of groups) {
+    if (isRigid(g)) continue;
+    const zone = baseCells.get(g.id);
+    if (!zone) continue;
+
+    const zoneTop = zone.row;
+    const zoneBottom = zone.row + zone.rowSpan - 1;
+
+    // Vecinos verticales: los que están por encima o por debajo y comparten
+    // aunque sea una columna. Un lateral que corre a lo largo de la zona no
+    // cuenta — no es el bloque al que la zona acompaña.
+    const neighbours = rigid.filter(c => {
+      const top = c.row;
+      const bottom = c.row + c.rowSpan - 1;
+      const above = bottom < zoneTop;
+      const below = top > zoneBottom;
+      if (!above && !below) return false;
+      const sharesColumn = c.col <= zone.col + zone.colSpan - 1 && c.col + c.colSpan - 1 >= zone.col;
+      return sharesColumn;
+    });
+    if (!neighbours.length) continue;
+
+    // El más ancho manda: es el que define el frente de la zona.
+    const anchor = neighbours.reduce((best, c) => (c.colSpan > best.colSpan ? c : best));
+    if (anchor.col === zone.col && anchor.colSpan === zone.colSpan) continue;
+
+    baseCells.set(
+      g.id,
+      clampCell({ col: anchor.col, row: zone.row, colSpan: anchor.colSpan, rowSpan: zone.rowSpan })
+    );
+  }
+}
+
+/**
+ * Lleva las celdas que mandó el modelo (24×24) a la grilla del mapa.
+ *
+ * Se hace de una sola vez y al principio: si quedara repartido por el pipeline,
+ * cualquier función nueva que lea `cell` tendría que acordarse en qué espacio
+ * está, y ese es el tipo de detalle que se olvida.
+ */
+function scaleModelResultToGrid(result: AnalyzeMapResult): void {
+  if (MAP_GRID_SCALE === 1) return;
+
+  for (const group of result.layout.groups) {
+    const draft = group as AiEventMapLayoutGroup & {
+      cell?: AiEventMapCell | null;
+      unitCells?: AiEventMapCell[] | null;
+      footprintCells?: AiEventMapCell[] | null;
+    };
+    if (draft.cell) draft.cell = scaleModelCell(draft.cell);
+    // Las unidades se regeneran uniformes más abajo, pero el footprint de una
+    // zona pintada a mano es forma, no reparto: viaja escalado.
+    if (draft.unitCells?.length) draft.unitCells = draft.unitCells.map(scaleModelCell);
+    if (draft.footprintCells?.length) {
+      draft.footprintCells = expandToGridCells(draft.footprintCells);
+    }
+  }
+
+  if (isSectorLayout(result.stage.layout)) {
+    result.stage.layout = scaleModelLayout(result.stage.layout);
+  }
+}
+
+/** Una celda 1×1 del modelo son `MAP_GRID_SCALE`² celdas 1×1 de la grilla. */
+function expandToGridCells(cells: AiEventMapCell[]): AiEventMapCell[] {
+  const out: AiEventMapCell[] = [];
+  for (const cell of cells) {
+    const scaled = scaleModelCell(cell);
+    for (let dc = 0; dc < scaled.colSpan; dc++) {
+      for (let dr = 0; dr < scaled.rowSpan; dr++) {
+        out.push({ col: scaled.col + dc, row: scaled.row + dr, colSpan: 1, rowSpan: 1 });
+      }
+    }
+  }
+  return out;
+}
+
 export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
+  // El modelo describe el plano en 24×24; el mapa vive en `MAP_GRID_SIZE`. Se
+  // convierte acá, en la única puerta de entrada, y de este punto en adelante
+  // todo el pipeline trabaja en celdas de la grilla.
+  scaleModelResultToGrid(result);
+
   const area =
     result.mapArea && result.mapArea.w > 0 && result.mapArea.h > 0 ? result.mapArea : FULL_AREA;
   const groups = result.layout.groups;
@@ -559,7 +675,7 @@ export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
     if (stretch) cell = stretch(g.box!);
     else if (isValidCell(g.cell)) cell = clampCell(g.cell);
     else if (g.box) cell = boxToCell(g.box, area);
-    else cell = { col: 1, row: 1, colSpan: 4, rowSpan: 4 };
+    else cell = { col: 1, row: 1, colSpan: 4 * MAP_GRID_SCALE, rowSpan: 4 * MAP_GRID_SCALE };
     baseCells.set(g.id, cell);
   }
 
@@ -568,6 +684,9 @@ export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
 
   // 2c. Una zona no puede ser más grande que todo lo vendible que la rodea.
   clampZonesToRigidExtent(groups, baseCells);
+
+  // 2d. Y se alinea con el bloque que acompaña, en vez de flotar corrida.
+  alignZonesToNeighbour(groups, baseCells);
 
   // Misma categoría ⇒ mismo tamaño de unidad (p. ej. palcos laterales vs abajo).
   const sizeByCategory = canonicalUnitSizes(groups, baseCells);

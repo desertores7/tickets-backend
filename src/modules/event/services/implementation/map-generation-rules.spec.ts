@@ -1,11 +1,14 @@
 import { AnalyzeMapResult } from '../contracts/ievent-ai.service';
+import { MAP_GRID_SCALE, STAGE_BAND_CELLS, STAGE_SPAN_CELLS } from '../core/map-grid';
 import { toGridAnalysis } from '../core/map-grid-analysis';
 import { rasterizeMapAnalysis } from './map-grid-rasterizer';
 import { normalizeMapLayout } from './map-layout-normalizer';
 
 /**
  * Reglas del mapa generado, con los datos reales de los flyers que las
- * rompieron. Cada bloque de acá es un caso que salió mal en producción:
+ * rompieron. Las entradas van en celdas del MODELO (24×24), que es como las
+ * manda la IA; las aserciones van en celdas de la grilla, escaladas por
+ * `MAP_GRID_SCALE`. Cada bloque de acá es un caso que salió mal en producción:
  * mesas rectangulares, un campo general colgando fuera del plano, el escenario
  * abajo, y sectores llamados por su precio.
  */
@@ -63,7 +66,7 @@ describe('tamaño de unidad', () => {
       }
     ]);
 
-    expect(unitSizes(result, 'mesas')).toEqual(['1x1']);
+    expect(unitSizes(result, 'mesas')).toEqual([`${MAP_GRID_SCALE}x${MAP_GRID_SCALE}`]);
   });
 
   it('el bloque de mesas ocupa lo que necesita y no el doble', () => {
@@ -80,10 +83,10 @@ describe('tamaño de unidad', () => {
     ]);
 
     const cells = groupById(result, 'mesas').unitCells ?? [];
-    const rows = new Set(cells.map(c => c.row));
-    const cols = new Set(cells.map(c => c.col));
-    expect(rows.size).toBe(5);
-    expect(cols.size).toBe(10);
+    expect(new Set(cells.map(c => c.row)).size).toBe(5);
+    expect(new Set(cells.map(c => c.col)).size).toBe(10);
+    const height = Math.max(...cells.map(c => c.row + c.rowSpan - 1)) - Math.min(...cells.map(c => c.row)) + 1;
+    expect(height).toBe(5 * MAP_GRID_SCALE);
   });
 
   it('una silla nunca es más alta que ancha', () => {
@@ -97,7 +100,7 @@ describe('tamaño de unidad', () => {
       }
     ]);
 
-    expect(unitSizes(result, 'sillas')).toEqual(['1x1']);
+    expect(unitSizes(result, 'sillas')).toEqual([`${MAP_GRID_SCALE}x${MAP_GRID_SCALE}`]);
   });
 
   it('ninguna unidad supera las 2 celdas por eje', () => {
@@ -112,8 +115,8 @@ describe('tamaño de unidad', () => {
     ]);
 
     for (const cell of groupById(result, 'palcos').unitCells ?? []) {
-      expect(cell.colSpan).toBeLessThanOrEqual(2);
-      expect(cell.rowSpan).toBeLessThanOrEqual(2);
+      expect(cell.colSpan).toBeLessThanOrEqual(2 * MAP_GRID_SCALE);
+      expect(cell.rowSpan).toBeLessThanOrEqual(2 * MAP_GRID_SCALE);
     }
   });
 });
@@ -148,7 +151,7 @@ describe('zonas', () => {
 
     const general = groupById(result, 'general');
     const cell = (general.unitCells ?? [])[0] ?? general.cell!;
-    const lastRigidRow = 13;
+    const lastRigidRow = 13 * MAP_GRID_SCALE;
     expect(cell.row + cell.rowSpan - 1).toBeLessThanOrEqual(lastRigidRow);
   });
 
@@ -172,8 +175,78 @@ describe('zonas', () => {
 
     const campo = groupById(result, 'campo');
     const cell = (campo.unitCells ?? [])[0] ?? campo.cell!;
-    expect(cell.colSpan).toBe(12);
-    expect(cell.rowSpan).toBe(12);
+    expect(cell.colSpan).toBe(12 * MAP_GRID_SCALE);
+    expect(cell.rowSpan).toBe(12 * MAP_GRID_SCALE);
+  });
+});
+
+describe('composición', () => {
+  // Reventonazo Salsero: el GENERAL salía corrido media grilla a la izquierda y
+  // la columna A-D quedaba suelta a cuatro celdas del bloque de mesas.
+  it('la zona se alinea con el bloque que acompaña', () => {
+    const result = analyze([
+      {
+        id: 'lateral',
+        elementType: 'palco',
+        layoutType: 'column',
+        labels: ['A', 'B', 'C', 'D'],
+        cell: { col: 6, row: 7, colSpan: 1, rowSpan: 4 }
+      },
+      {
+        id: 'vip',
+        elementType: 'table',
+        layoutType: 'grid',
+        labels: seq(35),
+        rows: 7,
+        columns: 5,
+        cell: { col: 11, row: 7, colSpan: 5, rowSpan: 7 }
+      },
+      {
+        id: 'general',
+        elementType: 'zone',
+        layoutType: 'zone',
+        labels: ['GENERAL'],
+        cell: { col: 8, row: 15, colSpan: 8, rowSpan: 3 }
+      }
+    ]);
+
+    const vip = groupById(result, 'vip').unitCells ?? [];
+    const vipCols = vip.map(c => c.col);
+    const general = groupById(result, 'general');
+    const zone = (general.unitCells ?? [])[0] ?? general.cell!;
+
+    expect(zone.col).toBe(Math.min(...vipCols));
+    expect(zone.col + zone.colSpan - 1).toBe(Math.max(...vipCols));
+  });
+
+  it('una zona sin nada arriba ni abajo se deja donde está', () => {
+    const result = analyze([
+      {
+        id: 'izq',
+        elementType: 'palco',
+        layoutType: 'column',
+        labels: seq(4),
+        cell: { col: 3, row: 6, colSpan: 1, rowSpan: 4 }
+      },
+      {
+        id: 'der',
+        elementType: 'palco',
+        layoutType: 'column',
+        labels: seq(4, 5),
+        cell: { col: 20, row: 6, colSpan: 1, rowSpan: 4 }
+      },
+      {
+        id: 'campo',
+        elementType: 'zone',
+        layoutType: 'zone',
+        labels: ['CAMPO'],
+        cell: { col: 8, row: 6, colSpan: 8, rowSpan: 4 }
+      }
+    ]);
+
+    const campo = groupById(result, 'campo');
+    const zone = (campo.unitCells ?? [])[0] ?? campo.cell!;
+    expect(zone.col).toBe((8 - 1) * MAP_GRID_SCALE + 1);
   });
 });
 
@@ -215,6 +288,27 @@ describe('escenario', () => {
     );
 
     expect(result.stage.position).toBe('top');
+  });
+
+  it('el escenario mide 2 x 9 en celdas del modelo, no de borde a borde', () => {
+    const result = analyze(
+      [
+        {
+          id: 'palcos',
+          elementType: 'palco',
+          layoutType: 'column',
+          labels: seq(6),
+          cell: { col: 4, row: 6, colSpan: 1, rowSpan: 6 }
+        }
+      ],
+      { stage: { visible: false, position: null }, stageLayout: null }
+    );
+
+    const cell = result.stage.layout && result.stage.layout.kind === 'rect'
+      ? result.stage.layout.cell
+      : null;
+    expect(cell?.colSpan).toBe(STAGE_SPAN_CELLS);
+    expect(cell?.rowSpan).toBe(STAGE_BAND_CELLS);
   });
 
   it('un escenario dibujado en otro borde se respeta', () => {
