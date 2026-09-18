@@ -16,7 +16,8 @@
  * nunca confirma una orden de un usuario real.
  */
 import { Logger } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import { DiscoveryService, NestFactory } from '@nestjs/core';
+import { WorkerHost } from '@nestjs/bullmq';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../app.module';
 import { IOrderService } from '@modules/orders/services/contracts/iorder.service';
@@ -46,6 +47,18 @@ async function main(): Promise<void> {
   });
 
   try {
+    // Este proceso levanta la app entera, workers de BullMQ incluidos. Sin
+    // esto toma jobs de QR y email, y al cerrar la base los deja a medias
+    // ("Connection is not established"). Los procesan las réplicas de la API.
+    const discovery = app.get(DiscoveryService, { strict: false });
+    await Promise.all(
+      discovery
+        .getProviders()
+        .map(wrapper => wrapper.instance as unknown)
+        .filter((instance): instance is WorkerHost => instance instanceof WorkerHost)
+        .map(host => host.worker.close())
+    );
+
     const dataSource = app.get(DataSource);
     const orderService = app.get<IOrderService>('IOrderService');
 
