@@ -12,6 +12,11 @@ import { UserPermissionService } from '@root/shared/services/userPermissions.ser
 import { EventEntity } from '@config/db/entities/tickets/event.entity';
 import { EVENT_ORDER_COLUMNS } from '@modules/event/controllers/const/event.filters';
 import { EXPENSE_ORDER_COLUMNS, expenseFilters } from '@modules/event/controllers/const/expense.filters';
+import {
+  TICKET_TYPE_ORDER_COLUMNS,
+  TICKET_TYPE_UNASSIGNED_SECTOR,
+  ticketTypeFilters
+} from '@modules/event/controllers/const/ticket-type.filters';
 import { IOrderParams, resolveListOrder } from '@root/shared/decorators/order-query.decorator';
 import { IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { EventMediaEntity } from '@config/db/entities/tickets/event_media.entity';
@@ -495,18 +500,132 @@ export class EventService implements IEventService {
     return true;
   }
 
-  async getTicketTypes(eventUuid: string): Promise<TTicketTypeResponse[]> {
+  async getTicketTypes(
+    eventUuid: string,
+    opts?: {
+      search?: ISearchParams;
+      filters?: IFiltersParams<typeof ticketTypeFilters>;
+      order?: IOrderParams<typeof TICKET_TYPE_ORDER_COLUMNS>;
+    }
+  ): Promise<TTicketTypeResponse[]> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid: eventUuid, isActive: true }
     });
     if (!event) throw new BadRequestException('Evento no encontrado');
 
+    const where: Record<string, unknown> = { eventUuid, isActive: true };
+    const searchTerm = opts?.search?.search?.trim();
+    if (searchTerm) {
+      // Collation *_ci: Like ya es case-insensitive; no envolver la columna en UPPER.
+      where.name = Like(`%${searchTerm}%`);
+    }
+
+    const sectorKey = opts?.filters?.sector?.[0]?.trim();
+    if (sectorKey) {
+      const ticketTypeUuids = await this.resolveTicketTypeUuidsForSectorGroup(
+        eventUuid,
+        sectorKey
+      );
+      if (ticketTypeUuids.length === 0) return [];
+      where.uuid = In(ticketTypeUuids);
+    }
+
     return this.dbRepository.findMany({
       entity: 'ticket_type',
-      where: { eventUuid, isActive: true },
-      other: { order: { sortOrder: 'ASC' } }
+      where: where as any,
+      other: {
+        order: {
+          ...resolveListOrder(opts?.order, TICKET_TYPE_ORDER_COLUMNS, {
+            sortOrder: 'ASC',
+            name: 'ASC'
+          }),
+          uuid: 'ASC'
+        }
+      }
     }) as Promise<TTicketTypeResponse[]>;
+  }
+
+  /**
+   * Resuelve los ticket types de un grupo de sector del panel Entradas.
+   * La clave coincide con el `id` de `buildTandaSectorGroups` del frontend
+   * (familyLabel / prefijo del nombre, normalizado).
+   */
+  private async resolveTicketTypeUuidsForSectorGroup(
+    eventUuid: string,
+    sectorKey: string
+  ): Promise<string[]> {
+    const map = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid }
+    });
+
+    if (sectorKey === TICKET_TYPE_UNASSIGNED_SECTOR) {
+      const allActive = (await this.dbRepository.findMany({
+        entity: 'ticket_type',
+        where: { eventUuid, isActive: true },
+        select: { uuid: true } as any
+      })) as Array<{ uuid: string }>;
+      if (!map) return allActive.map(row => row.uuid);
+
+      const sectors = (await this.dbRepository.findMany({
+        entity: 'event_map_sector',
+        where: { mapUuid: map.uuid },
+        select: { uuid: true } as any
+      })) as Array<{ uuid: string }>;
+      if (sectors.length === 0) return allActive.map(row => row.uuid);
+
+      const links = (await this.dbRepository.findMany({
+        entity: 'event_map_sector_ticket_type',
+        where: { sectorUuid: In(sectors.map(s => s.uuid)) },
+        select: { ticketTypeUuid: true } as any
+      })) as Array<{ ticketTypeUuid: string }>;
+      const assigned = new Set(links.map(link => link.ticketTypeUuid));
+      return allActive.map(row => row.uuid).filter(uuid => !assigned.has(uuid));
+    }
+
+    if (!map) return [];
+
+    const sectors = (await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid: map.uuid }
+    })) as Array<{ uuid: string; name: string; familyLabel: string | null }>;
+
+    const matchingSectorUuids = sectors
+      .filter(sector => this.sectorGroupKey(sector) === this.normalizeSectorGroupKey(sectorKey))
+      .map(sector => sector.uuid);
+    if (matchingSectorUuids.length === 0) return [];
+
+    const links = (await this.dbRepository.findMany({
+      entity: 'event_map_sector_ticket_type',
+      where: { sectorUuid: In(matchingSectorUuids) },
+      select: { ticketTypeUuid: true } as any
+    })) as Array<{ ticketTypeUuid: string }>;
+
+    return [...new Set(links.map(link => link.ticketTypeUuid))];
+  }
+
+  /** Misma normalización que el frontend (`normalizeGroupKey` / `groupKeyFor`). */
+  private normalizeSectorGroupKey(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  private sectorGroupKey(sector: {
+    name: string;
+    familyLabel: string | null;
+  }): string {
+    const family = sector.familyLabel?.trim();
+    if (family) return this.normalizeSectorGroupKey(family);
+    const match = sector.name.trim().match(/^(.*?)(\d+)$/);
+    const prefix = match?.[1]?.trim();
+    if (prefix) return this.normalizeSectorGroupKey(prefix);
+    if (match || !sector.name.trim()) return '\u0000solo-numero';
+    return this.normalizeSectorGroupKey(sector.name);
   }
 
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {

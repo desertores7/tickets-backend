@@ -12,6 +12,10 @@ import { BannerImages, BannerVariant } from '../../controllers/const/banner-vari
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { EVENT_ORDER_COLUMNS, eventFilters } from '../../controllers/const/event.filters';
 import { EXPENSE_ORDER_COLUMNS, expenseFilters } from '../../controllers/const/expense.filters';
+import {
+  TICKET_TYPE_ORDER_COLUMNS,
+  ticketTypeFilters
+} from '../../controllers/const/ticket-type.filters';
 import { IOrderParams } from '@root/shared/decorators/order-query.decorator';
 import { ExpenseCategory } from '@modules/event/controllers/const/expense-category.const';
 import type { TEventChangeItem, TEventChangesResult } from '../implementation/event-change.service';
@@ -312,7 +316,14 @@ export interface IEventService {
   /** Vuelve el evento a borrador. Bloqueado si ya hay entradas vendidas (pago confirmado). */
   unpublishEvent(uuid: string, loggedUser: string): Promise<boolean>;
 
-  getTicketTypes(eventUuid: string): Promise<TTicketTypeResponse[]>;
+  getTicketTypes(
+    eventUuid: string,
+    opts?: {
+      search?: ISearchParams;
+      filters?: IFiltersParams<typeof ticketTypeFilters>;
+      order?: IOrderParams<typeof TICKET_TYPE_ORDER_COLUMNS>;
+    }
+  ): Promise<TTicketTypeResponse[]>;
 
   createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse>;
 
