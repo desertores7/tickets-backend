@@ -138,6 +138,35 @@ La API corre en 6 réplicas (`showpass-showpass-api-1..6`): los comandos `docker
 van con el nombre de cada contenedor; los `docker compose`, con el del servicio
 (`showpass-api`), y abarcan las 6.
 
+## Caché de navegación (Redis + Cloudflare)
+
+Sin caché, la navegación saturó el servidor a ~1.500 pedidos por segundo (MySQL
+en casi 2 núcleos). Con caché en Redis, la misma carga dio p95 de 3 ms con la
+mitad del servidor libre.
+
+La API marca qué se puede compartir. Listado, ficha y mapa de eventos
+publicados salen con `Cache-Control: public, max-age=0, s-maxage=N` (15, 10 y 5
+s) y `Access-Control-Allow-Origin: *`; todo lo demás, sin `s-maxage`. Cloudflare
+solo tiene que respetar eso.
+
+**Regla en Cloudflare** (Caching → Cache Rules → Create rule), expresión:
+
+```
+(http.host eq "api.showpass.com.ar" and http.request.method eq "GET" and (http.request.uri.path eq "/api/v1/events" or starts_with(http.request.uri.path, "/api/v1/events/by-slug/") or ends_with(http.request.uri.path, "/map/public")))
+```
+
+- Cache eligibility: **Eligible for cache**.
+- Edge TTL: **Use cache-control header if present, bypass cache if not**.
+- Browser TTL: **Respect origin**.
+
+Verificar (dos veces seguidas; la segunda tiene que decir `HIT`):
+
+```bash
+curl -s -o /dev/null -D - "https://api.showpass.com.ar/api/v1/events/by-slug/$EVENT_SLUG" | grep -iE "cf-cache-status|cache-control|access-control-allow-origin"
+```
+
+Un borrador tiene que salir `private, no-store` y nunca `HIT`.
+
 ## Post-pago: QR, PDF y emails
 
 Mide cuánto tarda en llegar la última entrada cuando se pagan muchas órdenes

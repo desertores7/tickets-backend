@@ -14,10 +14,12 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UploadedFile,
   UploadedFiles,
   UseInterceptors
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
@@ -89,7 +91,7 @@ import {
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 import { MapAnalysisJobStore } from '../services/implementation/map-analysis-job.store';
-import { PUBLIC_CACHE_TTL, PublicResponseCache } from '../services/implementation/public-response-cache';
+import { PUBLIC_CACHE_TTL, PublicResponseCache, setPublicCacheHeaders } from '../services/implementation/public-response-cache';
 import { randomUUID } from 'crypto';
 
 // Sin @ApiTags a nivel de clase: este controller cubre siete secciones
@@ -282,6 +284,7 @@ export class EventController {
     @OrderParams() order: IOrderParams<typeof EVENT_ORDER_COLUMNS>,
     @UserRole() role: string | null,
     @OptionalUser() loggedUser: string | null,
+    @Res({ passthrough: true }) res: Response,
     @Query('mine') mine?: string
   ): Promise<{ meta: PaginationMetaResponse; items: GetAllEventResponse[] }> {
     // `mine` solo aplica con sesión; sin token cae siempre a la vista pública
@@ -299,13 +302,18 @@ export class EventController {
     };
 
     // El backoffice (`mine`) depende de quién pregunta: nunca se cachea.
-    if (isMine) return load();
+    if (isMine) {
+      setPublicCacheHeaders(res, false, 0);
+      return load();
+    }
 
     const key = `events:list:${JSON.stringify({ pagination, search, filters, order })}`;
-    return this._publicCache.wrap(key, PUBLIC_CACHE_TTL.list, async () => ({
+    const { value, cacheable } = await this._publicCache.wrap(key, PUBLIC_CACHE_TTL.list, async () => ({
       value: await load(),
       cacheable: true
     }));
+    setPublicCacheHeaders(res, cacheable, PUBLIC_CACHE_TTL.list);
+    return value;
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -322,10 +330,11 @@ export class EventController {
   @Get('by-slug/:slug')
   async getEventBySlug(
     @Param('slug') slug: string,
-    @UserRole() role: string | null
+    @UserRole() role: string | null,
+    @Res({ passthrough: true }) res: Response
   ): Promise<GetIdEventResponse> {
     const key = `events:slug:${(slug ?? '').trim()}`;
-    return this._publicCache.wrap(key, PUBLIC_CACHE_TTL.detail, async () => {
+    const { value, cacheable } = await this._publicCache.wrap(key, PUBLIC_CACHE_TTL.detail, async () => {
       const event = await this._eventService.getEventBySlug(slug, role);
       // Un borrador, o la ficha de una productora suspendida, solo la ve quien
       // tiene rol: compartirla desde el caché se la mostraría a cualquiera.
@@ -335,6 +344,8 @@ export class EventController {
         cacheable: !!event.isPublished && organization?.active !== 0
       };
     });
+    setPublicCacheHeaders(res, cacheable, PUBLIC_CACHE_TTL.detail);
+    return value;
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -559,9 +570,10 @@ export class EventController {
   async getEventMapPublic(
     @Param('eventUuid') eventUuid: string,
     @OptionalUser() loggedUser: string | null,
-    @UserRole() role: string | null
+    @UserRole() role: string | null,
+    @Res({ passthrough: true }) res: Response
   ): Promise<EventMapResponse> {
-    return this._publicCache.wrap(`events:map:${eventUuid}`, PUBLIC_CACHE_TTL.map, async () => {
+    const { value, cacheable } = await this._publicCache.wrap(`events:map:${eventUuid}`, PUBLIC_CACHE_TTL.map, async () => {
       const map = await this._eventService.getEventMapPublic(eventUuid, {
         loggedUser,
         role
@@ -569,6 +581,8 @@ export class EventController {
       // El mapa de un borrador solo lo ve su productora.
       return { value: new EventMapResponse(map), cacheable: map.isPublic };
     });
+    setPublicCacheHeaders(res, cacheable, PUBLIC_CACHE_TTL.map);
+    return value;
   }
 
   @UserAuth(null, EventMapResponse)
