@@ -1,4 +1,4 @@
-import { applySpatialPlacement, oppositeEdge, parseBox } from './map-spatial-layout';
+import { applySpatialPlacement, parseBox } from './map-spatial-layout';
 import { isSectorLayout, layoutBounds } from '../core/map-grid';
 import type {
   AiEventMapArea,
@@ -532,6 +532,28 @@ function coalesceInventoryLayout(raw: Record<string, unknown>): Record<string, u
   };
 }
 
+/** "$ 1.500.000", "1500000", "$70.000 +s/c": un precio, no un nombre de sector. */
+function isPriceOnlyLabel(label: string): boolean {
+  return /^[$\s]*[\d][\d.,\s]*(?:\+?\s*s\/?c)?$/i.test(label.trim());
+}
+
+function elementTypeLabel(elementType: MapElementType): string {
+  switch (elementType) {
+    case 'palco':
+      return 'PALCO';
+    case 'box':
+      return 'BOX';
+    case 'table':
+      return 'MESA';
+    case 'seat':
+      return 'SILLA';
+    case 'section':
+      return 'SECTOR';
+    default:
+      return 'SECTOR';
+  }
+}
+
 function normalizeCategories(raw: unknown): AiEventMapCategory[] {
   const categories: AiEventMapCategory[] = [];
   const usedIds = new Set<string>();
@@ -546,6 +568,15 @@ function normalizeCategories(raw: unknown): AiEventMapCategory[] {
     const elementType =
       parseElementType(c.elementType ?? c.sectorType) ?? inferElementTypeFromLabel(label);
 
+    // El flyer a veces rotula los sectores solo con su precio ("$ 1.500.000") y
+    // el modelo lo copia tal cual. Eso deja la vista de Entradas mostrando un
+    // importe donde va el nombre del sector, y el validador leyendo un precio
+    // en la puerta. Se le antepone el tipo para que al menos sea un nombre; el
+    // productor lo renombra si quiere.
+    const named = isPriceOnlyLabel(label)
+      ? `${elementTypeLabel(elementType)} ${label}`.trim().slice(0, 120)
+      : label;
+
     const saleMode =
       parseSaleMode(c.saleMode ?? c.purchaseMode ?? c.entryType) ??
       defaultSaleForType(elementType);
@@ -555,7 +586,7 @@ function normalizeCategories(raw: unknown): AiEventMapCategory[] {
 
     categories.push({
       id: ensureUniqueId(slugify(String(c.id ?? label)), usedIds),
-      label,
+      label: named,
       detectedPrice: parseNullableNumber(c.detectedPrice ?? c.price),
       elementType,
       saleMode,
@@ -1052,59 +1083,31 @@ function ensureCategoriesForAssignments(
  * premium, el frente está arriba. Se marca inferred:true y confidence baja para
  * que la UI pueda mostrarlo como tentativo.
  */
-function resolveStage(
-  stage: AiEventMapStage,
-  groups: AiEventMapLayoutGroup[]
-): AiEventMapStage {
+function resolveStage(stage: AiEventMapStage): AiEventMapStage {
   // Escenario dibujado: no se discute.
   if (stage.visible && stage.position && !stage.inferred) {
     return { ...stage, alignment: stage.alignment ?? 'center' };
   }
 
-  // La ENTRADA manda sobre cualquier deducción. El público entra por el fondo,
-  // así que el frente es el borde opuesto — y es un dato leído del plano, no
-  // deducido, a diferencia de "los premium están cerca del escenario". Sin esto
-  // el modelo pone el escenario arriba por costumbre: un plano con la ENTRADA
-  // arriba a la izquierda salió con el ESCENARIO en ese mismo borde, con todo el
-  // mapa dado vuelta.
-  const fromEntrance = oppositeEdge(stage.entranceAt);
-  if (fromEntrance) {
-    return {
-      ...stage,
-      visible: true,
-      position: fromEntrance,
-      alignment: stage.alignment ?? 'center',
-      inferred: true,
-      confidence: round3(Math.min(stage.confidence, 0.6))
-    };
-  }
-
+  // Escenario NO dibujado: arriba, siempre.
+  //
+  // Antes se deducía del borde opuesto a la ENTRADA, y era razonable —el
+  // público entra por el fondo—, pero en la práctica falla: un flyer con la
+  // ENTRADA arriba a la izquierda (una escalera, un acceso lateral) mandaba el
+  // escenario abajo y el mapa salía dado vuelta. La regla del producto es que
+  // sin escenario dibujado el frente va arriba, que es como el productor
+  // espera verlo y como se dibuja la enorme mayoría de los planos.
+  //
+  // `entranceAt` se sigue leyendo: no orienta el mapa, pero queda en el
+  // análisis por si más adelante se dibuja el acceso.
   if (stage.visible && stage.position) {
     return { ...stage, alignment: stage.alignment ?? 'center' };
-  }
-  if (!groups.length) return stage;
-
-  const zoneDepth = (g: AiEventMapLayoutGroup): number =>
-    g.position.startsWith('bottom') ? 2 : g.position.startsWith('top') ? 0 : 1;
-
-  const zones = groups.filter(g => g.elementType === 'zone');
-  const others = groups.filter(g => g.elementType !== 'zone');
-
-  let position: MapStagePosition = 'top';
-  if (zones.length && others.length) {
-    const zoneAvg =
-      zones.reduce((acc, g) => acc + zoneDepth(g) + (g.stackOrder ?? 0), 0) / zones.length;
-    const otherAvg =
-      others.reduce((acc, g) => acc + zoneDepth(g) + (g.stackOrder ?? 0), 0) /
-      others.length;
-    // Zona general más abajo que el resto → escenario arriba, y viceversa.
-    position = zoneAvg >= otherAvg ? 'top' : 'bottom';
   }
 
   return {
     ...stage,
     visible: true,
-    position: stage.position ?? position,
+    position: 'top',
     alignment: stage.alignment ?? 'center',
     inferred: true,
     confidence: round3(Math.min(stage.confidence, 0.4))
@@ -1445,7 +1448,7 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
 
   // Escenario en la grilla (prompt 24×24): `stageLayout` en la raíz.
   const rawStageLayout = coalesced.stageLayout ?? layoutRaw.stageLayout;
-  const stage = resolveStage(rawStage, groups);
+  const stage = resolveStage(rawStage);
   if (isSectorLayout(rawStageLayout)) {
     stage.layout = rawStageLayout;
     stage.cell = layoutBounds(rawStageLayout);
