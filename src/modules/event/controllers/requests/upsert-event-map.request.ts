@@ -18,31 +18,42 @@ import {
   ValidateNested
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { MAP_GRID_SIZE } from '@modules/event/services/core/map-grid';
 
 /** Celda de la grilla fija 24×24, índices 1-based. */
 export class MapGridCellDto {
-  @ApiProperty({ minimum: 1, maximum: 24, example: 3 })
+  @ApiProperty({ minimum: 1, maximum: MAP_GRID_SIZE, example: 3 })
   @IsInt()
   @Min(1)
-  @Max(24)
+  @Max(MAP_GRID_SIZE)
   col: number;
 
-  @ApiProperty({ minimum: 1, maximum: 24, example: 5 })
+  @ApiProperty({ minimum: 1, maximum: MAP_GRID_SIZE, example: 5 })
   @IsInt()
   @Min(1)
-  @Max(24)
+  @Max(MAP_GRID_SIZE)
   row: number;
 
-  @ApiProperty({ minimum: 1, maximum: 24, example: 4, description: 'En kind "cells" siempre 1' })
+  @ApiProperty({
+    minimum: 1,
+    maximum: MAP_GRID_SIZE,
+    example: 4,
+    description: 'En kind "cells" siempre 1'
+  })
   @IsInt()
   @Min(1)
-  @Max(24)
+  @Max(MAP_GRID_SIZE)
   colSpan: number;
 
-  @ApiProperty({ minimum: 1, maximum: 24, example: 2, description: 'En kind "cells" siempre 1' })
+  @ApiProperty({
+    minimum: 1,
+    maximum: MAP_GRID_SIZE,
+    example: 2,
+    description: 'En kind "cells" siempre 1'
+  })
   @IsInt()
   @Min(1)
-  @Max(24)
+  @Max(MAP_GRID_SIZE)
   rowSpan: number;
 }
 

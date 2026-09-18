@@ -19,12 +19,17 @@ GRID
 - A cell is {"col","row","colSpan","rowSpan"}.
 - Geometry is ONLY cells. Never emit x/y/w/h boxes, polygons or outlines.
 - Each group gives ONE "cell": its bounding box on the grid. Do NOT list per-unit cells: the backend splits "cell" uniformly using rows/columns/ordering.
-- Unit size is ALWAYS 1 cell per unit: a grid of R rows × C columns gets EXACTLY colSpan = C and rowSpan = R. Never a multiple — colSpan = 2*C or rowSpan = 2*R makes every unit a rectangle and blows the map out of the viewport.
-- The ONLY exception: a unit the flyer draws clearly wider than tall (a sofa-shaped box/palco) may use colSpan = 2*C with rowSpan = R. Tables and seats are always square — never 1×2 or 2×2.
+- For tables/boxes/palcos prefer 1 cell per unit: a grid of R rows × C columns gets colSpan = C and rowSpan = R (or an exact integer multiple of both).
 - Units of the SAME category MUST share the same per-unit size (colSpan×rowSpan) across every group — left, right and bottom palcos of category "palco" all use e.g. 2×1, never 3×1 on the sides and 2×1 at the bottom. Prefer the smaller consistent size (usually 1×1 or 2×1).
-- Keep the whole plan compact: the union of every group plus the stage should fit well inside 24×24, leaving margin. A bigger venue means more units, NOT bigger units.
 - Groups and the stage never share cells. Neighbors that touch on the flyer share edges, not area.
 - Keep the flyer's relative placement (left stays left, bottom stays bottom).
+
+COMPOSITION (think Tetris, not scatter)
+- Blocks that touch on the flyer MUST touch on the grid: share an edge, no empty cell between them.
+- Blocks that are merely near each other get AT MOST 1 empty cell between them. Never 2, never 3. A plan is a packed composition, not a scatter of islands.
+- Align what the flyer aligns: two side columns facing each other start on the same row; a zone below a grid spans exactly that grid's columns; a row of boxes under a zone starts on that zone's first column.
+- Center the composition: put the used area around the middle of the grid instead of pushing it into a corner, and center the stage over the seating it faces.
+- Prefer a tight rectangle. If a choice leaves a hole, pick the other one.
 
 SCOPE
 - Describe only purchasable units of the venue map. Ignore logos, artists, dates, sponsors, bars, bathrooms, entrances.
@@ -44,8 +49,7 @@ STRUCTURE (physical)
 - Multi-floor flyers (1ER PISO, PLANTA BAJA…): set "level" verbatim on each group; omit for single-floor venues.
 
 STAGE
-- DEFAULT: the stage goes at the TOP. Only move it when the flyer itself shows it elsewhere — a box labelled ESCENARIO / STAGE / TARIMA drawn on another edge, or a stage clearly drawn in the middle of an arena ("center"). ENTRADA / INGRESO marks the door, NOT the stage: never infer the stage from it.
-- stage.visible: true whenever a stage makes sense for the venue (almost always). Position "top" unless the flyer says otherwise.
+- stage.visible = the front of the venue can be determined. If ENTRADA/INGRESO is marked, the front is usually the opposite edge. "center" only for arena layouts. Do not default to top without evidence.
 - stageLayout: a rect band (rowSpan or colSpan 1..2) on that edge, or null.
 
 CATEGORIES (commercial)

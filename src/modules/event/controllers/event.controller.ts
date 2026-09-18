@@ -42,6 +42,7 @@ import {
 } from '../services/contracts/ievent.service';
 import { EVENT_ORDER_COLUMNS, eventFilters } from './const/event.filters';
 import { EXPENSE_ORDER_COLUMNS, expenseFilters } from './const/expense.filters';
+import { TICKET_TYPE_ORDER_COLUMNS, ticketTypeFilters } from './const/ticket-type.filters';
 import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
 import {
   BANNER_VARIANT_NAMES,
@@ -1142,12 +1143,32 @@ export class EventController {
   }
 
   @UserAuth(null, TicketTypeResponse)
-  @ApiOperation({ summary: 'Listar tandas', description: 'Returns all active ticket types for an event.' })
+  @ApiOperation({
+    summary: 'Listar tandas',
+    description:
+      'Returns active ticket types for an event.\n\n' +
+      '- `search`: coincidencia parcial sobre el nombre.\n' +
+      '- `sector`: clave de grupo del panel Entradas (`familyLabel` / prefijo), o `__sin-sector__`.\n' +
+      '- `order_by`: `quantity:asc`, `price:desc`, `price:asc`, `quantity:desc`.'
+  })
+  @ApiParam({ name: 'eventUuid', description: 'Event UUID.' })
+  @ApiSearch()
+  @ApiFilter(ticketTypeFilters)
+  @ApiOrder(TICKET_TYPE_ORDER_COLUMNS)
   @HttpCode(200)
   @ApiTags('Productora — Tandas')
   @Get(':eventUuid/ticket-types')
-  async getTicketTypes(@Param('eventUuid') eventUuid: string): Promise<TicketTypeResponse[]> {
-    const items = await this._eventService.getTicketTypes(eventUuid);
+  async getTicketTypes(
+    @Param('eventUuid') eventUuid: string,
+    @SearchParams() search: ISearchParams,
+    @FilterParams(ticketTypeFilters) filters: IFiltersParams<typeof ticketTypeFilters>,
+    @OrderParams() order: IOrderParams<typeof TICKET_TYPE_ORDER_COLUMNS>
+  ): Promise<TicketTypeResponse[]> {
+    const items = await this._eventService.getTicketTypes(eventUuid, {
+      search,
+      filters,
+      order
+    });
     return items.map(tt => new TicketTypeResponse(tt));
   }
 

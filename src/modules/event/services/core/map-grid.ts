@@ -17,7 +17,31 @@
  * en producción corren con node plano sobre `dist/`.
  */
 
-export const MAP_GRID_SIZE = 24;
+/**
+ * Grilla del mapa guardado y del editor.
+ *
+ * El modelo sigue describiendo el plano en 24×24 —es el problema fácil, y con
+ * más columnas se equivoca— y su respuesta se multiplica al entrar. El doble de
+ * resolución es para el productor: le permite correr un bloque media celda,
+ * armar formas más finas y acomodar los huecos, sin pedirle a la IA algo que no
+ * hace bien.
+ *
+ * La escala es exacta (×2) a propósito: cada celda del modelo son cuatro de la
+ * grilla, sin redondeo.
+ */
+export const MAP_GRID_SIZE = 48;
+
+/** Grilla en la que razona el modelo. `MAP_GRID_SIZE` es un múltiplo de esta. */
+export const MODEL_GRID_SIZE = 24;
+
+/** Celdas de la grilla por cada celda del modelo. */
+export const MAP_GRID_SCALE = MAP_GRID_SIZE / MODEL_GRID_SIZE;
+
+/** Grosor del escenario en celdas. */
+export const STAGE_BAND_CELLS = 2 * MAP_GRID_SCALE;
+
+/** Largo del escenario en celdas: medida fija, igual que en el editor. */
+export const STAGE_SPAN_CELLS = 9 * MAP_GRID_SCALE;
 
 export type MapGridCell = {
   col: number;
@@ -598,22 +622,50 @@ export function layoutToLegacyGeometry(
 // ---------------------------------------------------------------------------
 
 /** Mismo default que el editor del frontend (`defaultStageCell`). */
+/** Celda del modelo (24×24) llevada a la grilla del mapa. */
+export function scaleModelCell(cell: MapGridCell): MapGridCell {
+  const n = MAP_GRID_SCALE;
+  return {
+    col: (cell.col - 1) * n + 1,
+    row: (cell.row - 1) * n + 1,
+    colSpan: cell.colSpan * n,
+    rowSpan: cell.rowSpan * n
+  };
+}
+
+/** Layout del modelo llevado a la grilla del mapa. */
+export function scaleModelLayout(layout: MapSectorLayout): MapSectorLayout {
+  if (layout.kind === 'rect') return { kind: 'rect', cell: scaleModelCell(layout.cell) };
+  return { kind: 'cells', cells: layout.cells.map(scaleModelCell) };
+}
+
 export function defaultStageLayout(position: MapStagePositionLike | null | undefined): MapSectorLayout {
   const n = MAP_GRID_SIZE;
-  const band = 2;
-  const span = n - 2;
+  // Medida fija y centrada. Un escenario de borde a borde se comía el ancho
+  // del plano y dejaba todo lo vendible apretado contra el centro.
+  const band = STAGE_BAND_CELLS;
+  const span = STAGE_SPAN_CELLS;
+  const offset = Math.max(1, Math.round((n - span) / 2) + 1);
   switch (position) {
     case 'bottom':
-      return { kind: 'rect', cell: { col: 2, row: n - band + 1, colSpan: span, rowSpan: band } };
+      return { kind: 'rect', cell: { col: offset, row: n - band + 1, colSpan: span, rowSpan: band } };
     case 'left':
-      return { kind: 'rect', cell: { col: 1, row: 2, colSpan: band, rowSpan: span } };
+      return { kind: 'rect', cell: { col: 1, row: offset, colSpan: band, rowSpan: span } };
     case 'right':
-      return { kind: 'rect', cell: { col: n - band + 1, row: 2, colSpan: band, rowSpan: span } };
+      return { kind: 'rect', cell: { col: n - band + 1, row: offset, colSpan: band, rowSpan: span } };
     case 'center':
-      return { kind: 'rect', cell: { col: 8, row: 10, colSpan: 9, rowSpan: 4 } };
+      return {
+        kind: 'rect',
+        cell: {
+          col: offset,
+          row: 10 * MAP_GRID_SCALE,
+          colSpan: span,
+          rowSpan: 4 * MAP_GRID_SCALE
+        }
+      };
     case 'top':
     default:
-      return { kind: 'rect', cell: { col: 2, row: 1, colSpan: span, rowSpan: band } };
+      return { kind: 'rect', cell: { col: offset, row: 1, colSpan: span, rowSpan: band } };
   }
 }
 
