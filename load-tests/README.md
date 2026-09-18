@@ -143,9 +143,9 @@ juntas. No pasa por Mercado Pago: `confirm-test-orders` llama al mismo
 `confirmPayment` que el webhook, y de ahí en adelante todo es real (entradas,
 colas, PDF, email).
 
-**Límite de Gmail**: el SMTP es Gmail (~500 emails por día, contando los
-reales). Cada orden es un email. Empezar con 50; pasar ese número deja a los
-compradores reales sin entradas hasta el día siguiente.
+Cada orden es un email real por el SMTP del servidor (el mismo de las compras
+reales). Subir de a escalones (50 → 200 → 500) y frenar si aparecen rechazos
+del servidor de correo.
 
 1. Redirigir los emails de prueba a una casilla propia (`user.email` es único:
    quedan como `info+loadtest-00001@showpass.com.ar`):

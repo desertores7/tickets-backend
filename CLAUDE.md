@@ -13,7 +13,7 @@ Backend de una plataforma de venta de entradas (ticketera) tipo Passline, para e
 - **Package manager**: pnpm
 - **Pagos**: Mercado Pago (Checkout Pro, cuenta única)
 - **Storage de archivos**: disco local con volumen Docker — **NO S3/R2** (migración futura posible)
-- **Email**: Gmail SMTP con contraseña de aplicación (nodemailer) — solo para desarrollo/MVP
+- **Email**: nodemailer con `SMTP_*`. Producción usa el SMTP del servidor propio; Gmail (contraseña de aplicación) solo en desarrollo
 - **Contenedores**: Docker + docker-compose (api, redis, volumen tickets_storage). MySQL corre en el HOST, no en Docker — el contenedor se conecta vía `host.docker.internal`
 
 ## Reglas de MySQL (crítico)
@@ -200,4 +200,4 @@ Ver `.env.example`. Las agregadas durante este desarrollo:
 - Verificar dependencias circulares entre módulos (usar `forwardRef()` solo si es inevitable)
 - Los webhooks de MP pueden llegar duplicados o fuera de orden — toda lógica de pago debe ser idempotente
 - Los datos de seed con UUIDs deben usar solo caracteres hexadecimales válidos (0-9, a-f) — un UUID con `t` o `g` falla la validación `@IsUUID()`
-- Gmail SMTP tiene límite de ~500 emails/día — suficiente para MVP, migrar a proveedor transaccional en producción
+- En desarrollo, Gmail SMTP corta en ~500 emails/día; producción no usa Gmail (SMTP del servidor)

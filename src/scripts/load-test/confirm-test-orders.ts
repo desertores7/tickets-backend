@@ -33,7 +33,7 @@ function arg(name: string, fallback?: string): string | undefined {
 async function main(): Promise<void> {
   const logger = new Logger('ConfirmTestOrders');
   const eventUuid = arg('event');
-  // Default bajo a propósito: cada orden es un email real, y Gmail corta en ~500 por día.
+  // Default bajo a propósito: cada orden es un email real. Se sube de a escalones.
   const limit = Number(arg('limit', '50'));
   // Webhooks de MP llegan en paralelo, pero no de a mil: 20 simula bien una
   // ráfaga de pagos aprobados sin convertir esto en otra prueba de CPU.
