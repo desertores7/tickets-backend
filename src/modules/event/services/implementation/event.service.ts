@@ -43,6 +43,7 @@ import {
   TEventMediaItem,
   TEventMap,
   TEventMapSector,
+  TPatchEventMap,
   TUpsertEventMap,
   TEventProducer,
   TEventEmployee,
@@ -1198,6 +1199,276 @@ export class EventService implements IEventService {
   }
 
   /**
+   * Aplica al mapa SOLO lo que el cliente dice que cambió.
+   *
+   * El PUT reemplaza la lista entera de sectores, así que mover una mesa manda
+   * de vuelta las otras ciento cuatro sin un solo campo distinto. Con el id de
+   * unidad estable eso dejó de ser necesario: el cliente manda el diff y acá se
+   * aplica sobre lo guardado.
+   *
+   * Lo que NO cambia respecto del PUT son las validaciones: la unicidad de
+   * nombre y la ausencia de solapes son propiedades del mapa ENTERO, no del
+   * pedazo que viaja. Así que primero se lee el estado actual, se le aplica el
+   * diff en memoria, y se valida el resultado completo. Un patch que dejaría
+   * dos sectores pisando la misma celda se rechaza igual que un PUT.
+   */
+  async patchEventMap(eventUuid: string, input: TPatchEventMap, loggedUser: string): Promise<TEventMap> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+    if (!existing) {
+      throw new BadRequestException(
+        'El evento todavía no tiene mapa: creá el mapa completo antes de editarlo por partes'
+      );
+    }
+
+    const upserts = input.sectors?.upsert ?? [];
+    const removals = new Set(input.sectors?.remove ?? []);
+
+    for (const sector of upserts) {
+      if (!sector.uuid?.trim()) {
+        throw new BadRequestException(
+          `"${sector.name}": un sector sin uuid no se puede aplicar por partes. Guardá el mapa completo.`
+        );
+      }
+    }
+
+    const current = await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid: existing.uuid }
+    });
+
+    // Estado resultante: lo guardado, menos lo borrado, con lo que viene
+    // pisando por uuid. Es sobre ESTO que corren las validaciones.
+    const upsertByUuid = new Map(upserts.map(sector => [sector.uuid!.trim(), sector]));
+    const untouched = current.filter(
+      row => !removals.has(row.uuid) && !upsertByUuid.has(row.uuid) && !isStageSectorName(row.name)
+    );
+
+    const stageLayout = this.resolvePatchStageLayout(input, existing);
+
+    let sortOrder = untouched.reduce((max, row) => Math.max(max, row.sortOrder ?? 0), -1);
+    const merged: Array<{ uuid: string; name: string; level: string | null; layout: MapSectorLayout }> = [];
+    const items: MapGridItem[] = [{ id: '__stage__', label: 'Escenario', layout: stageLayout }];
+
+    for (const row of untouched) {
+      const layout = isSectorLayout(row.layout) ? row.layout : null;
+      // Una fila guardada sin layout no se puede validar contra el resto: es de
+      // antes de la grilla y necesita un guardado completo para normalizarse.
+      if (!layout) {
+        throw new BadRequestException(
+          `El sector "${row.name}" quedó sin celdas de una versión anterior. Guardá el mapa completo una vez.`
+        );
+      }
+      merged.push({ uuid: row.uuid, name: row.name, level: row.level ?? null, layout });
+      items.push({
+        id: row.uuid,
+        label: [row.level?.trim(), row.name].filter(Boolean).join(' · '),
+        layout
+      });
+    }
+
+    try {
+      for (const sector of upserts) {
+        const uuid = sector.uuid!.trim();
+        const label = sector.name?.trim() || uuid;
+        const layout = validateSectorLayout(sector.layout, `"${label}"`);
+        merged.push({ uuid, name: label, level: sector.level?.trim() || null, layout });
+        items.push({
+          id: uuid,
+          label: [sector.level?.trim(), label].filter(Boolean).join(' · '),
+          layout
+        });
+      }
+      assertNoOverlaps(items);
+    } catch (err) {
+      if (err instanceof MapGridError) throw new BadRequestException(err.message);
+      throw err;
+    }
+
+    this.assertUniqueSectorNames(merged);
+    await this.validateSectorTicketTypes(event.uuid, upserts);
+
+    const analysisToStore = this.mergePatchAnalysis(input, existing, stageLayout);
+
+    const queryRunner = this.dbRepository.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Mismo lock que el PUT: los dos reemplazan filas del mismo mapa y no
+      // pueden entrelazarse.
+      await this.dbRepository.query(
+        'SELECT uuid FROM event_map WHERE uuid = ? FOR UPDATE',
+        [existing.uuid],
+        queryRunner
+      );
+
+      const patch: Record<string, unknown> = { stageLayout: JSON.stringify(stageLayout) };
+      if (input.name !== undefined) patch.name = input.name.trim() || existing.name;
+      if (analysisToStore !== undefined) {
+        patch.analysis = analysisToStore == null ? null : JSON.stringify(analysisToStore);
+      }
+      patch.needsReanalysis = false;
+      const fields = Object.keys(patch);
+      await this.dbRepository.query(
+        `UPDATE event_map SET ${fields.map(f => `\`${f}\` = ?`).join(', ')} WHERE uuid = ?`,
+        [...fields.map(f => patch[f]), existing.uuid],
+        queryRunner
+      );
+
+      if (removals.size) {
+        const ids = [...removals];
+        await this.dbRepository.query(
+          `DELETE FROM event_map_sector WHERE mapUuid = ? AND uuid IN (${ids.map(() => '?').join(', ')})`,
+          [existing.uuid, ...ids],
+          queryRunner
+        );
+      }
+
+      for (const sector of upserts) {
+        const uuid = sector.uuid!.trim();
+        const layout = validateSectorLayout(sector.layout, `"${sector.name}"`);
+        const color = (sector.color ?? '').trim().slice(0, 32) || null;
+        const known = current.find(row => row.uuid === uuid);
+        const order = sector.sortOrder ?? known?.sortOrder ?? ++sortOrder;
+
+        // Upsert en una sola ida: la fila puede existir (se movió) o no (recién
+        // dibujada), y el cliente no tiene por qué saber cuál de las dos es.
+        await this.dbRepository.query(
+          `INSERT INTO event_map_sector
+             (uuid, mapUuid, name, level, familyLabel, layout, geometry, color, sortOrder, isNumbered, capacity)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             name = VALUES(name), level = VALUES(level), familyLabel = VALUES(familyLabel),
+             layout = VALUES(layout), geometry = VALUES(geometry), color = VALUES(color),
+             sortOrder = VALUES(sortOrder), isNumbered = VALUES(isNumbered), capacity = VALUES(capacity)`,
+          [
+            uuid,
+            existing.uuid,
+            sector.name.trim(),
+            sector.level?.trim() || null,
+            sector.familyLabel?.trim().slice(0, 160) || null,
+            JSON.stringify(layout),
+            JSON.stringify(layoutToLegacyGeometry(layout, color)),
+            color,
+            order,
+            sector.isNumbered ?? false,
+            sector.capacity ?? null
+          ],
+          queryRunner
+        );
+
+        // Los vínculos del sector se reemplazan enteros: el cliente manda el
+        // conjunto final, igual que en el PUT.
+        await this.dbRepository.query(
+          'DELETE FROM event_map_sector_ticket_type WHERE sectorUuid = ?',
+          [uuid],
+          queryRunner
+        );
+        for (const ticketTypeUuid of sector.ticketTypeUuids ?? []) {
+          await this.dbRepository.query(
+            'INSERT INTO event_map_sector_ticket_type (uuid, sectorUuid, ticketTypeUuid) VALUES (?, ?, ?)',
+            [uuidv4(), uuid, ticketTypeUuid],
+            queryRunner
+          );
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    return this.loadEventMap({
+      ...existing,
+      name: input.name?.trim() || existing.name,
+      analysis: analysisToStore !== undefined ? analysisToStore : existing.analysis,
+      stageLayout,
+      needsReanalysis: false
+    });
+  }
+
+  /** Escenario del patch: omitido conserva, null vuelve al default. */
+  private resolvePatchStageLayout(
+    input: TPatchEventMap,
+    existing: { stageLayout?: unknown; analysis?: unknown }
+  ): MapSectorLayout {
+    try {
+      if (input.stageLayout === undefined) {
+        return isSectorLayout(existing.stageLayout)
+          ? existing.stageLayout
+          : stageLayoutFromAnalysis(existing.analysis ?? null);
+      }
+      if (input.stageLayout === null) return stageLayoutFromAnalysis(existing.analysis ?? null);
+      return validateSectorLayout(input.stageLayout, 'Escenario');
+    } catch (err) {
+      if (err instanceof MapGridError) throw new BadRequestException(err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Mezcla el diff de `analysis` sobre el guardado: los grupos que vienen
+   * reemplazan al de su `id`, los listados en `remove` se van, y el resto queda
+   * intacto. Devuelve `undefined` si el patch no toca el analysis.
+   */
+  private mergePatchAnalysis(
+    input: TPatchEventMap,
+    existing: { analysis?: Record<string, unknown> | null },
+    stageLayout: MapSectorLayout
+  ): Record<string, unknown> | null | undefined {
+    const diff = input.analysis;
+    if (!diff) return undefined;
+
+    const base = (existing.analysis ?? {}) as Record<string, unknown>;
+    const baseLayout = (base.layout ?? {}) as Record<string, unknown>;
+    const baseGroups = Array.isArray(baseLayout.groups)
+      ? (baseLayout.groups as Array<Record<string, unknown>>)
+      : [];
+
+    const removed = new Set(diff.groups?.remove ?? []);
+    const upsert = diff.groups?.upsert ?? [];
+    const upsertById = new Map(
+      upsert
+        .filter(group => typeof group.id === 'string' && group.id)
+        .map(group => [group.id as string, group])
+    );
+
+    const groups: Array<Record<string, unknown>> = [];
+    for (const group of baseGroups) {
+      const id = typeof group.id === 'string' ? group.id : null;
+      if (id && removed.has(id)) continue;
+      if (id && upsertById.has(id)) {
+        groups.push(upsertById.get(id)!);
+        upsertById.delete(id);
+        continue;
+      }
+      groups.push(group);
+    }
+    // Los que no estaban se agregan al final, en el orden en que llegaron.
+    for (const group of upsert) {
+      const id = typeof group.id === 'string' ? group.id : null;
+      if (id && upsertById.has(id)) groups.push(group);
+    }
+
+    return toGridAnalysis(
+      {
+        ...base,
+        categories: diff.categories ?? base.categories ?? [],
+        layout: { ...baseLayout, groups }
+      },
+      { stageLayout }
+    );
+  }
+
+  /**
    * El escenario ya no es un sector. Si un cliente lo sigue mandando como
    * sector "ESCENARIO" sin tandas, se saca de la lista y (si no vino
    * `stageLayout`) sus celdas pasan a ser las del escenario.
@@ -1600,7 +1871,9 @@ export class EventService implements IEventService {
    * La restricción sigue existiendo porque el nombre es lo que ve el validador
    * en la puerta: dentro de un mismo nivel no puede haber dos iguales.
    */
-  private assertUniqueSectorNames(sectors: TUpsertEventMap['sectors']): void {
+  private assertUniqueSectorNames(
+    sectors: ReadonlyArray<{ name?: string | null; level?: string | null }>
+  ): void {
     const seen = new Map<string, { name: string; level: string | null }>();
     for (const sector of sectors) {
       const name = sector.name?.trim() ?? '';
@@ -1675,10 +1948,19 @@ export class EventService implements IEventService {
     const newSectors: EventMapSectorEntity[] = [];
     const newLinks: EventMapSectorTicketTypeEntity[] = [];
 
+    // Un uuid repetido en el payload haría fallar el INSERT entero por PK
+    // duplicada. Los ids los genera el editor (uno por unidad del mapa), así
+    // que acá alcanza con no confiar: el primero se queda con el id y el resto
+    // estrena uno.
+    const usedUuids = new Set<string>();
+
     for (let i = 0; i < sectors.length; i++) {
       const src = sectors[i];
       const sector = new EventMapSectorEntity();
-      sector.uuid = src.uuid?.trim() || uuidv4();
+      const requestedUuid = src.uuid?.trim();
+      sector.uuid =
+        requestedUuid && !usedUuids.has(requestedUuid) ? requestedUuid : uuidv4();
+      usedUuids.add(sector.uuid);
       sector.mapUuid = mapUuid;
       sector.name = src.name.trim();
       sector.level = src.level?.trim() || null;

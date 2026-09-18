@@ -41,6 +41,9 @@ import {
 const FULL_AREA: AiEventMapArea = { x: 0, y: 0, w: 1, h: 1, confidence: 1 };
 
 /** Margen de una celda alrededor del contenido al estirar los recuadros. */
+/** Una zona recortada nunca baja de esto: si no, desaparece del plano. */
+const MIN_ZONE_SPAN = 3;
+
 const MARGIN = 1 / MAP_GRID_SIZE;
 /** Franja reservada al escenario cuando no vino dibujado. */
 const STAGE_BAND = 2 / MAP_GRID_SIZE;
@@ -134,6 +137,29 @@ function categorySizeKey(group: AiEventMapLayoutGroup): string {
   return `type:${group.elementType}`;
 }
 
+/**
+ * Normaliza la MAGNITUD de la unidad conservando su orientación.
+ *
+ * El tamaño de cada unidad no lo decide nadie: sale de dividir el bbox que
+ * mandó el modelo por rows×columns. Como el prompt le permitía usar "un
+ * múltiplo exacto" del grid, podía mandar 10×10 para una grilla de 10 columnas
+ * y 5 filas, y cada mesa salía 1×2 —un rectángulo vertical donde el plano
+ * dibuja un círculo—. Con otro flyer elegía otro múltiplo y la misma mesa salía
+ * 1×1 o 2×2: de ahí la variabilidad.
+ *
+ * Reglas:
+ *  - Mesas y sillas son cuadradas en todos los planos: 1×1, siempre.
+ *  - El resto conserva si el modelo la midió más ancha que alta (o al revés),
+ *    porque eso sí describe al plano, pero con la magnitud mínima.
+ *  - Nunca más de 2 celdas por eje. Una unidad grande multiplica por N el alto
+ *    del bloque y el mapa termina sin entrar en la vista.
+ */
+function normalizeUnitSize(elementType: string, size: UnitSize): UnitSize {
+  if (elementType === 'table' || elementType === 'seat') return { uw: 1, uh: 1 };
+  if (size.uw === size.uh) return { uw: 1, uh: 1 };
+  return size.uw > size.uh ? { uw: 2, uh: 1 } : { uw: 1, uh: 2 };
+}
+
 /** El más chico: unificar nunca agranda unidades (evita pisar vecinos). */
 function pickCanonicalSize(sizes: UnitSize[]): UnitSize {
   return sizes.reduce((best, s) => {
@@ -164,9 +190,17 @@ function canonicalUnitSizes(
     list.push(naturalUnitSize(g, cell));
     byKey.set(key, list);
   }
+  const elementByKey = new Map<string, string>();
+  for (const g of groups) {
+    if (!isRigid(g)) continue;
+    elementByKey.set(categorySizeKey(g), g.elementType);
+  }
+
   const out = new Map<string, UnitSize>();
   for (const [key, sizes] of byKey) {
-    if (sizes.length) out.set(key, pickCanonicalSize(sizes));
+    if (!sizes.length) continue;
+    const canonical = pickCanonicalSize(sizes);
+    out.set(key, normalizeUnitSize(elementByKey.get(key) ?? 'zone', canonical));
   }
   return out;
 }
@@ -437,6 +471,66 @@ function applyTetrisZoneNests(
  * Muta `result`: escenario y grupos quedan con celdas exactas y sin solapes.
  * Devuelve los ids de grupos que no entraron (también van a `warnings`).
  */
+/**
+ * Recorta las zonas para que no se salgan del área que ocupan los bloques
+ * vendibles.
+ *
+ * El campo general es una mancha: su cupo lo escribe el productor y sus celdas
+ * no representan nada vendible, así que al modelo no le cuesta nada estirarlo
+ * para llenar el espacio que le sobra. En un plano real quedó de 8×10 colgando
+ * siete filas por debajo del último palco, y eso empuja el escenario y el resto
+ * fuera de la vista.
+ *
+ * El techo no es el TAMAÑO sino la EXTENSIÓN: una zona puede ser tan grande
+ * como quiera mientras viva dentro del rectángulo que ocupan las mesas, palcos
+ * y boxes. Lo que asome afuera se recorta, con un mínimo de 3 celdas por eje
+ * para que no desaparezca.
+ *
+ * Un mapa de puras zonas (campo + plateas, sin nada rígido) no tiene contra qué
+ * medirse y se deja tal cual.
+ */
+function clampZonesToRigidExtent(
+  groups: AiEventMapLayoutGroup[],
+  baseCells: Map<string, MapGridCell>
+): void {
+  let minCol = Infinity;
+  let minRow = Infinity;
+  let maxCol = -Infinity;
+  let maxRow = -Infinity;
+  let rigidCount = 0;
+
+  for (const g of groups) {
+    if (!isRigid(g)) continue;
+    const cell = baseCells.get(g.id);
+    if (!cell) continue;
+    rigidCount++;
+    minCol = Math.min(minCol, cell.col);
+    minRow = Math.min(minRow, cell.row);
+    maxCol = Math.max(maxCol, cell.col + cell.colSpan - 1);
+    maxRow = Math.max(maxRow, cell.row + cell.rowSpan - 1);
+  }
+
+  if (rigidCount < 2 || !Number.isFinite(minCol)) return;
+
+  for (const g of groups) {
+    if (isRigid(g)) continue;
+    const cell = baseCells.get(g.id);
+    if (!cell) continue;
+
+    const col = Math.max(cell.col, minCol);
+    const row = Math.max(cell.row, minRow);
+    const colEnd = Math.min(cell.col + cell.colSpan - 1, maxCol);
+    const rowEnd = Math.min(cell.row + cell.rowSpan - 1, maxRow);
+
+    const colSpan = Math.max(MIN_ZONE_SPAN, colEnd - col + 1);
+    const rowSpan = Math.max(MIN_ZONE_SPAN, rowEnd - row + 1);
+    if (col === cell.col && row === cell.row && colSpan === cell.colSpan && rowSpan === cell.rowSpan) {
+      continue;
+    }
+    baseCells.set(g.id, clampCell({ col, row, colSpan, rowSpan }));
+  }
+}
+
 export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
   const area =
     result.mapArea && result.mapArea.w > 0 && result.mapArea.h > 0 ? result.mapArea : FULL_AREA;
@@ -471,6 +565,9 @@ export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
 
   // 2b. Tetris: anidar premium en el wrap (VIP dentro de FANS L, etc.).
   applyTetrisZoneNests(result, baseCells);
+
+  // 2c. Una zona no puede ser más grande que todo lo vendible que la rodea.
+  clampZonesToRigidExtent(groups, baseCells);
 
   // Misma categoría ⇒ mismo tamaño de unidad (p. ej. palcos laterales vs abajo).
   const sizeByCategory = canonicalUnitSizes(groups, baseCells);

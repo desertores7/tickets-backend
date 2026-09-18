@@ -41,6 +41,15 @@ export type GridAnalysisGroup = {
   elementType: string;
   layoutType: string;
   labels: string[];
+  /**
+   * Identidad estable de cada unidad, mismo orden y largo que `labels`.
+   *
+   * Es el `uuid` de la fila `event_map_sector`. Los labels se renumeran solos
+   * en el editor (son "<categoria> <ordinal>"), así que el nombre no puede ser
+   * lo que ata una unidad con su tanda: sin esto, agregar un bloque en el medio
+   * corría el vínculo a la unidad de al lado.
+   */
+  unitIds?: string[];
   category: string | null;
   categoryAssignments: Array<Record<string, unknown>>;
   count: number;
@@ -145,6 +154,13 @@ function normalizeGroup(raw: Obj, mapArea: NormBox | null): GridAnalysisGroup | 
       (isSectorLayout(raw.layout) ? layoutBounds(raw.layout) : null) ??
       (readBox(raw.box) ? boxToCell(readBox(raw.box)!, mapArea ?? undefined) : null);
 
+  // Los ids viajan tal cual: son identidad, no geometría, y esta función es la
+  // que decide qué se persiste. Si se cayeran acá, cada guardado volvería a
+  // emparejar por nombre.
+  const unitIds = Array.isArray(raw.unitIds)
+    ? raw.unitIds.filter((u): u is string => typeof u === 'string' && !!u.trim())
+    : [];
+
   const out: GridAnalysisGroup = {
     id,
     elementType: str(raw.elementType, 'zone'),
@@ -164,6 +180,8 @@ function normalizeGroup(raw: Obj, mapArea: NormBox | null): GridAnalysisGroup | 
   } else if (unitsMatch) {
     out.unitCells = rawUnits;
   }
+
+  if (unitIds.length === Math.max(1, labels.length)) out.unitIds = unitIds;
 
   const ordering = strOrNull(raw.ordering);
   const rows = numOrNull(raw.rows);

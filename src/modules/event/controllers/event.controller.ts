@@ -32,7 +32,14 @@ import { ApiPagination, IPaginationParams, PaginationParams } from '@root/shared
 import { ApiSearch, ISearchParams, SearchParams } from '@root/shared/decorators/search-query.decorator';
 import { ApiFilter, FilterParams, IFiltersParams } from '@root/shared/decorators/filter-query.decorator';
 import { PaginationMetaResponse } from '@root/shared/responses/pagination-meta.response';
-import { IEventService, TEventProducer, TEventValidator, TUpsertEventMap, TUserSummary } from '../services/contracts/ievent.service';
+import {
+  IEventService,
+  TEventProducer,
+  TEventValidator,
+  TPatchEventMap,
+  TUpsertEventMap,
+  TUserSummary
+} from '../services/contracts/ievent.service';
 import { EVENT_ORDER_COLUMNS, eventFilters } from './const/event.filters';
 import { EXPENSE_ORDER_COLUMNS, expenseFilters } from './const/expense.filters';
 import { ApiOrder, IOrderParams, OrderParams } from '@root/shared/decorators/order-query.decorator';
@@ -87,6 +94,7 @@ import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.respo
 import {
   SetMapBaseFromMediaRequest,
   SetTicketTypeMapSectorsRequest,
+  PatchEventMapRequest,
   UpsertEventMapRequest
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
@@ -624,6 +632,34 @@ export class EventController {
     const map = await this._eventService.upsertEventMap(
       eventUuid,
       body as unknown as TUpsertEventMap,
+      loggedUser
+    );
+    return new EventMapResponse(map);
+  }
+
+  @UserAuth(PatchEventMapRequest, EventMapResponse)
+  @ApiOperation({
+    summary: 'Actualizar mapa — parcial',
+    description:
+      'Aplica solo lo que cambió: sectores a crear/modificar (`sectors.upsert`, por uuid) y a ' +
+      'borrar (`sectors.remove`), grupos del `analysis` (`analysis.groups.upsert` / `.remove`) y ' +
+      'el escenario. Todo lo omitido se conserva.\n\n' +
+      'Las validaciones son las mismas que en el PUT y corren sobre el mapa RESULTANTE, no sobre ' +
+      'el diff: nombres únicos por (nivel, nombre) y ninguna celda compartida entre sectores ni ' +
+      'con el escenario (400). Requiere un mapa ya creado y que cada sector traiga su uuid; si no, ' +
+      'usá el PUT.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Mapa')
+  @Patch(':eventUuid/map')
+  async patchEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @Body() body: PatchEventMapRequest,
+    @User() loggedUser: string
+  ): Promise<EventMapResponse> {
+    const map = await this._eventService.patchEventMap(
+      eventUuid,
+      body as unknown as TPatchEventMap,
       loggedUser
     );
     return new EventMapResponse(map);

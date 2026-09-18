@@ -199,6 +199,98 @@ export class UpsertEventMapRequest {
   sectors: UpsertEventMapSectorDto[];
 }
 
+/** Grupos del `analysis` que cambiaron, y los que dejaron de existir. */
+export class PatchEventMapAnalysisGroupsDto {
+  @ApiPropertyOptional({
+    type: [Object],
+    description: 'Grupos nuevos o modificados, completos. Se reemplazan por `id`.'
+  })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  upsert?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Ids de grupos a quitar del analysis.' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  remove?: string[];
+}
+
+export class PatchEventMapAnalysisDto {
+  @ApiPropertyOptional({
+    type: [Object],
+    description: 'Lista COMPLETA de categorías. Son pocas y cambian juntas.'
+  })
+  @IsOptional()
+  @IsArray()
+  @IsObject({ each: true })
+  categories?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: PatchEventMapAnalysisGroupsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PatchEventMapAnalysisGroupsDto)
+  @IsObject()
+  groups?: PatchEventMapAnalysisGroupsDto;
+}
+
+export class PatchEventMapSectorsDto {
+  @ApiPropertyOptional({ type: [UpsertEventMapSectorDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpsertEventMapSectorDto)
+  upsert?: UpsertEventMapSectorDto[];
+
+  @ApiPropertyOptional({ type: [String], description: 'UUIDs de sectores a eliminar.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  remove?: string[];
+}
+
+/**
+ * Cambio incremental del mapa: viaja solo lo que el productor tocó.
+ *
+ * Todo lo omitido se conserva tal cual está guardado. Pensado para el caso
+ * normal del editor —mover un bloque, agregar una mesa— donde el PUT completo
+ * manda cientos de sectores idénticos a los que ya están en la base.
+ */
+export class PatchEventMapRequest {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({
+    type: MapSectorLayoutDto,
+    nullable: true,
+    description: 'Omitido = se conserva; null = default por posición del escenario.'
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @ValidateNested()
+  @Type(() => MapSectorLayoutDto)
+  @IsObject()
+  stageLayout?: MapSectorLayoutDto | null;
+
+  @ApiPropertyOptional({ type: PatchEventMapAnalysisDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PatchEventMapAnalysisDto)
+  @IsObject()
+  analysis?: PatchEventMapAnalysisDto;
+
+  @ApiPropertyOptional({ type: PatchEventMapSectorsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PatchEventMapSectorsDto)
+  @IsObject()
+  sectors?: PatchEventMapSectorsDto;
+}
+
 export class SetTicketTypeMapSectorsRequest {
   @ApiProperty({
     type: [String],

@@ -88,6 +88,36 @@ export type TUpsertEventMap = {
   sectors: TUpsertEventMapSector[];
 };
 
+/**
+ * Cambio incremental del mapa.
+ *
+ * Guardar el mapa entero para mover una mesa manda cientos de sectores que no
+ * cambiaron (en un plano de 105 unidades son ~60 KB por guardado). Con el id de
+ * unidad estable el cliente puede decir exactamente qué tocó, y esto aplica
+ * solo eso.
+ *
+ * Todo campo omitido se conserva. `sectors.remove` y `analysis.groups.remove`
+ * son listas de ids; el resto de las filas y grupos ni se miran.
+ */
+export type TPatchEventMap = {
+  name?: string;
+  /** Omitido = se conserva; null = default por posición del escenario. */
+  stageLayout?: unknown;
+  analysis?: {
+    /** Lista completa: son pocas y cambian juntas (color, precio, label). */
+    categories?: Array<Record<string, unknown>>;
+    groups?: {
+      upsert?: Array<Record<string, unknown>>;
+      remove?: string[];
+    };
+  };
+  sectors?: {
+    upsert?: TUpsertEventMapSector[];
+    /** UUIDs de sectores a borrar. */
+    remove?: string[];
+  };
+};
+
 export type TTicketTypeMapSectors = {
   ticketTypeUuid: string;
   sectorUuids: string[];
@@ -346,6 +376,9 @@ export interface IEventService {
   ): Promise<TEventMap & { isPublic: boolean }>;
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
+
+  /** Aplica solo lo que cambió. Requiere un mapa ya creado (si no, 400). */
+  patchEventMap(eventUuid: string, data: TPatchEventMap, loggedUser: string): Promise<TEventMap>;
 
   setTicketTypeMapSectors(
     eventUuid: string,
