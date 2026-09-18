@@ -51,6 +51,13 @@ const ordersCreated = new Counter('orders_created');
 const soldOut = new Counter('orders_sold_out');
 const throttled = new Counter('responses_429');
 const serverErrors = new Counter('responses_5xx');
+// Desglose de los 5xx y los cortes: cada uno se arregla distinto.
+const appErrors = new Counter('responses_500_api');
+const gatewayErrors = new Counter('responses_502_503_504');
+const cloudflareErrors = new Counter('responses_cloudflare_52x');
+/** Error cuyo cuerpo es la página de Cloudflare: el pedido nunca llegó a nginx. */
+const cloudflareGenerated = new Counter('responses_generadas_por_cloudflare');
+const timeouts = new Counter('timeouts');
 const orderOk = new Rate('order_success_rate');
 const timeToOrder = new Trend('time_to_order_ms', true);
 
@@ -80,8 +87,23 @@ export function setup() {
 }
 
 function track(res) {
+  if (res.status === 0) {
+    timeouts.add(1);
+    return;
+  }
   if (res.status === 429) throttled.add(1);
-  if (res.status >= 500) serverErrors.add(1);
+  if (res.status < 500) return;
+
+  serverErrors.add(1);
+  if (res.status >= 520 && res.status <= 527) cloudflareErrors.add(1);
+  else if (res.status >= 502 && res.status <= 504) gatewayErrors.add(1);
+  else appErrors.add(1);
+
+  // Cloudflare responde sus propios errores con una página HTML suya. Si el
+  // cuerpo la trae, el pedido murió antes de llegar al servidor y por eso no
+  // aparece en los logs de nginx ni de la API.
+  const body = typeof res.body === 'string' ? res.body.toLowerCase() : '';
+  if (body.includes('cloudflare')) cloudflareGenerated.add(1);
 }
 
 export default function (data) {
@@ -91,7 +113,7 @@ export default function (data) {
   if (PRELOGIN) {
     // Sesión abierta antes de la apertura, repartida en la ventana de login.
     sleep(Math.random() * LOGIN_WINDOW_SECONDS);
-    token = login(buyerIndex);
+    token = login(buyerIndex, track);
     if (!token) {
       orderOk.add(false);
       return;
@@ -111,7 +133,7 @@ export default function (data) {
   const started = Date.now();
 
   if (!PRELOGIN) {
-    token = login(buyerIndex);
+    token = login(buyerIndex, track);
     if (!token) {
       orderOk.add(false);
       return;

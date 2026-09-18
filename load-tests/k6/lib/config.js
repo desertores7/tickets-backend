@@ -37,13 +37,19 @@ export function requireEnv(names) {
   if (missing.length) fail(`Faltan variables: ${missing.join(', ')}`);
 }
 
-/** Login de un comprador de prueba. Devuelve el access token o null. */
-export function login(index) {
+/**
+ * Login de un comprador de prueba. Devuelve el access token o null.
+ *
+ * `onResponse` deja que el escenario cuente el código de respuesta: sin eso, un
+ * login fallido no dice si fue un 429, un 500 de la API o un corte de Cloudflare.
+ */
+export function login(index, onResponse) {
   const res = http.post(
     `${API}/auth/login`,
     JSON.stringify({ email: loadTestEmail(index), password: LOAD_TEST_PASSWORD }),
     { headers: baseHeaders(), tags: { name: 'POST /auth/login' } }
   );
+  if (onResponse) onResponse(res);
   const ok = check(res, { 'login 200': r => r.status === 200 });
   if (!ok) return null;
   return res.json('access_token') || null;

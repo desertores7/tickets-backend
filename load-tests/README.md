@@ -127,9 +127,14 @@ Sale con error si hubo sobreventa.
 En el servidor, en paralelo:
 
 ```bash
-docker stats showpass-api
-docker logs -f --tail 50 showpass-api
+cd /docker/showpass
+docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" $(docker ps --filter name=showpass-showpass-api --format "{{.Names}}")
+docker compose logs -f --tail 20 showpass-api
 ```
+
+La API corre en 6 réplicas (`showpass-showpass-api-1..6`): los comandos `docker`
+van con el nombre de cada contenedor; los `docker compose`, con el del servicio
+(`showpass-api`), y abarcan las 6.
 
 ## Limpieza
 
