@@ -17,9 +17,20 @@ export const EVENT_SLUG = __ENV.EVENT_SLUG;
 export const BYPASS_TOKEN = __ENV.BYPASS_TOKEN || '';
 export const LOAD_TEST_PASSWORD = __ENV.LOAD_TEST_PASSWORD;
 
-/** Mismo formato que `load-tests/scripts/db.js`. */
+/**
+ * Casilla a la que se redirigieron los compradores (`redirect-emails.js --to`),
+ * para la prueba de post-pago. Vacío = emails originales.
+ */
+export const EMAIL_TO = __ENV.EMAIL_TO || '';
+
+/** Mismo formato que `load-tests/scripts/db.js` y `redirect-emails.js`. */
 export function loadTestEmail(index) {
-  return `loadtest+${String(index).padStart(5, '0')}@showpass-loadtest.invalid`;
+  const n = String(index).padStart(5, '0');
+  if (EMAIL_TO) {
+    const [local, domain] = EMAIL_TO.split('@');
+    return `${local}+loadtest-${n}@${domain}`;
+  }
+  return `loadtest+${n}@showpass-loadtest.invalid`;
 }
 
 export function baseHeaders(extra = {}) {

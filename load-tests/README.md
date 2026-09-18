@@ -159,7 +159,7 @@ del servidor de correo.
    ```bash
    docker run --rm -i -v "$PWD/load-tests/k6:/scripts" grafana/k6 run \
      -e EVENT_UUID -e EVENT_SLUG -e BYPASS_TOKEN -e LOAD_TEST_PASSWORD \
-     -e BUYERS=50 -e PRELOGIN=1 -e CANCEL=0 /scripts/on-sale.js
+     -e BUYERS=50 -e PRELOGIN=1 -e CANCEL=0 -e EMAIL_TO=info@showpass.com.ar /scripts/on-sale.js
    ```
 
 3. En el servidor, pagarlas:
