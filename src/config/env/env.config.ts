@@ -80,6 +80,13 @@ export const envSchema = z.object({
    */
   REDIS_QUEUE_PREFIX: z.string().default('showpass:local'),
 
+  /**
+   * Pase para pruebas de carga (`AppThrottlerGuard`): las peticiones con este
+   * token en `x-load-test-token` no cuentan para el límite. Vacía = apagado.
+   * Mínimo 32 caracteres; se configura solo durante una ventana de pruebas.
+   */
+  LOAD_TEST_BYPASS_TOKEN: z.string().optional(),
+
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   // Credenciales de la *aplicacion* MP, distintas del access token del checkout:

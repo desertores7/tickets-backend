@@ -380,10 +380,11 @@ export interface IEventService {
   getEventMap(eventUuid: string, loggedUser: string): Promise<TEventMap>;
 
   /** Mapa de solo lectura: publicado = público; borrador = dueño/admin. Siempre incluye ticketTypes. */
+  /** `isPublic`: el evento está publicado, así que cualquiera ve lo mismo (se puede cachear). */
   getEventMapPublic(
     eventUuid: string,
     opts?: { loggedUser?: string | null; role?: string | null }
-  ): Promise<TEventMap>;
+  ): Promise<TEventMap & { isPublic: boolean }>;
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
 

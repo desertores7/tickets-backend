@@ -13,7 +13,7 @@ Backend de una plataforma de venta de entradas (ticketera) tipo Passline, para e
 - **Package manager**: pnpm
 - **Pagos**: Mercado Pago (Checkout Pro, cuenta única)
 - **Storage de archivos**: disco local con volumen Docker — **NO S3/R2** (migración futura posible)
-- **Email**: Gmail SMTP con contraseña de aplicación (nodemailer) — solo para desarrollo/MVP
+- **Email**: nodemailer con `SMTP_*`. Producción usa el SMTP del servidor propio; Gmail (contraseña de aplicación) solo en desarrollo
 - **Contenedores**: Docker + docker-compose (api, redis, volumen tickets_storage). MySQL corre en el HOST, no en Docker — el contenedor se conecta vía `host.docker.internal`
 
 ## Reglas de MySQL (crítico)
@@ -46,7 +46,11 @@ modules/<nombre>/
 - Módulos se registran en `src/modules/controller.module.ts` y `src/modules/service.module.ts`
 - Entidades TypeORM en `src/config/db/entities/` (registrarlas en el sistema de entidades existente)
 - Migraciones en `src/migrations/` siguiendo el patrón de `1781635200000-InitialSchema.ts`. Las columnas FK a UUIDs deben ser `varchar(36)` (NO `char(36)`) — InnoDB rechaza FKs entre tipos distintos y todas las PKs existentes son `varchar(36)`
-- Migraciones en producción: **las corre el deploy** (`scripts/deploy-tickets-backend.sh`) con la imagen nueva, entre el build y el `up`; si fallan, el deploy se corta y queda el contenedor anterior. Por eso toda migración tiene que ser compatible con el código anterior (agregar columnas sí; renombrar/borrar en dos deploys). A mano, si hace falta (sobre código compilado — el script pnpm con ts-node NO funciona ahí): `docker exec -e NODE_ENV=production showpass-api node node_modules/typeorm/cli.js migration:run -d dist/config/db/data-source.js`
+- **Producción corre 6 instancias de la API** (`deploy.replicas: 6` en el compose del servidor, puertos `8020-8025`), con nginx del host balanceando (`upstream showpass_api`, `least_conn`, en `/etc/nginx/conf.d/showpass-api-upstream.conf`). Node es monohilo: una sola instancia usaba 1 de los 8 núcleos y el login (bcrypt) saturaba ese núcleo con 4 logins/s. Con 6, el mismo pico bajó de 49 s a 0,75 s (ver `load-tests/README.md`).
+  - Los contenedores se llaman `showpass-showpass-api-1..6`: `docker logs showpass-api` ya no existe, se usa `docker compose logs -f showpass-api`.
+  - El deploy las reemplaza **de a una** (`wait_until_healthy` en el script): recrearlas juntas deja ~15 s sin servicio.
+  - Los schedulers de BullMQ (`upsertJobScheduler`) son idempotentes: las 6 registran el mismo id y el job dispara una sola vez.
+- Migraciones en producción: **las corre el deploy** (`scripts/deploy-tickets-backend.sh`) con la imagen nueva, entre el build y el `up`; si fallan, el deploy se corta y queda el contenedor anterior. Por eso toda migración tiene que ser compatible con el código anterior (agregar columnas sí; renombrar/borrar en dos deploys). A mano, si hace falta (sobre código compilado — el script pnpm con ts-node NO funciona ahí): `docker compose exec -T -e NODE_ENV=production showpass-api node node_modules/typeorm/cli.js migration:run -d dist/config/db/data-source.js` (desde `/docker/showpass`; con réplicas, `compose exec` entra a la primera: alcanza, todas usan la misma base)
 - Variables de entorno via `EnvService` (`src/config/env/`) — toda variable nueva se agrega a `env.config.ts` y `env.service.ts`, y al `.env.example`
 - DTOs con `class-validator` / `class-transformer`
 - Decoradores compartidos existentes: `@PaginationQuery`, `@FilterQuery`, `@SearchQuery`, `@OrderQuery`, `@User()`
@@ -137,6 +141,7 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
 - **Regla crítica: una queue = exactamente un processor.** Dos `@Processor()` sobre la misma queue compiten por TODOS los jobs y se pierden silenciosamente (ya pasó una vez con orders/payments). Si un nuevo tipo de job necesita otro worker, crear una queue nueva.
 - Mapeo actual: `tickets`→GenerateQrProcessor, `notifications`→SendOrderTicketsEmailProcessor, `payments`→ProcessWebhookProcessor (jobs `process-webhook` y `process-chargeback`), `orders`→ReleaseExpiredStockProcessor, `maintenance`→CleanupExpiredAssetsProcessor
 - Tipos de jobs en `src/config/redis/bull-jobs.types.ts` — todo tipado, sin `any`
+- **Caché público de navegación** (`PublicResponseCache`, claves `public-cache:*`): `GET /events` (sin `mine`) 15 s, `GET /events/by-slug/:slug` 10 s, `GET /events/:uuid/map/public` 5 s. Guarda el DTO ya armado y solo lo que ve cualquiera (publicado, productora activa). Sin invalidación: un cambio tarda como mucho el TTL en verse. Si Redis falla, responde desde la base. Esas respuestas salen con `Cache-Control: public, max-age=0, s-maxage=N` y CORS `*` (Cloudflare ignora `Vary: Origin`); una regla de Cloudflare solo cachea lo que trae `s-maxage` (ver `load-tests/README.md`). Motivo: la prueba de navegación saturó el servidor a ~1.500 req/s con MySQL en casi 2 núcleos
 
 ## Flujo de compra (implementado)
 
@@ -196,4 +201,4 @@ Ver `.env.example`. Las agregadas durante este desarrollo:
 - Verificar dependencias circulares entre módulos (usar `forwardRef()` solo si es inevitable)
 - Los webhooks de MP pueden llegar duplicados o fuera de orden — toda lógica de pago debe ser idempotente
 - Los datos de seed con UUIDs deben usar solo caracteres hexadecimales válidos (0-9, a-f) — un UUID con `t` o `g` falla la validación `@IsUUID()`
-- Gmail SMTP tiene límite de ~500 emails/día — suficiente para MVP, migrar a proveedor transaccional en producción
+- En desarrollo, Gmail SMTP corta en ~500 emails/día; producción no usa Gmail (SMTP del servidor)

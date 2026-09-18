@@ -11,6 +11,7 @@ import { OrderEntity, OrderStatus } from '@config/db/entities/tickets/order.enti
 import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
 import { RedisService } from '@config/redis/redis.service';
 import { StorageService } from '@root/shared/services/storage.service';
+import { pickEventCover, resolveEventCoverPaths } from '@root/shared/services/event-cover';
 import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
 
 /** Ventana del candado anti-duplicado: sobra para que lleguen los dos caminos. */
@@ -85,6 +86,9 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
     }));
 
     // 5. Datos del template
+    // Portada del email: el banner del evento y, si no tiene, su flyer.
+    const covers = await resolveEventCoverPaths(this.dataSource, [order.event.uuid]);
+
     const eventDate = new Intl.DateTimeFormat('es-AR', {
       weekday: 'long',
       day: 'numeric',
@@ -114,9 +118,7 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       // `toPublicUrl` antepone el host: en la base el banner se guarda relativo
       // (`/static/events/banners/…`), y un `src` relativo en un email no
       // resuelve contra nada — se ve como imagen rota.
-      heroUrl: this.storageService.toPublicUrl(
-        order.event.bannerUrl ?? order.event.bannerImages?.desktop ?? null
-      ),
+      heroUrl: this.storageService.toPublicUrl(pickEventCover(order.event, covers)),
       heroAlt: order.event.name,
       heroKicker: order.event.name
     };

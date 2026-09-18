@@ -65,6 +65,7 @@ import {
 import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITicketTypeBulkUpdate } from '../core/event';
 import { normalizeLineup } from '../core/event-change.helpers';
 import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
+import { getTicketTypeSaleWindowError } from '../core/ticket-type-sale-window';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { selectCurrentTicketType } from '../core/ticket-sales-policy';
@@ -630,6 +631,7 @@ export class EventService implements IEventService {
 
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    this.assertTicketTypeSaleWindow(event, data);
     return this.persistNewTicketType(event.uuid, data);
   }
 
@@ -644,11 +646,24 @@ export class EventService implements IEventService {
   ): Promise<TTicketTypeResponse[]> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
 
+    // Todo el lote antes de crear nada: si la tercera falla, que no queden
+    // creadas las dos primeras.
+    for (const data of items) this.assertTicketTypeSaleWindow(event, data);
+
     const created: TTicketTypeResponse[] = [];
     for (const data of items) {
       created.push(await this.persistNewTicketType(event.uuid, data));
     }
     return created;
+  }
+
+  /** Ventana de venta de la entrada dentro del evento. Ver `getTicketTypeSaleWindowError`. */
+  private assertTicketTypeSaleWindow(
+    event: { endDate: Date | string },
+    window: { saleStartDate?: Date | string | null; saleEndDate?: Date | string | null }
+  ): void {
+    const error = getTicketTypeSaleWindowError(event, window);
+    if (error) throw new BadRequestException(error);
   }
 
   private async persistNewTicketType(eventUuid: string, data: ITicketTypeCreate): Promise<TTicketTypeResponse> {
@@ -754,6 +769,18 @@ export class EventService implements IEventService {
 
     const soldCount = ticketType.quantity - ticketType.availableQuantity;
     const previousQuantity = ticketType.quantity;
+
+    // Se valida la ventana final (lo guardado + lo que cambia): mover solo el
+    // inicio también puede dejarla incoherente con un fin que no vino.
+    if (data.saleStartDate !== undefined || data.saleEndDate !== undefined) {
+      const event = await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventUuid } });
+      if (event) {
+        this.assertTicketTypeSaleWindow(event, {
+          saleStartDate: data.saleStartDate !== undefined ? data.saleStartDate : ticketType.saleStartDate,
+          saleEndDate: data.saleEndDate !== undefined ? data.saleEndDate : ticketType.saleEndDate
+        });
+      }
+    }
 
     const patch: Partial<TicketTypeEntity> = {};
     if (data.name !== undefined) patch.name = data.name;
@@ -1106,7 +1133,7 @@ export class EventService implements IEventService {
   async getEventMapPublic(
     eventUuid: string,
     opts?: { loggedUser?: string | null; role?: string | null }
-  ): Promise<TEventMap> {
+  ): Promise<TEventMap & { isPublic: boolean }> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid: eventUuid, isActive: true }
@@ -1122,7 +1149,8 @@ export class EventService implements IEventService {
       entity: 'event_map',
       where: { eventUuid }
     });
-    return this.loadEventMapBundle(eventUuid, map);
+    const bundle = await this.loadEventMapBundle(eventUuid, map);
+    return { ...bundle, isPublic: !!event.isPublished };
   }
 
   /**
@@ -2729,6 +2757,9 @@ export class EventService implements IEventService {
     } else if (status === 'published') {
       c['isPublished'] = true;
       c['cancelledAt'] = IsNull();
+      // Lo que ya terminó vive en Finalizados: sin esta condición, el filtro de
+      // Publicados mostraba eventos con el cartel de Finalizado encima.
+      c['endDate'] = MoreThanOrEqual(new Date());
     } else if (status === 'cancelled') {
       c['cancelledAt'] = Not(IsNull());
     } else if (status === 'sales_closed') {

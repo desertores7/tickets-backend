@@ -48,6 +48,7 @@ import {
   GetTicketTypeData
 } from './dtos/get-ticket/get-ticket.response';
 import { GetMyTicketsResponse, TicketSummaryData, TicketSummaryResponse } from './dtos/get-my-tickets/get-my-tickets.response';
+import { pickEventCover, resolveEventCoverPaths } from '@root/shared/services/event-cover';
 
 function resolveTicketStatusWhere(
   raw: string[] | undefined
@@ -178,6 +179,10 @@ export class TicketController {
     });
 
     const refundByTicket = await this.loadRefundStatuses(tickets.map(t => t.uuid));
+    const covers = await resolveEventCoverPaths(
+      this.dataSource,
+      tickets.map(t => t.event.uuid)
+    );
 
     const items = tickets.map(t => {
       const data: TicketSummaryData = {
@@ -190,7 +195,8 @@ export class TicketController {
         eventName: t.event.name,
         eventDate: t.event.startDate,
         eventEndDate: t.event.endDate,
-        eventBannerUrl: t.event.bannerUrl ?? null,
+        // Banner, o el flyer si el evento no tiene banner cargado.
+        eventBannerUrl: this.storageService.toPublicUrl(pickEventCover(t.event, covers)),
         venueName: t.event.venueName,
         venueCity: t.event.venueCity ?? null,
         ticketTypeName: t.ticketType.name,
@@ -235,12 +241,15 @@ export class TicketController {
     if (!ticket) throw new NotFoundException('Ticket not found');
     if (ticket.userUuid !== userId) throw new ForbiddenException('Access denied');
 
+    const covers = await resolveEventCoverPaths(this.dataSource, [ticket.event.uuid]);
+
     const event: GetTicketEventData = {
       uuid: ticket.event.uuid,
       name: ticket.event.name,
       startDate: ticket.event.startDate,
       endDate: ticket.event.endDate,
-      bannerUrl: ticket.event.bannerUrl ?? null,
+      // Banner, o el flyer si el evento no tiene banner cargado.
+      bannerUrl: this.storageService.toPublicUrl(pickEventCover(ticket.event, covers)),
       venueName: ticket.event.venueName,
       venueCity: ticket.event.venueCity
     };
