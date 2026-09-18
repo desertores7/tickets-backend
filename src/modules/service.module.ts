@@ -20,6 +20,7 @@ import { EventChangeService } from './event/services/implementation/event-change
 import { RefundService } from './refunds/services/implementation/refund.service';
 import { EventAiService } from './event/services/implementation/event-ai.service';
 import { MapAnalysisJobStore } from './event/services/implementation/map-analysis-job.store';
+import { PublicResponseCache } from './event/services/implementation/public-response-cache';
 import { AnalyzeMapProcessor } from './event/processors/analyze-map.processor';
 import { StockService } from './orders/services/implementation/stock.service';
 import { OrderService } from './orders/services/implementation/order.service';
@@ -90,6 +91,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     MapAnalysisJobStore,
+    PublicResponseCache,
     AnalyzeMapProcessor,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
@@ -136,6 +138,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     { provide: 'ISalesExportService', useClass: SalesExportService },
     { provide: 'IEventAiService', useClass: EventAiService },
     MapAnalysisJobStore,
+    PublicResponseCache,
     { provide: 'IOrderService', useClass: OrderService },
     { provide: 'IPaymentService', useClass: PaymentService },
     { provide: 'ICheckInService', useClass: CheckInService },

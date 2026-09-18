@@ -89,6 +89,7 @@ import {
 } from './requests/upsert-event-map.request';
 import { IEventAiService } from '../services/contracts/ievent-ai.service';
 import { MapAnalysisJobStore } from '../services/implementation/map-analysis-job.store';
+import { PUBLIC_CACHE_TTL, PublicResponseCache } from '../services/implementation/public-response-cache';
 import { randomUUID } from 'crypto';
 
 // Sin @ApiTags a nivel de clase: este controller cubre siete secciones
@@ -98,7 +99,8 @@ export class EventController {
   constructor(
     @Inject('IEventService') private readonly _eventService: IEventService,
     @Inject('IEventAiService') private readonly _eventAiService: IEventAiService,
-    private readonly _mapJobStore: MapAnalysisJobStore
+    private readonly _mapJobStore: MapAnalysisJobStore,
+    private readonly _publicCache: PublicResponseCache
   ) {}
 
   @UserAuth(CreateEventRequest, null)
@@ -284,15 +286,26 @@ export class EventController {
   ): Promise<{ meta: PaginationMetaResponse; items: GetAllEventResponse[] }> {
     // `mine` solo aplica con sesión; sin token cae siempre a la vista pública
     const isMine = mine === 'true' && !!loggedUser;
-    const result = await this._eventService.getEvents(pagination, search, filters, role, {
-      mine: isMine,
-      loggedUser,
-      order
-    });
-    return {
-      meta: result.meta,
-      items: result.items.map(item => new GetAllEventResponse(item))
+    const load = async () => {
+      const result = await this._eventService.getEvents(pagination, search, filters, role, {
+        mine: isMine,
+        loggedUser,
+        order
+      });
+      return {
+        meta: result.meta,
+        items: result.items.map(item => new GetAllEventResponse(item))
+      };
     };
+
+    // El backoffice (`mine`) depende de quién pregunta: nunca se cachea.
+    if (isMine) return load();
+
+    const key = `events:list:${JSON.stringify({ pagination, search, filters, order })}`;
+    return this._publicCache.wrap(key, PUBLIC_CACHE_TTL.list, async () => ({
+      value: await load(),
+      cacheable: true
+    }));
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -311,8 +324,17 @@ export class EventController {
     @Param('slug') slug: string,
     @UserRole() role: string | null
   ): Promise<GetIdEventResponse> {
-    const event = await this._eventService.getEventBySlug(slug, role);
-    return new GetIdEventResponse(event);
+    const key = `events:slug:${(slug ?? '').trim()}`;
+    return this._publicCache.wrap(key, PUBLIC_CACHE_TTL.detail, async () => {
+      const event = await this._eventService.getEventBySlug(slug, role);
+      // Un borrador, o la ficha de una productora suspendida, solo la ve quien
+      // tiene rol: compartirla desde el caché se la mostraría a cualquiera.
+      const organization = (event as { organization?: { active?: number } }).organization;
+      return {
+        value: new GetIdEventResponse(event),
+        cacheable: !!event.isPublished && organization?.active !== 0
+      };
+    });
   }
 
   @OptionalUserAuth(null, GetIdEventResponse)
@@ -539,11 +561,14 @@ export class EventController {
     @OptionalUser() loggedUser: string | null,
     @UserRole() role: string | null
   ): Promise<EventMapResponse> {
-    const map = await this._eventService.getEventMapPublic(eventUuid, {
-      loggedUser,
-      role
+    return this._publicCache.wrap(`events:map:${eventUuid}`, PUBLIC_CACHE_TTL.map, async () => {
+      const map = await this._eventService.getEventMapPublic(eventUuid, {
+        loggedUser,
+        role
+      });
+      // El mapa de un borrador solo lo ve su productora.
+      return { value: new EventMapResponse(map), cacheable: map.isPublic };
     });
-    return new EventMapResponse(map);
   }
 
   @UserAuth(null, EventMapResponse)

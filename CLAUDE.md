@@ -141,6 +141,7 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
 - **Regla crítica: una queue = exactamente un processor.** Dos `@Processor()` sobre la misma queue compiten por TODOS los jobs y se pierden silenciosamente (ya pasó una vez con orders/payments). Si un nuevo tipo de job necesita otro worker, crear una queue nueva.
 - Mapeo actual: `tickets`→GenerateQrProcessor, `notifications`→SendOrderTicketsEmailProcessor, `payments`→ProcessWebhookProcessor (jobs `process-webhook` y `process-chargeback`), `orders`→ReleaseExpiredStockProcessor, `maintenance`→CleanupExpiredAssetsProcessor
 - Tipos de jobs en `src/config/redis/bull-jobs.types.ts` — todo tipado, sin `any`
+- **Caché público de navegación** (`PublicResponseCache`, claves `public-cache:*`): `GET /events` (sin `mine`) 15 s, `GET /events/by-slug/:slug` 10 s, `GET /events/:uuid/map/public` 5 s. Guarda el DTO ya armado y solo lo que ve cualquiera (publicado, productora activa). Sin invalidación: un cambio tarda como mucho el TTL en verse. Si Redis falla, responde desde la base. Motivo: la prueba de navegación saturó el servidor a ~1.500 req/s con MySQL en casi 2 núcleos
 
 ## Flujo de compra (implementado)
 

@@ -1013,7 +1013,7 @@ export class EventService implements IEventService {
   async getEventMapPublic(
     eventUuid: string,
     opts?: { loggedUser?: string | null; role?: string | null }
-  ): Promise<TEventMap> {
+  ): Promise<TEventMap & { isPublic: boolean }> {
     const event = await this.dbRepository.findOne({
       entity: 'event',
       where: { uuid: eventUuid, isActive: true }
@@ -1029,7 +1029,8 @@ export class EventService implements IEventService {
       entity: 'event_map',
       where: { eventUuid }
     });
-    return this.loadEventMapBundle(eventUuid, map);
+    const bundle = await this.loadEventMapBundle(eventUuid, map);
+    return { ...bundle, isPublic: !!event.isPublished };
   }
 
   /**
