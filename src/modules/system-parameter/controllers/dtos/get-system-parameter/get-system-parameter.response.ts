@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { SystemParameterEntity } from '@config/db/entities/system/system_parameter.entity';
+import { SECRET_PARAMETER_KEYS } from '@modules/system-parameter/const/protected-parameters.const';
 
 export class GetSystemParameterResponse {
   @ApiProperty({
@@ -16,9 +17,14 @@ export class GetSystemParameterResponse {
 
   @ApiProperty({
     name: 'value',
-    example: '1440'
+    example: '1440',
+    nullable: true,
+    description: 'null en los parámetros secretos (`isSecret`): su valor nunca sale por la API.'
   })
-  value: string;
+  value: string | null;
+
+  @ApiProperty({ name: 'isSecret', example: false })
+  isSecret: boolean;
 
   @ApiProperty({
     name: 'description',
@@ -62,7 +68,8 @@ export class GetSystemParameterResponse {
   constructor(data: SystemParameterEntity) {
     this.uuid = data.uuid;
     this.key = data.key;
-    this.value = data.value;
+    this.isSecret = SECRET_PARAMETER_KEYS.has(data.key);
+    this.value = this.isSecret ? null : data.value;
     this.description = data.description;
     this.type = data.type;
     this.createdAt = data.createdAt;
