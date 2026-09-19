@@ -96,7 +96,8 @@ export class PaymentService implements IPaymentService {
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
       tickets: item.tickets ?? [],
-      title: ticketTypes[i]?.name ?? 'Entrada'
+      // "Mesa VIP · Mesa VIP · 8": el comprador ve en Mercado Pago qué unidad paga (BR-SALE-010).
+      title: [ticketTypes[i]?.name ?? 'Entrada', item.unitLabel].filter(Boolean).join(' · ')
     }));
 
     const orderForMP = {

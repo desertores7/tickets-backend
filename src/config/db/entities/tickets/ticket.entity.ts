@@ -41,6 +41,14 @@ export class TicketEntity {
   @Column({ type: 'char', length: 36 })
   ticketTypeUuid: string;
 
+  /** Unidad del mapa (mesa 8). Null en tandas generales. */
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  sectorUuid: string | null;
+
+  /** "Mesa VIP · 8", congelado al comprar. */
+  @Column({ type: 'varchar', length: 255, nullable: true, default: null })
+  unitLabel: string | null;
+
   @Column({ type: 'varchar', length: 50, unique: true })
   ticketNumber: string;
 

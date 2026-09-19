@@ -173,7 +173,7 @@ export class CheckInService implements ICheckInService {
    * lock que evita que dos validadores marquen la misma entrada.
    */
   private async commitCheckIn(
-    ticket: { uuid: string; orderItemUuid: string; userUuid: string; eventUuid: string; ticketTypeUuid: string; ticketNumber: string; qrCode: string | null; qrUrl: string | null; pdfUrl: string | null; status: string },
+    ticket: { uuid: string; orderItemUuid: string; userUuid: string; eventUuid: string; ticketTypeUuid: string; ticketNumber: string; qrCode: string | null; qrUrl: string | null; pdfUrl: string | null; status: string; unitLabel?: string | null },
     event: { uuid: string; startDate: Date; endDate: Date },
     scannedBy: string,
     deviceInfo?: Record<string, unknown>
@@ -265,7 +265,8 @@ export class CheckInService implements ICheckInService {
         userUuid: ticket.userUuid,
         status: TicketStatus.USED,
         checkedInAt: now,
-        checkedInBy: scannedBy
+        checkedInBy: scannedBy,
+        unitLabel: ticket.unitLabel ?? null
       };
 
       return { success: true, ticket: updatedTicket, message: 'Check-in exitoso', result: CheckInResultEnum.SUCCESS };
@@ -485,6 +486,7 @@ export class CheckInService implements ICheckInService {
       .addSelect('t.ticketNumber', 'ticketNumber')
       .addSelect("CONCAT(u.firstName, ' ', u.lastName)", 'holderName')
       .addSelect('tt.name', 'ticketTypeName')
+      .addSelect('t.unitLabel', 'unitLabel')
       .addSelect('t.status', 'status')
       .addSelect('t.checkedInAt', 'checkedInAt')
       .from('ticket', 't')

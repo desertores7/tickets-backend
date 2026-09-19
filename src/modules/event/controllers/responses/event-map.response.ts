@@ -37,6 +37,13 @@ export class EventMapSectorResponse {
     description: 'UUID de la única tanda comprable actualmente en este sector.'
   })
   activeTicketTypeUuid: string | null;
+  @ApiProperty({ description: 'Lugares tomados (vendidos + retenidos por órdenes sin pagar) — BR-SALE-010.' })
+  seatsTaken: number;
+  @ApiProperty({
+    description:
+      'Si la unidad se puede elegir: unidad completa sin comprador, o por persona con lugares libres. Siempre true en tandas generales.'
+  })
+  unitAvailable: boolean;
 
   constructor(data: {
     uuid: string;
@@ -50,6 +57,8 @@ export class EventMapSectorResponse {
     capacity: number | null;
     ticketTypeUuids: string[];
     activeTicketTypeUuid: string | null;
+    seatsTaken?: number;
+    unitAvailable?: boolean;
   }) {
     this.uuid = data.uuid;
     this.name = data.name;
@@ -62,6 +71,8 @@ export class EventMapSectorResponse {
     this.capacity = data.capacity;
     this.ticketTypeUuids = data.ticketTypeUuids;
     this.activeTicketTypeUuid = data.activeTicketTypeUuid;
+    this.seatsTaken = data.seatsTaken ?? 0;
+    this.unitAvailable = data.unitAvailable ?? true;
   }
 }
 

@@ -103,3 +103,36 @@ describe('allocateOrderServiceFees', () => {
     expect(total).toBe(10001);
   });
 });
+
+describe('allocateOrderServiceFees — unidad completa (BR-SALE-010)', () => {
+  it('una mesa de $100.000 con 10 entradas paga como 10 entradas de $10.000', () => {
+    const mesa = allocateOrderServiceFees(
+      [{ ticketTypeUuid: 'mesa', quantity: 1, unitPrice: 100000, admissionsPerUnit: 10 }],
+      0,
+      null,
+      0.1,
+      50000
+    );
+    const sueltas = allocateOrderServiceFees(
+      [{ ticketTypeUuid: 'silla', quantity: 10, unitPrice: 10000 }],
+      0,
+      null,
+      0.1,
+      50000
+    );
+    expect(mesa.serviceFee).toBe(sueltas.serviceFee);
+    expect(mesa.serviceFee).toBe(10000);
+  });
+
+  it('el tope aplica por entrada, no a la mesa entera', () => {
+    // Mesa de $1.000.000 con 10 entradas: $100.000 c/u → fee $10.000 c/u, sin tope.
+    const r = allocateOrderServiceFees(
+      [{ ticketTypeUuid: 'mesa', quantity: 1, unitPrice: 1000000, admissionsPerUnit: 10 }],
+      0,
+      null,
+      0.1,
+      50000
+    );
+    expect(r.serviceFee).toBe(100000);
+  });
+});

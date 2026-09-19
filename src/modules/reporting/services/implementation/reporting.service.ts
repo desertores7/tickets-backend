@@ -129,7 +129,8 @@ export class ReportingService implements IReportingService {
       .createQueryBuilder()
       .select([
         'oi.ticketTypeUuid AS ticketTypeUuid',
-        'tt.name AS ticketTypeName',
+        // "Mesa VIP · Mesa VIP · 8" (BR-SALE-010); en tandas generales, solo la tanda.
+        "CONCAT_WS(' · ', tt.name, oi.unitLabel) AS ticketTypeName",
         'oi.quantity AS quantity',
         'oi.unitPrice AS unitPrice',
         'oi.subtotal AS subtotal',
@@ -161,7 +162,7 @@ export class ReportingService implements IReportingService {
         't.status AS status',
         't.qrUrl AS qrUrl',
         't.pdfUrl AS pdfUrl',
-        'tt.name AS ticketTypeName'
+        "CONCAT_WS(' · ', tt.name, t.unitLabel) AS ticketTypeName"
       ])
       .addSelect(
         `(SELECT rr.status FROM refund_request_ticket rrt
@@ -284,7 +285,7 @@ export class ReportingService implements IReportingService {
         'u.email AS buyerEmail',
         'e.uuid AS eventUuid',
         'e.name AS eventName',
-        'tt.name AS ticketTypeName',
+        "CONCAT_WS(' · ', tt.name, oi.unitLabel) AS ticketTypeName",
         'oi.quantity AS quantity',
         'oi.subtotal AS amount',
         // Cuántas entradas de ESTA tanda en ESTA orden volvieron. `orders.status`

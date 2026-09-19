@@ -69,6 +69,7 @@ export class TicketByDocumentResponse {
   @ApiProperty() ticketNumber: string;
   @ApiProperty() holderName: string;
   @ApiProperty({ nullable: true }) ticketTypeName: string | null;
+  @ApiProperty({ nullable: true, example: 'Mesa VIP · 8' }) unitLabel: string | null;
   @ApiProperty({ example: 'active' }) status: string;
   @ApiProperty({ nullable: true, description: 'ISO-8601' }) checkedInAt: string | null;
 
@@ -77,6 +78,7 @@ export class TicketByDocumentResponse {
     this.ticketNumber = data.ticketNumber;
     this.holderName = data.holderName;
     this.ticketTypeName = data.ticketTypeName ?? null;
+    this.unitLabel = data.unitLabel ?? null;
     this.status = data.status;
     this.checkedInAt = data.checkedInAt ? new Date(data.checkedInAt).toISOString() : null;
   }

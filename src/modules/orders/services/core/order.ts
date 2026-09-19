@@ -16,6 +16,8 @@ export enum TicketStatus {
 export interface IOrderTicket {
   uuid: string;
   ticketNumber: string;
+  /** "Mesa VIP · 8" (BR-SALE-010). Null en tandas generales. */
+  unitLabel?: string | null;
   qrCode: string | null;
   qrUrl: string | null;
   pdfUrl: string | null;
@@ -26,7 +28,12 @@ export interface IOrderTicket {
 export interface IOrderItem {
   uuid: string;
   ticketTypeUuid: string;
+  /** Unidad del mapa comprada (BR-SALE-010). Null en tandas generales. */
+  sectorUuid?: string | null;
+  unitLabel?: string | null;
   quantity: number;
+  /** Entradas por unidad: >1 solo en unidad completa. */
+  admissionsPerUnit?: number;
   unitPrice: number;
   subtotal: number;
   tickets: IOrderTicket[];
@@ -90,6 +97,8 @@ export class Order implements IOrder {
 export interface ICreateOrderItem {
   ticketTypeUuid: string;
   quantity: number;
+  /** Unidad del mapa elegida (mesa 8). Obligatoria si la tanda no es general. */
+  sectorUuid?: string;
 }
 
 export interface ICreateOrder {

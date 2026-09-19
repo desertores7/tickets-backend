@@ -22,6 +22,8 @@ export interface ITicketByDocument {
   ticketNumber: string;
   holderName: string;
   ticketTypeName: string;
+  /** "Mesa VIP · 8" (BR-SALE-010). */
+  unitLabel?: string | null;
   status: string;
   checkedInAt: Date | null;
 }

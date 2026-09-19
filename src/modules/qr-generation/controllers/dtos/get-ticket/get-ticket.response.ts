@@ -15,7 +15,10 @@ export interface GetTicketEventData {
 export interface GetTicketTypeData {
   uuid: string;
   name: string;
+  /** Precio de ESTA entrada (en unidad completa, la mesa dividida por sus entradas). */
   price: number;
+  /** "Mesa VIP · 8" (BR-SALE-010). Null en tandas generales. */
+  unitLabel?: string | null;
 }
 
 export interface GetTicketOrderData {
@@ -62,12 +65,15 @@ class TicketEventResponse {
 class TicketTypeResponse {
   @ApiProperty({ example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' }) id: string;
   @ApiProperty({ example: 'Campo General' }) name: string;
-  @ApiProperty({ example: 12500.0 }) price: number;
+  @ApiProperty({ example: 12500.0, description: 'Precio de esta entrada' }) price: number;
+  @ApiProperty({ nullable: true, example: 'Mesa VIP · 8', description: 'Unidad del mapa (BR-SALE-010)' })
+  unitLabel: string | null;
 
   constructor(data: GetTicketTypeData) {
     this.id = data.uuid;
     this.name = data.name;
     this.price = Number(data.price);
+    this.unitLabel = data.unitLabel ?? null;
   }
 }
 

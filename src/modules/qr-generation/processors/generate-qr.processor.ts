@@ -219,6 +219,7 @@ export class GenerateQrProcessor extends WorkerHost {
         eventCity: ticket.event.venueCity,
         eventAddress: ticket.event.venueAddress,
         ticketTypeName: ticket.ticketType.name,
+        unitLabel: ticket.unitLabel ?? null,
         holderName: `${ticket.user.firstName} ${ticket.user.lastName}`,
         orderId: ticket.orderItem.orderUuid,
         qrImageBuffer,

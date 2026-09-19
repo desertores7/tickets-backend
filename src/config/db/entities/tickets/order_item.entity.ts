@@ -24,8 +24,20 @@ export class OrderItemEntity {
   @Column({ type: 'char', length: 36 })
   ticketTypeUuid: string;
 
+  /** Unidad del mapa comprada (mesa 8). Null en tandas generales. */
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  sectorUuid: string | null;
+
+  /** "Mesa VIP · 8", congelado al comprar: el mapa puede cambiar después. */
+  @Column({ type: 'varchar', length: 255, nullable: true, default: null })
+  unitLabel: string | null;
+
   @Column({ type: 'int' })
   quantity: number;
+
+  /** Entradas por unidad de la línea: >1 solo en unidad completa (`BR-SALE-010`). */
+  @Column({ type: 'int', default: 1 })
+  admissionsPerUnit: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   unitPrice: number;

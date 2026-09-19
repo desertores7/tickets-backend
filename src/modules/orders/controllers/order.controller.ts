@@ -54,8 +54,11 @@ export class OrderController {
       eventUuid: body.eventUuid,
       items: body.items.map(item => ({
         ticketTypeUuid: item.ticketTypeId,
-        quantity: item.quantity
-      }))
+        quantity: item.quantity,
+        sectorUuid: item.sectorUuid
+      })),
+      // Faltaba: el cupón del body nunca llegaba al servicio.
+      couponCode: body.couponCode
     });
     return new GetOrderResponse(order);
   }

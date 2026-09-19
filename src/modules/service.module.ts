@@ -23,6 +23,7 @@ import { MapAnalysisJobStore } from './event/services/implementation/map-analysi
 import { PublicResponseCache } from './event/services/implementation/public-response-cache';
 import { AnalyzeMapProcessor } from './event/processors/analyze-map.processor';
 import { StockService } from './orders/services/implementation/stock.service';
+import { SectorOccupancyService } from './orders/services/implementation/sector-occupancy.service';
 import { OrderService } from './orders/services/implementation/order.service';
 import { FeeSummaryService } from './orders/services/implementation/fee-summary.service';
 import { RoleGuard } from '@root/shared/auth/guards/role.guard';
@@ -101,6 +102,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     { provide: 'IFavoriteService', useClass: FavoriteService },
     MercadoPagoService,
     StockService,
+    SectorOccupancyService,
     FeeSummaryService,
     ServiceFeeConfigService,
     ChargebackService,
@@ -147,6 +149,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     { provide: 'IFavoriteService', useClass: FavoriteService },
     MercadoPagoService,
     StockService,
+    SectorOccupancyService,
     FeeSummaryService,
     ServiceFeeConfigService,
     ChargebackService,

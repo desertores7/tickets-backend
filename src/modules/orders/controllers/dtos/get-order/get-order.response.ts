@@ -4,6 +4,7 @@ import { IOrderItem, IOrderTicket, Order, OrderStatus, TicketStatus } from '@mod
 export class OrderTicketResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() ticketNumber: string;
+  @ApiProperty({ nullable: true, description: '"Mesa VIP · 8" (BR-SALE-010)' }) unitLabel: string | null;
   @ApiProperty({ nullable: true }) qrCode: string | null;
   @ApiProperty({ nullable: true }) qrUrl: string | null;
   @ApiProperty({ nullable: true }) pdfUrl: string | null;
@@ -13,6 +14,7 @@ export class OrderTicketResponse {
   constructor(data: IOrderTicket) {
     this.uuid = data.uuid;
     this.ticketNumber = data.ticketNumber;
+    this.unitLabel = data.unitLabel ?? null;
     this.qrCode = data.qrCode;
     this.qrUrl = data.qrUrl;
     this.pdfUrl = data.pdfUrl;
@@ -24,7 +26,10 @@ export class OrderTicketResponse {
 export class OrderItemResponse {
   @ApiProperty() uuid: string;
   @ApiProperty() ticketTypeUuid: string;
+  @ApiProperty({ nullable: true, description: 'Unidad del mapa (BR-SALE-010)' }) sectorUuid: string | null;
+  @ApiProperty({ nullable: true, description: '"Mesa VIP · 8"' }) unitLabel: string | null;
   @ApiProperty() quantity: number;
+  @ApiProperty({ description: 'Entradas por unidad (>1 solo en unidad completa)' }) admissionsPerUnit: number;
   @ApiProperty() unitPrice: number;
   @ApiProperty() subtotal: number;
   @ApiProperty({ type: [OrderTicketResponse] }) tickets: OrderTicketResponse[];
@@ -32,7 +37,10 @@ export class OrderItemResponse {
   constructor(data: IOrderItem) {
     this.uuid = data.uuid;
     this.ticketTypeUuid = data.ticketTypeUuid;
+    this.sectorUuid = data.sectorUuid ?? null;
+    this.unitLabel = data.unitLabel ?? null;
     this.quantity = data.quantity;
+    this.admissionsPerUnit = data.admissionsPerUnit ?? 1;
     this.unitPrice = Number(data.unitPrice);
     this.subtotal = Number(data.subtotal);
     this.tickets = data.tickets.map(t => new OrderTicketResponse(t));

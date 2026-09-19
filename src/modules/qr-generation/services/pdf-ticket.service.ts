@@ -67,6 +67,8 @@ export interface TicketPdfData {
   eventCity: string;
   eventAddress?: string | null;
   ticketTypeName: string;
+  /** "Mesa VIP · 8" (BR-SALE-010). Null en tandas generales. */
+  unitLabel?: string | null;
   holderName: string;
   orderId: string;
   qrImageBuffer: Buffer;
@@ -305,7 +307,9 @@ export class PdfTicketService {
       .font('Helvetica-Bold')
       .fontSize(9.5)
       .fillColor(COLOR.accent)
-      .text(data.ticketTypeName.toUpperCase(), MARGIN, TICKET_TYPE_Y, {
+      // La unidad va primero: es lo que busca la gente en la puerta ("¿cuál es
+      // mi mesa?"). Si no entra, el ellipsis corta el nombre de la tanda.
+      .text((data.unitLabel ? `${data.unitLabel} — ${data.ticketTypeName}` : data.ticketTypeName).toUpperCase(), MARGIN, TICKET_TYPE_Y, {
         width: CONTENT_WIDTH,
         align: 'center',
         characterSpacing: 0.6,

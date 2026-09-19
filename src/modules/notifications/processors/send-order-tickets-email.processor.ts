@@ -110,7 +110,7 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       ticketCount: tickets.length,
       tickets: tickets.map(t => ({
         ticketNumber: t.ticketNumber,
-        ticketTypeName: t.ticketType?.name ?? 'Entrada'
+        ticketTypeName: [t.ticketType?.name ?? 'Entrada', t.unitLabel].filter(Boolean).join(' · ')
       })),
       ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
       // Portada: el banner del evento si lo hay. El template la trata como

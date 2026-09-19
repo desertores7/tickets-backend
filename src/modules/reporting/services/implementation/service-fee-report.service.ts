@@ -14,6 +14,7 @@ type RawTicketFeeRow = {
   ticketStatus: string;
   ticketTypeName: string | null;
   unitPrice: string;
+  admissionsPerUnit: string | number | null;
   discountAmount: string;
   serviceFee: string;
   serviceFeeRate: string | null;
@@ -84,8 +85,9 @@ export class ServiceFeeReportService {
         'u.lastName AS buyerLastName',
         't.ticketNumber AS ticketNumber',
         't.status AS ticketStatus',
-        'tt.name AS ticketTypeName',
+        "CONCAT_WS(' · ', tt.name, t.unitLabel) AS ticketTypeName",
         'oi.unitPrice AS unitPrice',
+        'oi.admissionsPerUnit AS admissionsPerUnit',
         't.discountAmount AS discountAmount',
         't.serviceFee AS serviceFee',
         'o.serviceFeeRate AS serviceFeeRate',
@@ -103,7 +105,10 @@ export class ServiceFeeReportService {
       .getRawMany();
 
     const detail = rows.map(row => {
-      const price = Number(row.unitPrice);
+      // En unidad completa (BR-SALE-010) la línea es la mesa entera: el precio
+      // de cada entrada es la mesa dividida por sus entradas, igual que se
+      // calculó el fee al vender.
+      const price = round2(Number(row.unitPrice) / Math.max(1, Number(row.admissionsPerUnit ?? 1)));
       const discount = Number(row.discountAmount);
       const finalPrice = round2(price - discount);
       const fee = Number(row.serviceFee);

@@ -67,6 +67,7 @@ import { normalizeLineup } from '../core/event-change.helpers';
 import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { getTicketTypeSaleWindowError } from '../core/ticket-type-sale-window';
 import { resolveTicketTypeSaleMode, saleModeChanged } from '../core/ticket-type-sale-mode';
+import { isUnitAvailable } from '@modules/orders/services/core/sector-unit-sale';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { selectCurrentTicketType } from '../core/ticket-sales-policy';
@@ -1936,6 +1937,17 @@ export class EventService implements IEventService {
       bySector.set(link.sectorUuid, arr);
     }
 
+    // Lugares tomados por unidad (BR-SALE-010), para que el checkout no ofrezca
+    // una mesa ya vendida o retenida.
+    const occupancy: { sectorUuid: string; used: number }[] =
+      sectorUuids.length === 0
+        ? []
+        : await this.dbRepository.query(
+            `SELECT sectorUuid, used FROM sector_occupancy WHERE sectorUuid IN (${sectorUuids.map(() => '?').join(', ')})`,
+            sectorUuids
+          );
+    const takenBySector = new Map(occupancy.map(row => [row.sectorUuid, Number(row.used)]));
+
     const ticketTypesByUuid = new Map(ticketTypes.map(ticket => [ticket.uuid, ticket]));
     const stageLayout = isSectorLayout(map.stageLayout)
       ? map.stageLayout
@@ -1944,6 +1956,12 @@ export class EventService implements IEventService {
     const mappedSectors: TEventMapSector[] = sectors.filter(s => !isStageSectorName(s.name)).map(s => {
       const ticketTypeUuids = bySector.get(s.uuid) ?? [];
       const layout = isSectorLayout(s.layout) ? s.layout : null;
+      const active = selectCurrentTicketType(
+        ticketTypeUuids
+          .map(uuid => ticketTypesByUuid.get(uuid))
+          .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
+      );
+      const seatsTaken = takenBySector.get(s.uuid) ?? 0;
       return {
         uuid: s.uuid,
         name: s.name,
@@ -1955,12 +1973,9 @@ export class EventService implements IEventService {
         isNumbered: !!s.isNumbered,
         capacity: s.capacity ?? null,
         ticketTypeUuids,
-        activeTicketTypeUuid:
-          selectCurrentTicketType(
-            ticketTypeUuids
-              .map(uuid => ticketTypesByUuid.get(uuid))
-              .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
-          )?.uuid ?? null
+        activeTicketTypeUuid: active?.uuid ?? null,
+        seatsTaken,
+        unitAvailable: isUnitAvailable(active?.saleMode, s.capacity, seatsTaken)
       };
     });
 
