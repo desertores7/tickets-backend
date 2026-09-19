@@ -119,3 +119,15 @@ export function isUnitAvailable(
   if (saleMode === 'per_person') return (capacity ?? 0) > seatsTaken;
   return true;
 }
+
+/**
+ * Nombre de la entrada con su unidad: "Mesa VIP" + "Mesa VIP · 8" → "Mesa VIP · 8".
+ * Si la etiqueta ya empieza con el nombre de la tanda no se repite.
+ */
+export function ticketDisplayName(ticketTypeName: string, unitLabel: string | null | undefined): string {
+  const label = (unitLabel ?? '').trim();
+  if (!label) return ticketTypeName;
+  return label.toLowerCase().startsWith(ticketTypeName.trim().toLowerCase())
+    ? label
+    : `${ticketTypeName} · ${label}`;
+}

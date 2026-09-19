@@ -1,4 +1,4 @@
-import { formatUnitLabel, resolveUnitSaleLine } from './sector-unit-sale';
+import { formatUnitLabel, resolveUnitSaleLine, ticketDisplayName } from './sector-unit-sale';
 
 const mesa = {
   uuid: 's-8',
@@ -54,5 +54,13 @@ describe('resolveUnitSaleLine', () => {
   it('unidad completa sin entradas configuradas no se vende', () => {
     const tt = { uuid: 'tt-mesa', name: 'Mesa VIP', saleMode: 'whole_unit' as const, admissionsPerUnit: null };
     expect(resolveUnitSaleLine(tt, 1, mesa, 's-8')).toHaveProperty('error');
+  });
+});
+
+describe('ticketDisplayName', () => {
+  it('no repite la categoría', () => {
+    expect(ticketDisplayName('Mesa VIP', 'Mesa VIP · 8')).toBe('Mesa VIP · 8');
+    expect(ticketDisplayName('Preventa', 'Mesa VIP · 8')).toBe('Preventa · Mesa VIP · 8');
+    expect(ticketDisplayName('Campo', null)).toBe('Campo');
   });
 });

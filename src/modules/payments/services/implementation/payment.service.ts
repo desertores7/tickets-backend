@@ -1,3 +1,4 @@
+import { ticketDisplayName } from '@modules/orders/services/core/sector-unit-sale';
 import { Injectable, Inject, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -97,7 +98,7 @@ export class PaymentService implements IPaymentService {
       subtotal: item.subtotal,
       tickets: item.tickets ?? [],
       // "Mesa VIP · Mesa VIP · 8": el comprador ve en Mercado Pago qué unidad paga (BR-SALE-010).
-      title: [ticketTypes[i]?.name ?? 'Entrada', item.unitLabel].filter(Boolean).join(' · ')
+      title: ticketDisplayName(ticketTypes[i]?.name ?? 'Entrada', item.unitLabel)
     }));
 
     const orderForMP = {
