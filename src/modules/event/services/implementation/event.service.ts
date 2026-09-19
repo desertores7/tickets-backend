@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { Between, Like, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or, QueryRunner } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
@@ -68,6 +68,7 @@ import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { getTicketTypeSaleWindowError } from '../core/ticket-type-sale-window';
 import { resolveTicketTypeSaleMode, saleModeChanged } from '../core/ticket-type-sale-mode';
 import { isUnitAvailable } from '@modules/orders/services/core/sector-unit-sale';
+import { findRemovedSectors, removedSectorsMessage } from '../core/published-map-guard';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { selectCurrentTicketType } from '../core/ticket-sales-policy';
@@ -1223,6 +1224,16 @@ export class EventService implements IEventService {
       where: { eventUuid: event.uuid }
     });
 
+    // BR-EVENT-020: publicado, el mapa completo tiene que traer todos los
+    // sectores guardados (movidos o no) — lo que falta se borraría.
+    if (existing) {
+      await this.assertPublishedMapKeepsSectors(
+        event,
+        existing.uuid,
+        new Set(data.sectors.map(sector => sector.uuid?.trim()).filter((uuid): uuid is string => !!uuid))
+      );
+    }
+
     // La grilla se valida entera ANTES de abrir la transacción: un layout
     // inválido o un solape es un 400, no un rollback.
     const grid = this.resolveMapGrid(data, existing);
@@ -1395,6 +1406,16 @@ export class EventService implements IEventService {
       entity: 'event_map_sector',
       where: { mapUuid: existing.uuid }
     });
+
+    // BR-EVENT-020: publicado, `sectors.remove` no se acepta.
+    if (removals.size && event.isPublished) {
+      const removed = findRemovedSectors(
+        current.filter(row => removals.has(row.uuid)),
+        new Set(),
+        isStageSectorName
+      );
+      if (removed.length) throw new ConflictException(removedSectorsMessage(removed));
+    }
 
     // Estado resultante: lo guardado, menos lo borrado, con lo que viene
     // pisando por uuid. Es sobre ESTO que corren las validaciones.
@@ -2097,6 +2118,24 @@ export class EventService implements IEventService {
    * los INSERT tienen que ir en la misma transacción o un error en el medio
    * deja al productor sin mapa.
    */
+  /**
+   * `BR-EVENT-020`: en un evento publicado no se borran sectores del mapa.
+   * Ver `core/published-map-guard.ts`.
+   */
+  private async assertPublishedMapKeepsSectors(
+    event: { isPublished?: boolean | number | null },
+    mapUuid: string,
+    keptUuids: ReadonlySet<string>
+  ): Promise<void> {
+    if (!event.isPublished) return;
+    const current = (await this.dbRepository.findMany({
+      entity: 'event_map_sector',
+      where: { mapUuid }
+    })) as Array<{ uuid: string; name: string; level: string | null; familyLabel: string | null }>;
+    const removed = findRemovedSectors(current, keptUuids, isStageSectorName);
+    if (removed.length) throw new ConflictException(removedSectorsMessage(removed));
+  }
+
   private async replaceMapSectors(
     mapUuid: string,
     sectors: TUpsertEventMap['sectors'],
