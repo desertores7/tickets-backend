@@ -134,6 +134,7 @@ function buildExtractionSystemPrompt(now = new Date()): string {
   return `You extract structured event data from one promotional flyer image for an Argentine ticketing platform.
 
 CRITICAL COST / BEHAVIOR RULES:
+- Your job is to TRANSCRIBE the text printed on the flyer (names, dates, venue, prices). Never identify or describe people from their faces: artist names come only from the printed text.
 - Do exactly ONE extraction. Do not ask follow-up questions.
 - Do not invent missing data. Prefer empty string / [] / null.
 - Stay on task: only the JSON schema below. No markdown, no commentary, no tool calls.
@@ -926,6 +927,8 @@ export class EventAiService implements IEventAiService {
     system: string;
     userText: string;
     images: ChatCompletionContentPart[];
+    /** Para los mensajes de error: "del mapa" (default), "del flyer". */
+    subject?: string;
   }): Promise<{
     parsed: Record<string, unknown>;
     usage: { prompt_tokens: number | null; completion_tokens: number | null; total_tokens: number | null } | null;
@@ -993,7 +996,7 @@ export class EventAiService implements IEventAiService {
           continue;
         }
         throw new ServiceUnavailableException(
-          `OpenAI no devolvió datos del mapa (${params.label}).`
+          `OpenAI no devolvió datos ${params.subject ?? 'del mapa'} (${lastEmptyDetail}). Reintentá en un momento.`
         );
       }
 
@@ -1011,13 +1014,13 @@ export class EventAiService implements IEventAiService {
           parseErr instanceof Error ? parseErr.message : parseErr
         );
         throw new ServiceUnavailableException(
-          'OpenAI devolvió un JSON incompleto del mapa. Reintentá el análisis.'
+          `OpenAI devolvió un JSON incompleto ${params.subject ?? 'del mapa'}. Reintentá el análisis.`
         );
       }
     }
 
     throw new ServiceUnavailableException(
-      `OpenAI no devolvió datos del mapa (${params.label}${
+      `OpenAI no devolvió datos ${params.subject ?? 'del mapa'} (${params.label}${
         lastEmptyDetail ? `: ${lastEmptyDetail}` : ''
       }).`
     );
@@ -1159,29 +1162,29 @@ export class EventAiService implements IEventAiService {
     flyers: Express.Multer.File[]
   ): Promise<FlyerEventExtraction> {
     const model = this.envService.get('EVENT_AI_EXTRACT_MODEL');
-    const userText = 'Extract event data from this flyer. Return JSON only.';
+    const userText =
+      'Transcribe the event data printed on this flyer. Return JSON only. Do not identify people from their faces.';
 
     try {
-      const response = await this.withTransientRetry('extract', () =>
-        client.chat.completions.create({
-          model,
-          max_tokens: EXTRACT_MAX_OUTPUT_TOKENS,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: buildExtractionSystemPrompt() },
-            {
-              role: 'user',
-              content: [{ type: 'text', text: userText }, ...this.flyerDataUrlParts(flyers)]
-            }
-          ]
-        })
-      );
-
-      const raw = response.choices[0]?.message?.content?.trim();
-      if (!raw) {
-        throw new ServiceUnavailableException('OpenAI no devolvió extracción de datos.');
-      }
-      return this.normalizeExtraction(JSON.parse(raw) as Partial<FlyerEventExtraction>);
+      // Mismo camino que el análisis del mapa: reintenta si la respuesta viene
+      // vacía, registra el motivo (finish_reason / refusal) y soporta GPT-5 y la
+      // serie o. Antes una respuesta vacía de gpt-4o —típicamente un rechazo por
+      // las caras del flyer— cortaba todo sin dejar rastro del motivo.
+      const gpt5Style = this.usesGpt5StyleTokenBudget(model);
+      const { parsed } = await this.mapVisionJson({
+        label: 'extract',
+        subject: 'del flyer',
+        client,
+        model,
+        // El razonamiento consume del mismo tope: con 2200 no quedaba lugar
+        // para la respuesta.
+        maxTokens: gpt5Style ? EXTRACT_MAX_OUTPUT_TOKENS * 4 : EXTRACT_MAX_OUTPUT_TOKENS,
+        reasoningEffort: gpt5Style ? 'low' : undefined,
+        system: buildExtractionSystemPrompt(),
+        userText,
+        images: this.flyerDataUrlParts(flyers)
+      });
+      return this.normalizeExtraction(parsed as Partial<FlyerEventExtraction>);
     } catch (err) {
       if (err instanceof BadRequestException || err instanceof ServiceUnavailableException) {
         throw err;
