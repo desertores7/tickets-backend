@@ -18,6 +18,9 @@ export class TicketTypeResponse {
   @ApiProperty() maxPerOrder: number;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
   @ApiProperty({ nullable: true }) saleEndDate: Date | null;
+  @ApiProperty({ enum: ['general', 'per_person', 'whole_unit'] }) saleMode: 'general' | 'per_person' | 'whole_unit';
+  @ApiProperty({ nullable: true, description: 'Entradas por unidad completa (solo whole_unit)' })
+  admissionsPerUnit: number | null;
   @ApiProperty() isActive: boolean;
   @ApiProperty({ description: 'Habilitación manual de venta; independiente de la baja lógica.' })
   salesEnabled: boolean;
@@ -43,6 +46,8 @@ export class TicketTypeResponse {
     this.maxPerOrder = data.maxPerOrder;
     this.saleStartDate = data.saleStartDate;
     this.saleEndDate = data.saleEndDate;
+    this.saleMode = data.saleMode ?? 'general';
+    this.admissionsPerUnit = data.admissionsPerUnit ?? null;
     this.isActive = data.isActive;
     this.salesEnabled = data.salesEnabled;
     this.sortOrder = data.sortOrder;

@@ -66,6 +66,7 @@ import { IEventCreate, IEventUpdate, ITicketTypeCreate, ITicketTypeUpdate, ITick
 import { normalizeLineup } from '../core/event-change.helpers';
 import { shouldReopenAutoClosedSales } from '../core/event-sales-gate';
 import { getTicketTypeSaleWindowError } from '../core/ticket-type-sale-window';
+import { resolveTicketTypeSaleMode, saleModeChanged } from '../core/ticket-type-sale-mode';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
 import { selectCurrentTicketType } from '../core/ticket-sales-policy';
@@ -632,6 +633,7 @@ export class EventService implements IEventService {
   async createTicketType(eventUuid: string, data: ITicketTypeCreate, loggedUser: string): Promise<TTicketTypeResponse> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
     this.assertTicketTypeSaleWindow(event, data);
+    this.resolveSaleModeOrThrow(null, data);
     return this.persistNewTicketType(event.uuid, data);
   }
 
@@ -648,7 +650,10 @@ export class EventService implements IEventService {
 
     // Todo el lote antes de crear nada: si la tercera falla, que no queden
     // creadas las dos primeras.
-    for (const data of items) this.assertTicketTypeSaleWindow(event, data);
+    for (const data of items) {
+      this.assertTicketTypeSaleWindow(event, data);
+      this.resolveSaleModeOrThrow(null, data);
+    }
 
     const created: TTicketTypeResponse[] = [];
     for (const data of items) {
@@ -666,6 +671,16 @@ export class EventService implements IEventService {
     if (error) throw new BadRequestException(error);
   }
 
+  /** Modo de venta final (lo guardado + lo que cambia), o 400 si no cierra. */
+  private resolveSaleModeOrThrow(
+    current: { saleMode: TicketTypeEntity['saleMode']; admissionsPerUnit: number | null } | null,
+    data: Pick<ITicketTypeCreate, 'saleMode' | 'admissionsPerUnit'>
+  ): { saleMode: TicketTypeEntity['saleMode']; admissionsPerUnit: number | null } {
+    const result = resolveTicketTypeSaleMode(current, data);
+    if ('error' in result) throw new BadRequestException(result.error);
+    return result.value;
+  }
+
   private async persistNewTicketType(eventUuid: string, data: ITicketTypeCreate): Promise<TTicketTypeResponse> {
     const ticketType = new TicketTypeEntity();
     ticketType.uuid = uuidv4();
@@ -678,6 +693,9 @@ export class EventService implements IEventService {
     ticketType.availableQuantity = data.quantity;
     ticketType.minPerOrder = data.minPerOrder ?? 1;
     ticketType.maxPerOrder = data.maxPerOrder ?? 10;
+    const saleMode = this.resolveSaleModeOrThrow(null, data);
+    ticketType.saleMode = saleMode.saleMode;
+    ticketType.admissionsPerUnit = saleMode.admissionsPerUnit;
     ticketType.saleStartDate = data.saleStartDate ?? null;
     ticketType.saleEndDate = data.saleEndDate ?? null;
     ticketType.isActive = true;
@@ -790,6 +808,23 @@ export class EventService implements IEventService {
     if (data.saleStartDate !== undefined) patch.saleStartDate = data.saleStartDate;
     if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
     if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
+
+    if (data.saleMode !== undefined || data.admissionsPerUnit !== undefined) {
+      const current = {
+        saleMode: ticketType.saleMode ?? 'general',
+        admissionsPerUnit: ticketType.admissionsPerUnit ?? null
+      };
+      const next = this.resolveSaleModeOrThrow(current, data);
+      // Lo vendido se emitió con la regla anterior (una entrada o diez por mesa):
+      // cambiarla dejaría compras que no coinciden con la tanda.
+      if (soldCount > 0 && saleModeChanged(current, next)) {
+        throw new BadRequestException(
+          'No se puede cambiar cómo se vende una tanda con ventas. Agotá la tanda y creá una nueva.'
+        );
+      }
+      patch.saleMode = next.saleMode;
+      patch.admissionsPerUnit = next.admissionsPerUnit;
+    }
 
     if (data.price !== undefined) {
       if (soldCount > 0) {

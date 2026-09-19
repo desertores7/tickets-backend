@@ -1,3 +1,4 @@
+import type { TicketTypeSaleMode } from './ticket-type-sale-mode';
 import type { EventSocialLink } from '../../const/event-social-network.const';
 
 export interface IEventCreate {
@@ -50,6 +51,8 @@ export interface ITicketTypeUpdate {
   quantity?: number;
   minPerOrder?: number;
   maxPerOrder?: number;
+  saleMode?: TicketTypeSaleMode;
+  admissionsPerUnit?: number | null;
   saleStartDate?: Date | null;
   saleEndDate?: Date | null;
   sortOrder?: number;
@@ -68,6 +71,8 @@ export interface ITicketTypeCreate {
   quantity: number;
   minPerOrder?: number;
   maxPerOrder?: number;
+  saleMode?: TicketTypeSaleMode;
+  admissionsPerUnit?: number | null;
   saleStartDate?: Date | null;
   saleEndDate?: Date | null;
   sortOrder?: number;
