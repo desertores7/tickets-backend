@@ -126,7 +126,14 @@ type UnitSize = { uw: number; uh: number };
 function naturalUnitSize(group: AiEventMapLayoutGroup, groupCell: MapGridCell): UnitSize {
   if (!isRigid(group)) return { uw: groupCell.colSpan, uh: groupCell.rowSpan };
   const { cols, rows } = unitGrid(group);
-  const gc = fitSpan(groupCell, cols, rows);
+  // La unidad mínima es una celda del modelo (`MAP_GRID_SCALE` de la grilla). Con
+  // mínimo 1 una columna de palcos de 2 de ancho quedaba 2×1 por palco y se
+  // normalizaba "ancha": palcos cuadrados salían rectángulos.
+  const gc = fitSpan(
+    groupCell,
+    Math.min(MAP_GRID_SIZE, cols * MAP_GRID_SCALE),
+    Math.min(MAP_GRID_SIZE, rows * MAP_GRID_SCALE)
+  );
   return {
     uw: Math.max(1, Math.floor(gc.colSpan / cols)),
     uh: Math.max(1, Math.floor(gc.rowSpan / rows))

@@ -1,7 +1,15 @@
 import { AnalyzeMapResult } from '../contracts/ievent-ai.service';
-import { layoutKeys } from '../core/map-grid';
+import { MAP_GRID_SCALE, layoutKeys } from '../core/map-grid';
 import { rasterizeMapAnalysis } from './map-grid-rasterizer';
 import { normalizeMapLayout } from './map-layout-normalizer';
+
+/**
+ * Las entradas van en celdas del MODELO (24×24), como las manda la IA; las
+ * aserciones, en celdas de la grilla del mapa (×`MAP_GRID_SCALE`).
+ */
+const S = MAP_GRID_SCALE;
+/** Columna o fila del modelo llevada a la grilla. */
+const g = (n: number) => (n - 1) * S + 1;
 
 /** Respuesta cruda con el schema del prompt 24×24 (sin unitCells). */
 function analyze(groups: Array<Record<string, unknown>>, stageLayout?: unknown): AnalyzeMapResult {
@@ -32,7 +40,7 @@ function occupied(result: AnalyzeMapResult): string[] {
 }
 
 describe('rasterizeMapAnalysis', () => {
-  it('expande una grilla 5×10 en 50 celdas 1×1 uniformes', () => {
+  it('expande una grilla 5×10 en 50 unidades uniformes de una celda del modelo', () => {
     const result = analyze([
       {
         id: 'mesas',
@@ -48,10 +56,10 @@ describe('rasterizeMapAnalysis', () => {
 
     const group = result.layout.groups[0]!;
     expect(group.unitCells).toHaveLength(50);
-    expect(group.unitCells!.every(c => c.colSpan === 1 && c.rowSpan === 1)).toBe(true);
-    expect(group.unitCells![0]).toEqual({ col: 7, row: 4, colSpan: 1, rowSpan: 1 });
-    expect(group.unitCells![11]).toEqual({ col: 8, row: 5, colSpan: 1, rowSpan: 1 });
-    expect(group.cell).toEqual({ col: 7, row: 4, colSpan: 10, rowSpan: 5 });
+    expect(group.unitCells!.every(c => c.colSpan === S && c.rowSpan === S)).toBe(true);
+    expect(group.unitCells![0]).toEqual({ col: g(7), row: g(4), colSpan: S, rowSpan: S });
+    expect(group.unitCells![11]).toEqual({ col: g(8), row: g(5), colSpan: S, rowSpan: S });
+    expect(group.cell).toEqual({ col: g(7), row: g(4), colSpan: 10 * S, rowSpan: 5 * S });
   });
 
   it('ignora unitCells irregulares del modelo y las regenera uniformes', () => {
@@ -72,11 +80,12 @@ describe('rasterizeMapAnalysis', () => {
       }
     ]);
 
+    // Una mesa mide siempre una celda del modelo, aunque el bbox venga más grande.
     const units = result.layout.groups[0]!.unitCells!;
     expect(units).toEqual([
-      { col: 3, row: 5, colSpan: 2, rowSpan: 2 },
-      { col: 5, row: 5, colSpan: 2, rowSpan: 2 },
-      { col: 7, row: 5, colSpan: 2, rowSpan: 2 }
+      { col: g(3), row: g(5), colSpan: S, rowSpan: S },
+      { col: g(3) + S, row: g(5), colSpan: S, rowSpan: S },
+      { col: g(3) + 2 * S, row: g(5), colSpan: S, rowSpan: S }
     ]);
   });
 
@@ -94,7 +103,7 @@ describe('rasterizeMapAnalysis', () => {
     const group = result.layout.groups[0]!;
     expect(group.unitCells).toHaveLength(6);
     expect(new Set(group.unitCells!.map(c => `${c.col}:${c.row}`)).size).toBe(6);
-    expect(group.unitCells!.every(c => c.colSpan === 1 && c.rowSpan === 1)).toBe(true);
+    expect(group.unitCells!.every(c => c.colSpan === S && c.rowSpan === S)).toBe(true);
   });
 
   it('respeta la L del footprint y el bloque del hueco, sin solapes', () => {
@@ -122,8 +131,9 @@ describe('rasterizeMapAnalysis', () => {
     ]);
 
     const [fansGroup, vip] = result.layout.groups;
-    expect(fansGroup!.footprintCells).toHaveLength(6);
-    expect(vip!.cell).toEqual({ col: 4, row: 3, colSpan: 2, rowSpan: 1 });
+    // El footprint viaja en celdas 1×1 de la grilla: cada celda del modelo son S².
+    expect(fansGroup!.footprintCells).toHaveLength(6 * S * S);
+    expect(vip!.cell).toEqual({ col: g(4), row: g(3), colSpan: 2 * S, rowSpan: S });
     const keys = occupied(result);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -159,11 +169,12 @@ describe('rasterizeMapAnalysis', () => {
     const left = result.layout.groups.find(g => g.id === 'palcos-left')!;
     const bottom = result.layout.groups.find(g => g.id === 'palcos-bottom')!;
     const boxes = result.layout.groups.find(g => g.id === 'boxes-left')!;
-    // Natural: laterales 3×1, abajo 2×1 → canónico = 2×1 (el más chico).
-    expect(left.unitCells!.every(c => c.colSpan === 2 && c.rowSpan === 1)).toBe(true);
-    expect(bottom.unitCells!.every(c => c.colSpan === 2 && c.rowSpan === 1)).toBe(true);
+    // Natural: laterales 3×1, abajo 2×1 → canónico = 2×1 (el más chico), en celdas del modelo.
+    const wide = (c: { colSpan: number; rowSpan: number }) => c.colSpan === 2 * S && c.rowSpan === S;
+    expect(left.unitCells!.every(wide)).toBe(true);
+    expect(bottom.unitCells!.every(wide)).toBe(true);
     // Otra categoría no se mezcla.
-    expect(boxes.unitCells!.every(c => c.colSpan === 2 && c.rowSpan === 1)).toBe(true);
+    expect(boxes.unitCells!.every(wide)).toBe(true);
     expect(new Set(occupied(result)).size).toBe(occupied(result).length);
   });
 
@@ -239,7 +250,7 @@ describe('rasterizeMapAnalysis', () => {
     const fans = result.layout.groups.find(g => g.id === 'fans-4-life-center')!;
     const campo = result.layout.groups.find(g => g.id === 'campo-center')!;
 
-    expect(vip.cell!.colSpan).toBeLessThan(16);
+    expect(vip.cell!.colSpan).toBeLessThan(16 * S);
     expect(fans.footprintCells?.length).toBeGreaterThan(0);
     expect(fans.shape).toBe('l');
     // CAMPO sigue siendo rectángulo sólido debajo, no la L.
@@ -303,8 +314,8 @@ describe('rasterizeMapAnalysis', () => {
     const fans = result.layout.groups.find(g => g.id === 'fans-4-life-center')!;
 
     // VIP queda en el notch superior derecho (más angosto que el bloque).
-    expect(vip.cell!.colSpan).toBeLessThan(16);
-    expect(vip.cell!.row).toBe(5);
+    expect(vip.cell!.colSpan).toBeLessThan(16 * S);
+    expect(vip.cell!.row).toBe(g(5));
     expect(vip.footprintCells == null || vip.footprintCells.length === 0).toBe(true);
 
     // FANS es L: ocupa el union menos el VIP.
@@ -351,8 +362,8 @@ describe('rasterizeMapAnalysis', () => {
     const pu = result.layout.groups.find(g => g.id === 'pullman')!;
     expect(sp.footprintCells == null || sp.footprintCells.length === 0).toBe(true);
     expect(pu.footprintCells == null || pu.footprintCells.length === 0).toBe(true);
-    expect(sp.cell).toEqual({ col: 4, row: 15, colSpan: 16, rowSpan: 3 });
-    expect(pu.cell).toEqual({ col: 4, row: 18, colSpan: 16, rowSpan: 3 });
+    expect(sp.cell).toEqual({ col: g(4), row: g(15), colSpan: 16 * S, rowSpan: 3 * S });
+    expect(pu.cell).toEqual({ col: g(4), row: g(18), colSpan: 16 * S, rowSpan: 3 * S });
   });
 
   it('resuelve en código los solapes entre grupos y con el escenario', () => {
