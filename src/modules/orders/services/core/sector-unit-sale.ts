@@ -65,10 +65,15 @@ export function unitCapacity(
 
 /** "Mesa VIP · Planta alta · 8". Sin categoría queda el nombre solo. */
 export function formatUnitLabel(sector: Pick<UnitSaleSector, 'name' | 'level' | 'familyLabel'>): string {
-  return [sector.familyLabel, sector.level, sector.name]
-    .map(part => (part ?? '').trim())
-    .filter(Boolean)
-    .join(' · ');
+  const parts: string[] = [];
+  for (const raw of [sector.familyLabel, sector.level, sector.name]) {
+    const part = (raw ?? '').trim();
+    // Una unidad sola suele llamarse igual que su categoría ("M3"): repetirlo
+    // dejaba "M3 · M3" en la entrada y en el email.
+    if (!part || parts.some(prev => prev.toLowerCase() === part.toLowerCase())) continue;
+    parts.push(part);
+  }
+  return parts.join(' · ');
 }
 
 /**

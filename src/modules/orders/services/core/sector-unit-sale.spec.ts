@@ -93,3 +93,12 @@ describe('capacidad de la unidad sin capacity en el sector', () => {
     expect(isUnitAvailable('per_person', 2, 2, 10)).toBe(false);
   });
 });
+
+describe('formatUnitLabel sin repetir', () => {
+  it('categoría y unidad con el mismo nombre no se repiten', () => {
+    expect(formatUnitLabel({ name: 'M3', familyLabel: 'M3', level: null })).toBe('M3');
+    expect(formatUnitLabel({ name: '8', familyLabel: 'Mesa VIP', level: 'Mesa VIP' })).toBe(
+      'Mesa VIP · 8'
+    );
+  });
+});
