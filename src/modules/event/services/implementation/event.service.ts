@@ -1996,7 +1996,7 @@ export class EventService implements IEventService {
         ticketTypeUuids,
         activeTicketTypeUuid: active?.uuid ?? null,
         seatsTaken,
-        unitAvailable: isUnitAvailable(active?.saleMode, s.capacity, seatsTaken)
+        unitAvailable: isUnitAvailable(active?.saleMode, s.capacity, seatsTaken, active?.availableQuantity)
       };
     });
 

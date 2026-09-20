@@ -19,6 +19,8 @@ export type UnitSaleTicketType = {
   name: string;
   saleMode?: SaleModeLike | null;
   admissionsPerUnit?: number | null;
+  /** Stock de la tanda: respaldo de la capacidad de la unidad. Ver `unitCapacity`. */
+  availableQuantity?: number | null;
 };
 
 export type UnitSaleSector = {
@@ -42,6 +44,24 @@ export type UnitSaleLine = {
   /** Entradas por cada unidad de `quantity`. */
   admissionsPerUnit: number;
 };
+
+/**
+ * Lugares de la unidad para una tanda por persona.
+ *
+ * La capacidad del sector (`event_map_sector.capacity`) casi nunca está
+ * cargada: el productor escribe "Capacidad / stock" en la tanda, que es el
+ * stock de la tanda. Cuando la tanda cuelga de UNA unidad —el caso normal, una
+ * tanda por mesa— ese número ES la capacidad de la mesa. Sin este respaldo la
+ * mesa quedaba con 0 lugares y no se podía elegir.
+ */
+export function unitCapacity(
+  sector: Pick<UnitSaleSector, 'capacity'>,
+  ticketType: Pick<UnitSaleTicketType, 'availableQuantity'>
+): number {
+  const own = sector.capacity ?? 0;
+  if (own > 0) return own;
+  return Math.max(0, ticketType.availableQuantity ?? 0);
+}
 
 /** "Mesa VIP · Planta alta · 8". Sin categoría queda el nombre solo. */
 export function formatUnitLabel(sector: Pick<UnitSaleSector, 'name' | 'level' | 'familyLabel'>): string {
@@ -90,7 +110,7 @@ export function resolveUnitSaleLine(
   }
 
   // per_person
-  const capacity = sector.capacity ?? 0;
+  const capacity = unitCapacity(sector, ticketType);
   if (capacity < 1) {
     return { error: `${unitLabel} no tiene capacidad configurada.` };
   }
@@ -113,10 +133,15 @@ export function resolveUnitSaleLine(
 export function isUnitAvailable(
   saleMode: SaleModeLike | null | undefined,
   capacity: number | null | undefined,
-  seatsTaken: number
+  seatsTaken: number,
+  /** Stock de la tanda vigente: respaldo cuando la unidad no tiene capacidad. */
+  fallbackCapacity?: number | null
 ): boolean {
   if (saleMode === 'whole_unit') return seatsTaken < 1;
-  if (saleMode === 'per_person') return (capacity ?? 0) > seatsTaken;
+  if (saleMode === 'per_person') {
+    const limit = (capacity ?? 0) > 0 ? (capacity ?? 0) : Math.max(0, fallbackCapacity ?? 0);
+    return limit > seatsTaken;
+  }
   return true;
 }
 

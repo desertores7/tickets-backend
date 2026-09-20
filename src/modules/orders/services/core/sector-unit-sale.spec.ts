@@ -1,4 +1,9 @@
-import { formatUnitLabel, resolveUnitSaleLine, ticketDisplayName } from './sector-unit-sale';
+import {
+  formatUnitLabel,
+  isUnitAvailable,
+  resolveUnitSaleLine,
+  ticketDisplayName
+} from './sector-unit-sale';
 
 const mesa = {
   uuid: 's-8',
@@ -62,5 +67,29 @@ describe('ticketDisplayName', () => {
     expect(ticketDisplayName('Mesa VIP', 'Mesa VIP · 8')).toBe('Mesa VIP · 8');
     expect(ticketDisplayName('Preventa', 'Mesa VIP · 8')).toBe('Preventa · Mesa VIP · 8');
     expect(ticketDisplayName('Campo', null)).toBe('Campo');
+  });
+});
+
+describe('capacidad de la unidad sin capacity en el sector', () => {
+  const sinCapacidad = { ...mesa, capacity: null };
+  const tt = {
+    uuid: 'tt-mesa',
+    name: 'Mesa 4',
+    saleMode: 'per_person' as const,
+    availableQuantity: 10
+  };
+
+  it('usa el stock de la tanda como lugares de la mesa', () => {
+    expect(resolveUnitSaleLine(tt, 4, sinCapacidad, 's-8')).toEqual({
+      line: { sectorUuid: 's-8', unitLabel: 'Mesa VIP · 8', seats: 4, seatLimit: 10, admissionsPerUnit: 1 }
+    });
+    expect(resolveUnitSaleLine(tt, 11, sinCapacidad, 's-8')).toHaveProperty('error');
+  });
+
+  it('la unidad se puede elegir mientras queden lugares', () => {
+    expect(isUnitAvailable('per_person', null, 9, 10)).toBe(true);
+    expect(isUnitAvailable('per_person', null, 10, 10)).toBe(false);
+    // La capacidad del sector manda cuando está cargada.
+    expect(isUnitAvailable('per_person', 2, 2, 10)).toBe(false);
   });
 });
