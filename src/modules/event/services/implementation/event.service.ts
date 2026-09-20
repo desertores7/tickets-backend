@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Between, Like, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, Or, QueryRunner } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import sharp from 'sharp';
@@ -102,6 +102,8 @@ const SLUG_MAX_ATTEMPTS = 50;
 
 @Injectable()
 export class EventService implements IEventService {
+  private readonly logger = new Logger(EventService.name);
+
   constructor(
     @Inject(DBRepository) private readonly dbRepository: DBRepository,
     private readonly redisService: RedisService,
@@ -428,8 +430,38 @@ export class EventService implements IEventService {
     return this.eventChangeService.setSalesClosed(eventUuid, closed, loggedUser);
   }
 
+  /**
+   * Baja lógica del evento (`BR-EVENT-021`).
+   *
+   * Con entradas vendidas solo lo borra un Administrador. Para la productora
+   * borrar un evento vendido es un problema, no una salida: las entradas
+   * quedan sin evento, el comprador no las ve más y no hay reembolso. El
+   * camino correcto es cancelar el evento, que dispara la comunicación y la
+   * ventana de reembolso (`BR-EVENT-010`).
+   */
   async deleteEvent(uuid: string, loggedUser: string): Promise<boolean> {
     const event = await this.assertOwnership(uuid, loggedUser);
+
+    const soldOrders = await this.dbRepository.count({
+      entity: 'orders',
+      where: {
+        eventUuid: event.uuid,
+        status: In([OrderStatus.PAID, OrderStatus.REFUNDED])
+      } as any
+    });
+    if (soldOrders > 0) {
+      const isAdmin = await this.userPermission.userPermission(loggedUser);
+      if (!isAdmin) {
+        throw new ConflictException(
+          'Este evento ya tiene entradas vendidas: no se puede eliminar. Cancelalo para avisar a los compradores y abrir la ventana de reembolso, o pedile a un administrador que lo elimine.'
+        );
+      }
+      // Queda registrado: es una acción excepcional sobre entradas vendidas.
+      this.logger.warn(
+        `Evento ${event.uuid} con ${soldOrders} órdenes pagadas eliminado por el administrador ${loggedUser}`
+      );
+    }
+
     await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: { isActive: false } });
     return true;
   }
