@@ -841,11 +841,111 @@ export class EventService implements IEventService {
       seen.add(item.uuid);
     }
 
-    const updated: TTicketTypeResponse[] = [];
-    for (const { uuid, ...patch } of items) {
-      updated.push(await this.applyTicketTypeUpdate(eventUuid, uuid, patch, loggedUser));
+    if (items.length === 0) return [];
+
+    // Precarga en lote (antes eran 2-3 consultas por tanda, una tras otra).
+    const uuids = items.map(item => item.uuid);
+    const rows = (await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { uuid: In(uuids), eventUuid, isActive: true }
+    })) as TicketTypeEntity[];
+    const byUuid = new Map(rows.map(row => [row.uuid, row]));
+    if (uuids.some(uuid => !byUuid.has(uuid))) throw new BadRequestException('Tipo de entrada no encontrado');
+
+    const needsEvent = items.some(item => item.saleStartDate !== undefined || item.saleEndDate !== undefined);
+    const event = needsEvent
+      ? await this.dbRepository.findOne({ entity: 'event', where: { uuid: eventUuid } })
+      : null;
+
+    // Se valida y calcula todo en memoria primero: si una falla, no se toca nada.
+    const plans = items.map(({ uuid, ...data }) =>
+      this.planTicketTypeUpdate(byUuid.get(uuid) as TicketTypeEntity, data, event)
+    );
+
+    await Promise.all(
+      plans.map(async plan => {
+        if (Object.keys(plan.patch).length > 0) {
+          await this.dbRepository.update({
+            entity: 'ticket_type',
+            where: { uuid: plan.ticketType.uuid },
+            data: plan.patch
+          });
+        }
+        if (plan.stockChanged) {
+          await this.redisService.setStock(`stock:${plan.ticketType.uuid}`, plan.patch.availableQuantity as number);
+          await this.eventChangeService.recordStockChange({
+            eventUuid,
+            ticketTypeUuid: plan.ticketType.uuid,
+            ticketTypeName: plan.ticketType.name,
+            beforeQuantity: plan.ticketType.quantity,
+            afterQuantity: plan.patch.quantity as number,
+            loggedUser
+          });
+        }
+      })
+    );
+
+    return plans.map(plan => ({ ...plan.ticketType, ...plan.patch }) as unknown as TTicketTypeResponse);
+  }
+
+  private planTicketTypeUpdate(
+    ticketType: TicketTypeEntity,
+    data: ITicketTypeUpdate,
+    event: any
+  ): { ticketType: TicketTypeEntity; patch: Partial<TicketTypeEntity>; stockChanged: boolean } {
+    const soldCount = ticketType.quantity - ticketType.availableQuantity;
+
+    if (event && (data.saleStartDate !== undefined || data.saleEndDate !== undefined)) {
+      this.assertTicketTypeSaleWindow(event, {
+        saleStartDate: data.saleStartDate !== undefined ? data.saleStartDate : ticketType.saleStartDate,
+        saleEndDate: data.saleEndDate !== undefined ? data.saleEndDate : ticketType.saleEndDate
+      });
     }
-    return updated;
+
+    const patch: Partial<TicketTypeEntity> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.description !== undefined) patch.description = data.description;
+    if (data.minPerOrder !== undefined) patch.minPerOrder = data.minPerOrder;
+    if (data.maxPerOrder !== undefined) patch.maxPerOrder = data.maxPerOrder;
+    if (data.saleStartDate !== undefined) patch.saleStartDate = data.saleStartDate;
+    if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
+    if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
+
+    if (data.saleMode !== undefined || data.admissionsPerUnit !== undefined) {
+      const current = {
+        saleMode: ticketType.saleMode ?? 'general',
+        admissionsPerUnit: ticketType.admissionsPerUnit ?? null
+      };
+      const next = this.resolveSaleModeOrThrow(current, data);
+      if (soldCount > 0 && saleModeChanged(current, next)) {
+        throw new BadRequestException(
+          'No se puede cambiar cómo se vende una tanda con ventas. Agotá la tanda y creá una nueva.'
+        );
+      }
+      patch.saleMode = next.saleMode;
+      patch.admissionsPerUnit = next.admissionsPerUnit;
+    }
+
+    if (data.price !== undefined) {
+      if (soldCount > 0) {
+        throw new BadRequestException(
+          'No se puede cambiar el precio de una tanda con ventas. Agotá la tanda y creá una nueva.'
+        );
+      }
+      patch.price = data.price;
+    }
+
+    let stockChanged = false;
+    if (data.quantity !== undefined) {
+      if (data.quantity < soldCount) {
+        throw new BadRequestException(`El stock no puede ser menor a lo ya vendido (${soldCount})`);
+      }
+      patch.quantity = data.quantity;
+      patch.availableQuantity = ticketType.availableQuantity + (data.quantity - ticketType.quantity);
+      stockChanged = data.quantity !== ticketType.quantity;
+    }
+
+    return { ticketType, patch, stockChanged };
   }
 
   private async applyTicketTypeUpdate(
