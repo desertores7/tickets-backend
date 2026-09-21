@@ -76,4 +76,6 @@ export interface ITicketTypeCreate {
   saleStartDate?: Date | null;
   saleEndDate?: Date | null;
   sortOrder?: number;
+  /** Sectores del mapa a vincular al crear (opcional). */
+  sectorUuids?: string[];
 }

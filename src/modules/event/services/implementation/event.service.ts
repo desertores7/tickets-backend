@@ -689,11 +689,47 @@ export class EventService implements IEventService {
       this.resolveSaleModeOrThrow(null, data);
     }
 
-    const created: TTicketTypeResponse[] = [];
-    for (const data of items) {
-      created.push(await this.persistNewTicketType(event.uuid, data));
+    if (items.length === 0) return [];
+
+    // Vínculos con el mapa pedidos en el mismo alta: se validan una vez para
+    // todo el lote y se insertan en un solo INSERT.
+    const requestedSectorUuids = [...new Set(items.flatMap(item => item.sectorUuids ?? []))];
+    if (requestedSectorUuids.length) {
+      const map = await this.dbRepository.findOne({ entity: 'event_map', where: { eventUuid: event.uuid } });
+      if (!map) throw new BadRequestException('Mapa del evento no encontrado');
+      const sectors = (await this.dbRepository.findMany({
+        entity: 'event_map_sector',
+        where: { mapUuid: map.uuid, uuid: In(requestedSectorUuids) },
+        select: { uuid: true } as any
+      })) as Array<{ uuid: string }>;
+      if (sectors.length !== requestedSectorUuids.length) {
+        throw new BadRequestException('Uno o más sectores no pertenecen al mapa de este evento');
+      }
     }
-    return created;
+
+    // Un solo INSERT multi-fila (y uno para las alertas) en vez de 3-4 consultas
+    // por tanda: con 20 bloques eran ~80 round-trips.
+    const entities = items.map(data => this.buildTicketTypeEntity(event.uuid, data));
+    await this.dbRepository.createMany({ entity: 'ticket_type', data: entities as never });
+    await Promise.all(entities.map(entity => this.redisService.setStock(`stock:${entity.uuid}`, entity.quantity)));
+    await this.stockAlertService.ensureDefaultsForNewTicketTypes(
+      event.uuid,
+      entities.map(entity => entity.uuid)
+    );
+    const links: EventMapSectorTicketTypeEntity[] = [];
+    entities.forEach((entity, index) => {
+      for (const sectorUuid of new Set(items[index].sectorUuids ?? [])) {
+        const link = new EventMapSectorTicketTypeEntity();
+        link.uuid = uuidv4();
+        link.sectorUuid = sectorUuid;
+        link.ticketTypeUuid = entity.uuid;
+        links.push(link);
+      }
+    });
+    if (links.length) {
+      await this.dbRepository.createMany({ entity: 'event_map_sector_ticket_type', data: links });
+    }
+    return entities as unknown as TTicketTypeResponse[];
   }
 
   /** Ventana de venta de la entrada dentro del evento. Ver `getTicketTypeSaleWindowError`. */
@@ -715,7 +751,7 @@ export class EventService implements IEventService {
     return result.value;
   }
 
-  private async persistNewTicketType(eventUuid: string, data: ITicketTypeCreate): Promise<TTicketTypeResponse> {
+  private buildTicketTypeEntity(eventUuid: string, data: ITicketTypeCreate): TicketTypeEntity {
     const ticketType = new TicketTypeEntity();
     ticketType.uuid = uuidv4();
     ticketType.eventUuid = eventUuid;
@@ -735,6 +771,11 @@ export class EventService implements IEventService {
     ticketType.isActive = true;
     ticketType.salesEnabled = true;
     ticketType.sortOrder = data.sortOrder ?? 0;
+    return ticketType;
+  }
+
+  private async persistNewTicketType(eventUuid: string, data: ITicketTypeCreate): Promise<TTicketTypeResponse> {
+    const ticketType = this.buildTicketTypeEntity(eventUuid, data);
 
     const saved = await this.dbRepository.create({ entity: 'ticket_type', data: ticketType });
 
@@ -911,13 +952,35 @@ export class EventService implements IEventService {
    */
   async deleteTicketTypes(eventUuid: string, ticketTypeUuids: string[], loggedUser: string): Promise<void> {
     await this.assertOwnership(eventUuid, loggedUser);
-    for (const uuid of new Set(ticketTypeUuids)) {
-      await this.deactivateTicketType(eventUuid, uuid);
+    const uuids = [...new Set(ticketTypeUuids)];
+    if (uuids.length === 0) return;
+
+    // Todo el lote en pocas consultas (antes eran ~3 por tanda, una tras otra).
+    const rows = (await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { uuid: In(uuids), eventUuid, isActive: true },
+      select: { uuid: true, quantity: true, availableQuantity: true } as any
+    })) as Array<{ uuid: string; quantity: number; availableQuantity: number }>;
+    if (rows.length !== uuids.length) throw new BadRequestException('Tipo de entrada no encontrado');
+    if (rows.some(row => row.quantity - row.availableQuantity > 0)) {
+      throw new BadRequestException('No se puede eliminar una tanda con ventas');
     }
+
+    const placeholders = uuids.map(() => '?').join(',');
+    // El vínculo con los sectores del mapa se quita acá: el cliente ya no tiene
+    // que desvincular una por una antes de borrar.
+    await this.dbRepository.query(
+      `DELETE FROM event_map_sector_ticket_type WHERE ticketTypeUuid IN (${placeholders})`,
+      uuids
+    );
+    await this.dbRepository.query(
+      `UPDATE ticket_type SET isActive = 0, availableQuantity = 0 WHERE uuid IN (${placeholders}) AND eventUuid = ?`,
+      [...uuids, eventUuid]
+    );
+    await Promise.all(uuids.map(uuid => this.redisService.setStock(`stock:${uuid}`, 0)));
   }
 
   private async deactivateTicketType(eventUuid: string, ticketTypeUuid: string): Promise<void> {
-
     const ticketType = await this.dbRepository.findOne({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid, eventUuid, isActive: true }
@@ -929,6 +992,7 @@ export class EventService implements IEventService {
       throw new BadRequestException('No se puede eliminar una tanda con ventas');
     }
 
+    await this.dbRepository.query('DELETE FROM event_map_sector_ticket_type WHERE ticketTypeUuid = ?', [ticketTypeUuid]);
     await this.dbRepository.update({
       entity: 'ticket_type',
       where: { uuid: ticketTypeUuid },
