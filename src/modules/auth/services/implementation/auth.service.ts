@@ -35,7 +35,8 @@ import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
 import { PRODUCTOR_ROLE_UUID, ORGANIZATION_STATUS } from '@modules/organization/const/organization-fiscal.const';
 import { PASSWORD_POLICY } from '@modules/organization/const/organization-staff.const';
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
-import { normalizeDocumentNumber } from '@modules/auth/const/normalize-document';
+import { normalizeDocumentNumber } from '@modules/auth/const/normalize-document';
+import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 @Injectable()
 export class AuthService implements IAuthService {
@@ -445,7 +446,7 @@ export class AuthService implements IAuthService {
   }
 
   private getFrontendUrl(): string {
-    return (this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000').replace(/\/$/, '');
+    return resolvePublicSiteUrl(this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000');
   }
 
   /**

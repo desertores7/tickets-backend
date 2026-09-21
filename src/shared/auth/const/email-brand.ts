@@ -74,11 +74,25 @@ export function emailBrandVars(
   return {
     appName: EMAIL_BRAND.appName,
     appTagline: EMAIL_BRAND.appTagline,
-    logoUrl: emailLogoUrl(appUrl),
+    logoUrl: emailLogoUrl(frontendUrl),
     supportEmail: EMAIL_BRAND.supportEmail,
     siteUrl: EMAIL_BRAND.siteUrl,
     siteDomain: EMAIL_BRAND.siteDomain,
     frontendUrl: frontendUrl.replace(/\/$/, ''),
     year: new Date().getFullYear()
   };
+}
+
+/**
+ * URL pública del sitio para links e imágenes de los emails.
+ *
+ * Nunca devuelve localhost en producción: si `FRONTEND_URL` falta o quedó con
+ * el valor de desarrollo, cae al dominio oficial. Así un mail no sale con
+ * links rotos aunque el entorno esté mal configurado.
+ */
+export function resolvePublicSiteUrl(configured: string | undefined | null): string {
+  const url = (configured ?? '').trim().replace(/\/$/, '');
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(url);
+  if (!url || (isLocal && process.env.NODE_ENV === 'production')) return EMAIL_BRAND.siteUrl;
+  return url;
 }

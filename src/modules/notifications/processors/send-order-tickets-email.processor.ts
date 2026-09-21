@@ -13,7 +13,8 @@ import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
 import { RedisService } from '@config/redis/redis.service';
 import { StorageService } from '@root/shared/services/storage.service';
 import { pickEventCover, resolveEventCoverPaths } from '@root/shared/services/event-cover';
-import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
+import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
+import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 /** Ventana del candado anti-duplicado: sobra para que lleguen los dos caminos. */
 const ORDER_EMAIL_IDEMPOTENCY_TTL = 24 * 60 * 60;
@@ -158,7 +159,7 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
         ticketNumber: t.ticketNumber,
         ticketTypeName: `${shortUnitLabel(t.unitLabel) || t.ticketType?.name || 'Entrada'} · 1 Entrada`
       })),
-      ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
+      ticketsUrl: `${resolvePublicSiteUrl(this.envService.get('FRONTEND_URL'))}/client/tickets`,
       // Portada: el banner del evento si lo hay. El template la trata como
       // opcional, así que un evento sin banner manda el email igual.
       // `toPublicUrl` antepone el host: en la base el banner se guarda relativo
