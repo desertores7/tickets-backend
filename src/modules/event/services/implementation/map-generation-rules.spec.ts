@@ -27,8 +27,11 @@ function analyze(
   const result = normalizeMapLayout({
     mapArea: null,
     stage: extra.stage ?? { visible: true, position: 'top' },
+    // `null` es "sin escenario dibujado": con `??` caía en el default de borde a borde.
     stageLayout:
-      extra.stageLayout ?? { kind: 'rect', cell: { col: 2, row: 1, colSpan: 22, rowSpan: 2 } },
+      'stageLayout' in extra
+        ? extra.stageLayout
+        : { kind: 'rect', cell: { col: 2, row: 1, colSpan: 22, rowSpan: 2 } },
     categories: extra.categories ?? [],
     layout: { groups }
   });
@@ -210,13 +213,16 @@ describe('composición', () => {
       }
     ]);
 
+    // Bordes del bloque, no columnas de inicio: con la grilla ×2 cada mesa ocupa
+    // `MAP_GRID_SCALE` columnas.
     const vip = groupById(result, 'vip').unitCells ?? [];
-    const vipCols = vip.map(c => c.col);
+    const vipLeft = Math.min(...vip.map(c => c.col));
+    const vipRight = Math.max(...vip.map(c => c.col + c.colSpan - 1));
     const general = groupById(result, 'general');
     const zone = (general.unitCells ?? [])[0] ?? general.cell!;
 
-    expect(zone.col).toBe(Math.min(...vipCols));
-    expect(zone.col + zone.colSpan - 1).toBe(Math.max(...vipCols));
+    expect(zone.col).toBe(vipLeft);
+    expect(zone.col + zone.colSpan - 1).toBe(vipRight);
   });
 
   it('una zona sin nada arriba ni abajo se deja donde está', () => {

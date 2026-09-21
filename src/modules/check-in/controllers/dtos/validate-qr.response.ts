@@ -9,6 +9,8 @@ class CheckInTicketResponse {
   @ApiProperty() status: string;
   @ApiPropertyOptional({ nullable: true }) checkedInAt: Date | null;
   @ApiPropertyOptional({ nullable: true }) checkedInBy: string | null;
+  @ApiPropertyOptional({ nullable: true, example: 'Mesa VIP · 8', description: 'Unidad del mapa (BR-SALE-010)' })
+  unitLabel: string | null;
 
   constructor(t: CheckInTicket) {
     this.uuid = t.uuid;
@@ -18,6 +20,7 @@ class CheckInTicketResponse {
     this.status = t.status;
     this.checkedInAt = t.checkedInAt;
     this.checkedInBy = t.checkedInBy;
+    this.unitLabel = t.unitLabel ?? null;
   }
 }
 

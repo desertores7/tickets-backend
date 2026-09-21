@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put } from '@nestjs/common';
+import { Body, ConflictException, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
@@ -8,6 +8,16 @@ import { CreateSystemParameterRequest } from './dtos/create-system-parameter/cre
 import { UpdateSystemParameterRequest } from './dtos/update-system-parameter/update-system-parameter.request';
 import { GetSystemParameterResponse } from './dtos/get-system-parameter/get-system-parameter.response';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { INTERNAL_API_TOKEN_KEY } from '@root/shared/auth/guards/internal-token.guard';
+import { MANAGED_PARAMETER_KEYS } from '../const/protected-parameters.const';
+
+/** El CRUD genérico no toca los parámetros que tienen su propio flujo. */
+function assertNotManaged(key: string): void {
+  const managedBy = MANAGED_PARAMETER_KEYS.get(key);
+  if (managedBy) {
+    throw new ConflictException(`El parámetro '${key}' se cambia desde ${managedBy}`);
+  }
+}
 
 @ApiTags('Admin — Parámetros')
 @Controller('system-parameters')
@@ -46,6 +56,23 @@ export class SystemParameterController {
 
   @AdminAuth(null, null)
   @ApiOperation({
+    summary: 'Obtener estado del token interno',
+    description:
+      'Indica si el token de APIs internas existe y cuándo se generó. Nunca devuelve el token. Solo administrador.'
+  })
+  @HttpCode(200)
+  @Get('internal-token/status')
+  async getInternalTokenStatus(): Promise<{ exists: boolean; updatedAt: Date | null; updatedBy: string | null }> {
+    const parameter = await this.systemParameterService.getParameter(INTERNAL_API_TOKEN_KEY);
+    return {
+      exists: !!parameter?.value,
+      updatedAt: parameter?.updatedAt ?? null,
+      updatedBy: parameter?.updatedBy ?? null
+    };
+  }
+
+  @AdminAuth(null, null)
+  @ApiOperation({
     summary: 'Generar token interno',
     description:
       'Genera o rota el token de APIs internas (header X-Internal-Token). Se devuelve solo en esta respuesta. Solo administrador.'
@@ -74,6 +101,7 @@ export class SystemParameterController {
     @Body() data: CreateSystemParameterRequest,
     @User() userId: string
   ): Promise<GetSystemParameterResponse> {
+    assertNotManaged(data.key);
     try {
       const parameter = await this.systemParameterService.setParameter(
         data.key,
@@ -100,6 +128,7 @@ export class SystemParameterController {
     @Body() data: UpdateSystemParameterRequest,
     @User() userId: string
   ): Promise<GetSystemParameterResponse> {
+    assertNotManaged(key);
     // Verificar que el parámetro existe
     const existing = await this.systemParameterService.getParameter(key);
     if (!existing) {
@@ -128,6 +157,7 @@ export class SystemParameterController {
   @HttpCode(200)
   @Delete(':key')
   async deleteParameter(@Param('key') key: string, @User() userId: string): Promise<{ message: string }> {
+    assertNotManaged(key);
     try {
       await this.systemParameterService.deleteParameter(key, userId);
       return { message: `Parameter '${key}' deleted successfully` };

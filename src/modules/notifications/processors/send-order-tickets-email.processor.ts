@@ -1,3 +1,4 @@
+import { ticketDisplayName } from '@modules/orders/services/core/sector-unit-sale';
 import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
@@ -110,7 +111,7 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       ticketCount: tickets.length,
       tickets: tickets.map(t => ({
         ticketNumber: t.ticketNumber,
-        ticketTypeName: t.ticketType?.name ?? 'Entrada'
+        ticketTypeName: ticketDisplayName(t.ticketType?.name ?? 'Entrada', t.unitLabel)
       })),
       ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
       // Portada: el banner del evento si lo hay. El template la trata como

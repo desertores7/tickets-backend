@@ -130,6 +130,12 @@ export const envSchema = z.object({
   /** Modelo multimodal para extracción JSON de flyers (visión). NO se usa en /ai/from-map. */
   EVENT_AI_EXTRACT_MODEL: z.string().default('gpt-4o'),
   /**
+   * Modelo de respaldo si el primario RECHAZA el flyer ("I can't assist with
+   * that"): gpt-4o se niega con afiches llenos de caras de personas reales,
+   * aunque solo se le pida transcribir el texto impreso. Vacío = sin respaldo.
+   */
+  EVENT_AI_EXTRACT_FALLBACK_MODEL: z.string().default(''),
+  /**
    * Modelo multimodal EXCLUSIVO de POST /events/ai/from-map (visión → layout abstracto).
    * Siempre se usa este valor; nunca cae a EVENT_AI_EXTRACT_MODEL.
    */

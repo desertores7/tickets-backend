@@ -200,7 +200,8 @@ export class TicketController {
         venueName: t.event.venueName,
         venueCity: t.event.venueCity ?? null,
         ticketTypeName: t.ticketType.name,
-        ticketTypePrice: t.ticketType.price !== undefined ? Number(t.ticketType.price) : null,
+        unitLabel: t.unitLabel ?? null,
+        ticketTypePrice: paidPerTicket(t),
         // La orden ya viene en la relacion: se usa para linkear la compra.
         orderUuid: t.orderItem?.order?.uuid ?? null,
         orderNumber: t.orderItem?.order?.orderNumber ?? null,
@@ -257,7 +258,8 @@ export class TicketController {
     const ticketType: GetTicketTypeData = {
       uuid: ticket.ticketType.uuid,
       name: ticket.ticketType.name,
-      price: ticket.ticketType.price
+      price: paidPerTicket(ticket) ?? ticket.ticketType.price,
+      unitLabel: ticket.unitLabel ?? null
     };
 
     const order: GetTicketOrderData = {
@@ -441,4 +443,20 @@ export class AdminTicketController {
 
     return { message: 'QR en proceso de regeneración', ticketId };
   }
+}
+
+/**
+ * Precio de ESTA entrada. En unidad completa (`BR-SALE-010`) la tanda cuesta la
+ * mesa entera y genera N entradas: mostrar el precio de la tanda en cada una
+ * diría que se pagó diez veces la mesa.
+ */
+function paidPerTicket(ticket: {
+  ticketType?: { price?: number | string } | null;
+  orderItem?: { unitPrice?: number | string; admissionsPerUnit?: number } | null;
+}): number | null {
+  if (ticket.orderItem?.unitPrice !== undefined) {
+    const admissions = Math.max(1, Number(ticket.orderItem.admissionsPerUnit ?? 1));
+    return Math.round((Number(ticket.orderItem.unitPrice) / admissions) * 100) / 100;
+  }
+  return ticket.ticketType?.price !== undefined ? Number(ticket.ticketType.price) : null;
 }

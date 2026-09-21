@@ -67,6 +67,12 @@ export interface ServiceFeeLineInput {
   ticketTypeUuid: string;
   quantity: number;
   unitPrice: number;
+  /**
+   * Entradas por unidad (`BR-SALE-010`). Una mesa completa de $100.000 con 10
+   * entradas paga el fee como 10 entradas de $10.000, cada una con su tope: lo
+   * mismo que si se vendieran sueltas. Default 1.
+   */
+  admissionsPerUnit?: number;
 }
 
 export interface ServiceFeeLineResult {
@@ -99,8 +105,14 @@ export function allocateOrderServiceFees(
   const units: { line: number; priceCents: number; eligible: boolean }[] = [];
   lines.forEach((line, index) => {
     const eligible = !eligibleTicketTypeUuids || eligibleTicketTypeUuids.includes(line.ticketTypeUuid);
+    const admissions = Math.max(1, line.admissionsPerUnit ?? 1);
+    // El precio de la unidad se reparte en sus entradas; los centavos que sobran
+    // van a las primeras, así la suma cierra exacta con el precio.
+    const admissionPrices = splitEvenly(line.unitPrice, admissions);
     for (let i = 0; i < line.quantity; i++) {
-      units.push({ line: index, priceCents: toCents(line.unitPrice), eligible });
+      for (const price of admissionPrices) {
+        units.push({ line: index, priceCents: toCents(price), eligible });
+      }
     }
   });
 

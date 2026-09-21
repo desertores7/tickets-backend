@@ -56,6 +56,7 @@ describe('OrderService ticket sales state', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       {} as never
     );
 

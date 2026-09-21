@@ -1,4 +1,5 @@
 import {
+  MAP_GRID_SIZE,
   MapGridError,
   MapSectorLayout,
   assertNoOverlaps,
@@ -10,6 +11,8 @@ import {
   validateSectorLayout
 } from './map-grid';
 
+const N = MAP_GRID_SIZE;
+
 const rect = (col: number, row: number, colSpan: number, rowSpan: number): MapSectorLayout => ({
   kind: 'rect',
   cell: { col, row, colSpan, rowSpan }
@@ -18,7 +21,7 @@ const rect = (col: number, row: number, colSpan: number, rowSpan: number): MapSe
 describe('map-grid', () => {
   describe('validateSectorLayout', () => {
     it('acepta rect y cells válidos', () => {
-      expect(validateSectorLayout(rect(1, 1, 24, 24), 'A')).toEqual(rect(1, 1, 24, 24));
+      expect(validateSectorLayout(rect(1, 1, N, N), 'A')).toEqual(rect(1, 1, N, N));
       expect(
         validateSectorLayout(
           { kind: 'cells', cells: [{ col: 3, row: 3, colSpan: 1, rowSpan: 1 }] },
@@ -27,8 +30,8 @@ describe('map-grid', () => {
       ).toBe('cells');
     });
 
-    it('rechaza celdas fuera de 1..24', () => {
-      expect(() => validateSectorLayout(rect(20, 1, 6, 1), 'A')).toThrow(MapGridError);
+    it('rechaza celdas fuera de 1..MAP_GRID_SIZE', () => {
+      expect(() => validateSectorLayout(rect(N - 4, 1, 6, 1), 'A')).toThrow(MapGridError);
       expect(() => validateSectorLayout(rect(0, 1, 1, 1), 'A')).toThrow(MapGridError);
     });
 
@@ -88,16 +91,17 @@ describe('map-grid', () => {
     expect(new Set(layoutKeys(snapLegacyGeometry(geometry)!))).toEqual(new Set(layoutKeys(l)));
     expect(layoutToLegacyGeometry(rect(3, 4, 2, 2))).toEqual({
       type: 'rect',
-      x: 2 / 24,
-      y: 3 / 24,
-      w: 2 / 24,
-      h: 2 / 24
+      x: 2 / N,
+      y: 3 / N,
+      w: 2 / N,
+      h: 2 / N
     });
   });
 
   it('stageLayoutFromAnalysis usa stage.layout o el default por posición', () => {
-    expect(stageLayoutFromAnalysis(null)).toEqual(rect(2, 1, 22, 2));
-    expect(stageLayoutFromAnalysis({ stage: { position: 'bottom' } })).toEqual(rect(2, 23, 22, 2));
+    // Escenario de medida fija (9×2 celdas del modelo, ×2 en la grilla) y centrado.
+    expect(stageLayoutFromAnalysis(null)).toEqual(rect(16, 1, 18, 4));
+    expect(stageLayoutFromAnalysis({ stage: { position: 'bottom' } })).toEqual(rect(16, N - 3, 18, 4));
     expect(stageLayoutFromAnalysis({ stage: { layout: rect(5, 5, 3, 3) } })).toEqual(rect(5, 5, 3, 3));
   });
 });

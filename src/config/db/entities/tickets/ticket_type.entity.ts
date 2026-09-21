@@ -44,6 +44,14 @@ export class TicketTypeEntity {
   @Column({ type: 'int', default: 10 })
   maxPerOrder: number;
 
+  /** Cómo se vende (`BR-SALE-010`). Ver `event/services/core/ticket-type-sale-mode.ts`. */
+  @Column({ type: 'enum', enum: ['general', 'per_person', 'whole_unit'], default: 'general' })
+  saleMode: 'general' | 'per_person' | 'whole_unit';
+
+  /** Entradas que da una unidad completa. Solo con `saleMode = 'whole_unit'`. */
+  @Column({ type: 'int', nullable: true, default: null })
+  admissionsPerUnit: number | null;
+
   @Column({ type: 'timestamp', nullable: true, default: null })
   saleStartDate: Date | null;
 

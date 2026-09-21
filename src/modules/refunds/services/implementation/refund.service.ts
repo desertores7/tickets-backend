@@ -96,8 +96,10 @@ export class RefundService implements IRefundService {
       .select('t.uuid', 'ticketUuid')
       .addSelect('t.ticketNumber', 'ticketNumber')
       .addSelect('t.status', 'status')
-      .addSelect('tt.name', 'ticketTypeName')
-      .addSelect('oi.unitPrice', 'unitPrice')
+      .addSelect("CONCAT_WS(' · ', tt.name, t.unitLabel)", 'ticketTypeName')
+      // En unidad completa (BR-SALE-010) la línea es la mesa entera y genera N
+      // entradas: cada una devuelve su parte, no la mesa completa.
+      .addSelect('oi.unitPrice / GREATEST(oi.admissionsPerUnit, 1)', 'unitPrice')
       .addSelect('rr.status', 'activeRequest')
       .from('ticket', 't')
       .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')

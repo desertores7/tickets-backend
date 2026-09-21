@@ -41,6 +41,10 @@ export type TEventMapSector = {
   ticketTypeUuids: string[];
   /** Tanda comprable ahora para este sector, según habilitación, ventana y stock. */
   activeTicketTypeUuid: string | null;
+  /** Lugares tomados (vendidos + retenidos) — BR-SALE-010. */
+  seatsTaken?: number;
+  /** Se puede elegir según la tanda vigente y lo tomado. */
+  unitAvailable?: boolean;
 };
 
 export type TEventMap = {

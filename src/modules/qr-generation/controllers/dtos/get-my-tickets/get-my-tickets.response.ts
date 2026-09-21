@@ -20,6 +20,8 @@ export interface TicketSummaryData {
   venueName: string;
   venueCity: string | null;
   ticketTypeName: string;
+  /** "Mesa VIP · 8" (BR-SALE-010). Null en tandas generales. */
+  unitLabel?: string | null;
   ticketTypePrice: number | null;
   orderUuid: string | null;
   orderNumber: string | null;
@@ -42,6 +44,8 @@ export class TicketSummaryResponse {
   @ApiProperty({ example: 'Hipódromo de San Isidro' }) venueName: string;
   @ApiProperty({ nullable: true, example: 'San Isidro' }) venueCity: string | null;
   @ApiProperty({ example: 'Campo General' }) ticketTypeName: string;
+  @ApiProperty({ nullable: true, example: 'Mesa VIP · 8', description: 'Unidad del mapa (BR-SALE-010)' })
+  unitLabel: string | null;
   @ApiProperty({ nullable: true, description: 'Precio pagado por esta entrada.' }) ticketTypePrice: number | null;
   @ApiProperty({ nullable: true }) orderUuid: string | null;
   @ApiProperty({ nullable: true }) orderNumber: string | null;
@@ -72,6 +76,7 @@ export class TicketSummaryResponse {
     this.venueName = data.venueName;
     this.venueCity = data.venueCity;
     this.ticketTypeName = data.ticketTypeName;
+    this.unitLabel = data.unitLabel ?? null;
     this.ticketTypePrice = data.ticketTypePrice;
     this.refundStatus = data.refundStatus ?? null;
     this.orderUuid = data.orderUuid;

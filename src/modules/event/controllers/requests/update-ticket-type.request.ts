@@ -1,6 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsDate, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsDate, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  MAX_ADMISSIONS_PER_UNIT,
+  TICKET_TYPE_SALE_MODES,
+  TicketTypeSaleMode
+} from '@modules/event/services/core/ticket-type-sale-mode';
 
 function parseArgentinaDate({ value }: { value: unknown }): Date | unknown {
   if (value === null || value === undefined || value === '') return value;
@@ -58,6 +63,29 @@ export class UpdateTicketTypeRequest {
   @Min(1)
   @ApiProperty({ description: 'Maximum tickets per order', required: false })
   maxPerOrder?: number;
+
+  @IsOptional()
+  @IsIn(TICKET_TYPE_SALE_MODES)
+  @ApiProperty({
+    description:
+      'Cómo se vende (BR-SALE-010): general (por cantidad, sin elegir lugar), per_person (lugares dentro de una mesa/palco) o whole_unit (la unidad completa; el precio es el de la unidad).',
+    enum: TICKET_TYPE_SALE_MODES,
+    required: false
+  })
+  saleMode?: TicketTypeSaleMode;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_ADMISSIONS_PER_UNIT)
+  @ApiProperty({
+    description: 'Entradas que genera comprar una unidad completa. Obligatorio con saleMode = whole_unit; se ignora en los otros modos.',
+    required: false,
+    nullable: true,
+    example: 10
+  })
+  admissionsPerUnit?: number | null;
 
   @IsOptional()
   @Transform(parseArgentinaDate)

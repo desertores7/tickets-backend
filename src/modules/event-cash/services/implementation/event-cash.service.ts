@@ -486,7 +486,8 @@ export class EventCashService implements IEventCashService {
       // menos un reembolso (mismo criterio que el filtro "Reembolsos").
       this.dataSource
         .createQueryBuilder()
-        .select('COALESCE(SUM(oi.unitPrice), 0)', 'v')
+        // Por entrada: en unidad completa (BR-SALE-010) la mesa se reparte en sus N entradas.
+        .select('COALESCE(SUM(oi.unitPrice / GREATEST(oi.admissionsPerUnit, 1)), 0)', 'v')
         .addSelect('COALESCE(COUNT(DISTINCT oi.uuid), 0)', 'qty')
         .from('ticket', 't')
         .innerJoin('order_item', 'oi', 'oi.uuid = t.orderItemUuid')

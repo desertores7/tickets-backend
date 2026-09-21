@@ -46,8 +46,13 @@ import {
 } from '@modules/event/services/core/ticket-sales-policy';
 import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
 import { ServiceFeeConfigService } from './service-fee-config.service';
+import { SectorHoldRequest, SectorOccupancyService } from './sector-occupancy.service';
+import { UnitSaleLine, UnitSaleSector, resolveUnitSaleLine } from '../core/sector-unit-sale';
 
 const ORDER_EXPIRY_MS = 10 * 60 * 1000;
+/** Tandas distintas por orden (antes lo limitaba el DTO con 5 líneas). */
+const MAX_TICKET_TYPES_PER_ORDER = 5;
+
 /** BR-SALE-006: tope de entradas por transacción */
 const MAX_TICKETS_PER_ORDER = 20;
 
@@ -72,7 +77,8 @@ export class OrderService implements IOrderService {
     private readonly stockAlertService: IStockAlertService,
     @Inject('ICouponService')
     private readonly couponService: ICouponService,
-    private readonly serviceFeeConfig: ServiceFeeConfigService
+    private readonly serviceFeeConfig: ServiceFeeConfigService,
+    private readonly sectorOccupancy: SectorOccupancyService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -88,6 +94,18 @@ export class OrderService implements IOrderService {
       throw new UnprocessableEntityException(
         `No se pueden comprar más de ${MAX_TICKETS_PER_ORDER} entradas en una misma operación`
       );
+    }
+
+    // Antes el DTO limitaba a 5 líneas = 5 tandas. Con unidades del mapa cada
+    // mesa es una línea, así que el límite de tandas distintas se valida acá.
+    if (new Set(dto.items.map(item => item.ticketTypeUuid)).size > MAX_TICKET_TYPES_PER_ORDER) {
+      throw new UnprocessableEntityException(
+        `No se pueden comprar más de ${MAX_TICKET_TYPES_PER_ORDER} tipos de entrada en una misma operación`
+      );
+    }
+    const lineKeys = dto.items.map(item => `${item.ticketTypeUuid}:${item.sectorUuid ?? ''}`);
+    if (new Set(lineKeys).size !== lineKeys.length) {
+      throw new UnprocessableEntityException('La misma entrada y unidad vienen repetidas en la compra');
     }
 
     await this.assertBuyerCanPurchase(userId);
@@ -196,6 +214,31 @@ export class OrderService implements IOrderService {
       }
     }
 
+    // 2b. Unidad del mapa de cada línea (BR-SALE-010): qué se reserva y cuántas
+    // entradas genera. Las generales no tocan el mapa.
+    const sectors = await this.loadOrderSectors(
+      dto.eventUuid,
+      dto.items.map(item => item.sectorUuid).filter((uuid): uuid is string => Boolean(uuid))
+    );
+    const unitLines: UnitSaleLine[] = dto.items.map((item, i) => {
+      const resolved = resolveUnitSaleLine(
+        ticketTypes[i]!,
+        item.quantity,
+        item.sectorUuid ? (sectors.get(item.sectorUuid) ?? null) : null,
+        item.sectorUuid
+      );
+      if ('error' in resolved) throw new UnprocessableEntityException(resolved.error);
+      return resolved.line;
+    });
+    const sectorHolds: SectorHoldRequest[] = unitLines
+      .filter(line => line.sectorUuid)
+      .map(line => ({
+        sectorUuid: line.sectorUuid!,
+        unitLabel: line.unitLabel!,
+        seats: line.seats,
+        seatLimit: line.seatLimit
+      }));
+
     // 3. Calculate totals
     let subtotal = 0;
     for (let i = 0; i < dto.items.length; i++) {
@@ -231,7 +274,8 @@ export class OrderService implements IOrderService {
       dto.items.map((item, i) => ({
         ticketTypeUuid: item.ticketTypeUuid,
         quantity: item.quantity,
-        unitPrice: Number(ticketTypes[i]!.price)
+        unitPrice: Number(ticketTypes[i]!.price),
+        admissionsPerUnit: unitLines[i].admissionsPerUnit
       })),
       discountAmount,
       coupon ? coupon.eligibleTicketTypeUuids : null,
@@ -291,10 +335,19 @@ export class OrderService implements IOrderService {
         metadata: null
       });
 
+      // La unidad se toma en la misma transacción que la orden: si otra compra
+      // ya se quedó con la mesa, 409 y no queda nada creado.
+      if (sectorHolds.length) {
+        await this.sectorOccupancy.reserve(queryRunner, dto.eventUuid, savedOrder.uuid, sectorHolds);
+      }
+
       const orderItemsData = dto.items.map((item, i) => ({
         orderUuid: savedOrder.uuid,
         ticketTypeUuid: item.ticketTypeUuid,
+        sectorUuid: unitLines[i].sectorUuid,
+        unitLabel: unitLines[i].unitLabel,
         quantity: item.quantity,
+        admissionsPerUnit: unitLines[i].admissionsPerUnit,
         unitPrice: Number(ticketTypes[i]!.price),
         subtotal: Math.round(item.quantity * Number(ticketTypes[i]!.price) * 100) / 100,
         discountAmount: fees.lines[i].discountAmount,
@@ -465,6 +518,7 @@ export class OrderService implements IOrderService {
         ...this.stripRelations(order),
         status: OrderStatus.CANCELLED
       });
+      await this.sectorOccupancy.release(queryRunner, order.uuid);
       await queryRunner.commitTransaction();
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -542,14 +596,18 @@ export class OrderService implements IOrderService {
         // El fee de la línea quedó fijado al crear la orden; acá solo se reparte
         // entre sus entradas. No se vuelve a leer la regla vigente: si el tope
         // cambió mientras se pagaba, esta compra se cobra como se mostró.
-        const ticketFees = splitEvenly(Number(item.serviceFee ?? 0), item.quantity);
-        const ticketDiscounts = splitEvenly(Number(item.discountAmount ?? 0), item.quantity);
-        for (let i = 0; i < item.quantity; i++) {
+        // Una mesa completa genera sus N entradas (BR-SALE-010); el resto, una por unidad.
+        const admissions = item.quantity * Math.max(1, Number(item.admissionsPerUnit ?? 1));
+        const ticketFees = splitEvenly(Number(item.serviceFee ?? 0), admissions);
+        const ticketDiscounts = splitEvenly(Number(item.discountAmount ?? 0), admissions);
+        for (let i = 0; i < admissions; i++) {
           const ticket = await queryRunner.manager.save('ticket', {
             orderItemUuid: item.uuid,
             userUuid: order.userUuid,
             eventUuid: order.eventUuid,
             ticketTypeUuid: item.ticketTypeUuid,
+            sectorUuid: item.sectorUuid ?? null,
+            unitLabel: item.unitLabel ?? null,
             ticketNumber: this.generateTicketNumber(),
             serviceFee: ticketFees[i],
             discountAmount: ticketDiscounts[i],
@@ -567,7 +625,10 @@ export class OrderService implements IOrderService {
       // 6. Register fee summary (atomic upsert) within the same transaction.
       // If this fails, the whole transaction rolls back — the order never stays
       // in `paid` with an inconsistent fee summary.
-      const ticketCount = (order.items as any[]).reduce((sum, item) => sum + item.quantity, 0);
+      const ticketCount = (order.items as any[]).reduce(
+        (sum, item) => sum + item.quantity * Math.max(1, Number(item.admissionsPerUnit ?? 1)),
+        0
+      );
       await this.feeSummaryService.registerPaidOrder({
         eventId: order.eventUuid,
         ticketCount,
@@ -701,6 +762,7 @@ export class OrderService implements IOrderService {
         ...this.stripRelations(order),
         status: OrderStatus.EXPIRED
       });
+      await this.sectorOccupancy.release(queryRunner, order.uuid);
       await queryRunner.commitTransaction();
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -735,6 +797,57 @@ export class OrderService implements IOrderService {
     }
 
     return this.mapToOrder(order);
+  }
+
+  /**
+   * Unidades del mapa del evento pedidas en la orden, con sus tandas
+   * vinculadas. Solo las de ESTE evento: un uuid de otro evento no aparece y la
+   * línea falla como "no corresponde".
+   */
+  private async loadOrderSectors(eventUuid: string, sectorUuids: string[]): Promise<Map<string, UnitSaleSector>> {
+    const unique = [...new Set(sectorUuids)];
+    if (!unique.length) return new Map();
+
+    const rows: Array<{
+      uuid: string;
+      name: string;
+      level: string | null;
+      familyLabel: string | null;
+      capacity: number | null;
+    }> = await this.dataSource
+      .createQueryBuilder()
+      .select([
+        's.uuid AS uuid',
+        's.name AS name',
+        's.level AS level',
+        's.familyLabel AS familyLabel',
+        's.capacity AS capacity'
+      ])
+      .from('event_map_sector', 's')
+      .innerJoin('event_map', 'm', 'm.uuid = s.mapUuid')
+      .where('m.eventUuid = :eventUuid', { eventUuid })
+      .andWhere('s.uuid IN (:...unique)', { unique })
+      .getRawMany();
+    if (!rows.length) return new Map();
+
+    const links = await this.dbRepository.findMany({
+      entity: 'event_map_sector_ticket_type',
+      where: { sectorUuid: In(rows.map(r => r.uuid)) }
+    });
+
+    return new Map(
+      rows.map(r => [
+        r.uuid,
+        {
+          uuid: r.uuid,
+          name: r.name,
+          level: r.level,
+          familyLabel: r.familyLabel,
+          capacity: r.capacity == null ? null : Number(r.capacity),
+          ticketTypeUuids: links.filter(l => l.sectorUuid === r.uuid).map(l => l.ticketTypeUuid)
+        }
+      ])
+    );
   }
 
   private stripRelations(entity: any): any {
@@ -824,7 +937,10 @@ export class OrderService implements IOrderService {
       (item: any): IOrderItem => ({
         uuid: item.uuid,
         ticketTypeUuid: item.ticketTypeUuid,
+        sectorUuid: item.sectorUuid ?? null,
+        unitLabel: item.unitLabel ?? null,
         quantity: item.quantity,
+        admissionsPerUnit: Number(item.admissionsPerUnit ?? 1),
         unitPrice: Number(item.unitPrice),
         subtotal: Number(item.subtotal),
         tickets: ((item.tickets as any[]) ?? []).map(
@@ -834,6 +950,7 @@ export class OrderService implements IOrderService {
             qrCode: ticket.qrCode ?? null,
             qrUrl: ticket.qrUrl ?? null,
             pdfUrl: ticket.pdfUrl ?? null,
+            unitLabel: ticket.unitLabel ?? null,
             status: ticket.status,
             checkedInAt: ticket.checkedInAt ?? null
           })
