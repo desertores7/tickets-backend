@@ -30,6 +30,10 @@ export class OrganizationProducerInviteEntity {
   @Column({ type: 'varchar', length: 36 })
   invitedByUuid: string;
 
+  /** Rol que recibe al aceptar: producer | validator | cashier. */
+  @Column({ type: 'varchar', length: 20, default: 'producer' })
+  staffRole: 'producer' | 'validator' | 'cashier';
+
   @Column({ type: 'timestamp' })
   expiresAt: Date;
 

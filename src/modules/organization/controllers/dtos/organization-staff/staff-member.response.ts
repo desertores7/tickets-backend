@@ -50,6 +50,9 @@ export class StaffMemberResponse {
   @ApiPropertyOptional()
   expiresAt?: string | null;
 
+  @ApiPropertyOptional({ enum: ['producer', 'validator', 'cashier'] })
+  inviteRole?: 'producer' | 'validator' | 'cashier' | null;
+
   constructor(data: {
     staffKind: StaffKind;
     userUuid?: string | null;
@@ -61,6 +64,7 @@ export class StaffMemberResponse {
     createdAt: Date | string;
     assignedEvents?: StaffAssignedEventResponse[];
     expiresAt?: Date | string | null;
+    inviteRole?: 'producer' | 'validator' | 'cashier' | null;
   }) {
     this.staffKind = data.staffKind;
     this.userUuid = data.userUuid ?? null;
@@ -72,6 +76,7 @@ export class StaffMemberResponse {
     this.createdAt = new Date(data.createdAt).toISOString();
     this.assignedEvents = data.assignedEvents;
     this.expiresAt = data.expiresAt ? new Date(data.expiresAt).toISOString() : null;
+    this.inviteRole = data.inviteRole ?? null;
   }
 }
 
