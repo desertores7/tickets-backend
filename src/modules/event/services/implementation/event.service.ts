@@ -71,7 +71,7 @@ import { isUnitAvailable } from '@modules/orders/services/core/sector-unit-sale'
 import { findRemovedSectors, removedSectorsMessage } from '../core/published-map-guard';
 import { normalizeEventContent, normalizeSocialLinks } from '../core/event-social-links';
 import { EventChangeService, toEventSnapshot, TEventChangeItem, TEventChangesResult } from './event-change.service';
-import { selectCurrentTicketType } from '../core/ticket-sales-policy';
+import { selectCurrentTicketTypeForSector, type TierCandidate } from '../core/ticket-sales-policy';
 import {
   MAP_GRID_SIZE,
   MapGridError,
@@ -1578,10 +1578,11 @@ export class EventService implements IEventService {
     const resolvedSectors = sectors.map(sector => ({
       ...sector,
       activeTicketTypeUuid:
-        selectCurrentTicketType(
+        selectCurrentTicketTypeForSector(
           sector.ticketTypeUuids
             .map(uuid => ticketTypesByUuid.get(uuid))
-            .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
+            .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket)) as unknown as TierCandidate[],
+          ticketTypes as unknown as TierCandidate[]
         )?.uuid ?? null
     }));
 
@@ -2229,11 +2230,12 @@ export class EventService implements IEventService {
     const mappedSectors: TEventMapSector[] = sectors.filter(s => !isStageSectorName(s.name)).map(s => {
       const ticketTypeUuids = bySector.get(s.uuid) ?? [];
       const layout = isSectorLayout(s.layout) ? s.layout : null;
-      const active = selectCurrentTicketType(
+      const active = selectCurrentTicketTypeForSector(
         ticketTypeUuids
           .map(uuid => ticketTypesByUuid.get(uuid))
-          .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket))
-      );
+          .filter((ticket): ticket is TTicketTypeResponse => Boolean(ticket)) as unknown as TierCandidate[],
+        ticketTypes as unknown as TierCandidate[]
+      ) as unknown as TTicketTypeResponse | null;
       const seatsTaken = takenBySector.get(s.uuid) ?? 0;
       return {
         uuid: s.uuid,

@@ -41,7 +41,8 @@ import { IStockAlertService } from '@modules/stock-alerts/services/contracts/ist
 import { ICouponService } from '@modules/coupons/services/contracts/icoupon.service';
 import { getEventSalesBlockReason } from '@modules/event/services/core/event-sales-gate';
 import {
-  selectCurrentTicketType,
+  selectCurrentTicketTypeForSector,
+  TierCandidate,
   TicketSalesCandidate
 } from '@modules/event/services/core/ticket-sales-policy';
 import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
@@ -189,6 +190,18 @@ export class OrderService implements IOrderService {
       if (ticketType.availableQuantity <= 0) {
         throw new UnprocessableEntityException(
           `Se agotaron las entradas "${ticketType.name}"`
+        );
+      }
+
+      // La unidad pedida tiene que ser la de esta entrada: un cliente no puede
+      // cruzar una tanda con la mesa de otra.
+      if (
+        item.sectorUuid &&
+        sequence.assignedTicketTypeUuids.has(ticketType.uuid) &&
+        !sequence.linkedSectorsByTicketType.get(ticketType.uuid)?.has(item.sectorUuid)
+      ) {
+        throw new UnprocessableEntityException(
+          `La entrada "${ticketType.name}" no corresponde a la unidad elegida`
         );
       }
 
@@ -586,11 +599,6 @@ export class OrderService implements IOrderService {
       }));
       await this.stockService.confirmStock(stockItems, queryRunner);
 
-      // Alertas de stock (`BR-EVENT-017`). Sin await: el aviso no puede
-      // demorar ni tumbar una compra que ya se cobró. El servicio traga sus
-      // propios errores.
-      void this.stockAlertService.evaluateAfterSale(stockItems.map(i => i.ticketTypeId));
-
       // 5. Generate individual tickets within the same transaction
       for (const item of order.items as any[]) {
         // El fee de la línea quedó fijado al crear la orden; acá solo se reparte
@@ -648,6 +656,18 @@ export class OrderService implements IOrderService {
     } finally {
       await queryRunner.release();
     }
+
+    // Alertas de stock (`BR-EVENT-017`). Recién acá, con la compra ya confirmada:
+    // antes de commitear el stock todavía figuraba sin descontar. Sin await: el
+    // aviso no puede demorar una compra cobrada; el servicio traga sus errores.
+    void this.stockAlertService.evaluateAfterSale(
+      [...new Set((order.items as any[]).map(item => item.ticketTypeUuid as string))],
+      (order.items as any[]).map(item => ({
+        ticketTypeUuid: item.ticketTypeUuid as string,
+        ticketTypeName: (item.ticketTypeName as string) ?? '',
+        unitLabel: (item.unitLabel as string | null) ?? null
+      }))
+    );
 
     // 8. Enqueue generate-qr job per ticket
     for (const ticket of createdTickets) {
@@ -861,12 +881,15 @@ export class OrderService implements IOrderService {
   ): Promise<{
     assignedTicketTypeUuids: Set<string>;
     currentTicketTypeUuids: Set<string>;
+    /** Sectores a los que está vinculada cada entrada. */
+    linkedSectorsByTicketType: Map<string, Set<string>>;
   }> {
     const requestedUuids = requestedTicketTypes.map(ticket => ticket.uuid);
     if (!requestedUuids.length) {
       return {
         assignedTicketTypeUuids: new Set(),
-        currentTicketTypeUuids: new Set()
+        currentTicketTypeUuids: new Set(),
+        linkedSectorsByTicketType: new Map()
       };
     }
 
@@ -875,20 +898,27 @@ export class OrderService implements IOrderService {
       where: { ticketTypeUuid: In(requestedUuids) }
     });
     const assignedTicketTypeUuids = new Set(requestedLinks.map(link => link.ticketTypeUuid));
+    const linkedSectorsByTicketType = new Map<string, Set<string>>();
+    for (const link of requestedLinks) {
+      const set = linkedSectorsByTicketType.get(link.ticketTypeUuid) ?? new Set<string>();
+      set.add(link.sectorUuid);
+      linkedSectorsByTicketType.set(link.ticketTypeUuid, set);
+    }
     const sectorUuids = [...new Set(requestedLinks.map(link => link.sectorUuid))];
     if (!sectorUuids.length) {
-      return { assignedTicketTypeUuids, currentTicketTypeUuids: new Set() };
+      return { assignedTicketTypeUuids, currentTicketTypeUuids: new Set(), linkedSectorsByTicketType };
     }
 
     const sectorLinks = await this.dbRepository.findMany({
       entity: 'event_map_sector_ticket_type',
       where: { sectorUuid: In(sectorUuids) }
     });
-    const siblingUuids = [...new Set(sectorLinks.map(link => link.ticketTypeUuid))];
+    // Todas las entradas del evento: una tanda por bloque se agota recién cuando
+    // se vendieron todas sus unidades, no solo la del sector.
     const siblings = (await this.dbRepository.findMany({
       entity: 'ticket_type',
-      where: { eventUuid, uuid: In(siblingUuids), isActive: true }
-    })) as TicketSalesCandidate[];
+      where: { eventUuid, isActive: true }
+    })) as unknown as TierCandidate[];
     const byUuid = new Map(siblings.map(ticket => [ticket.uuid, ticket]));
     const currentTicketTypeUuids = new Set<string>();
 
@@ -896,12 +926,12 @@ export class OrderService implements IOrderService {
       const sectorTickets = sectorLinks
         .filter(link => link.sectorUuid === sectorUuid)
         .map(link => byUuid.get(link.ticketTypeUuid))
-        .filter((ticket): ticket is TicketSalesCandidate => Boolean(ticket));
-      const current = selectCurrentTicketType(sectorTickets);
+        .filter((ticket): ticket is TierCandidate => Boolean(ticket));
+      const current = selectCurrentTicketTypeForSector(sectorTickets, siblings);
       if (current) currentTicketTypeUuids.add(current.uuid);
     }
 
-    return { assignedTicketTypeUuids, currentTicketTypeUuids };
+    return { assignedTicketTypeUuids, currentTicketTypeUuids, linkedSectorsByTicketType };
   }
 
   private generateOrderNumber(): string {

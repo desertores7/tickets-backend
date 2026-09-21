@@ -1,4 +1,4 @@
-import { ticketDisplayName } from '@modules/orders/services/core/sector-unit-sale';
+import { shortUnitLabel } from '@modules/orders/services/core/sector-unit-sale';
 import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
@@ -100,7 +100,52 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       hour12: false
     }).format(order.event.startDate);
 
+    // Pago: el medio y los últimos 4 dígitos salen de la respuesta de Mercado Pago.
+    const payment = (await this.dataSource
+      .getRepository('payment')
+      .findOne({ where: { orderUuid: order.uuid } })) as {
+      paymentMethod?: string | null;
+      paymentType?: string | null;
+      installments?: number | null;
+      rawResponse?: Record<string, any> | null;
+    } | null;
+    const money = (value: number) =>
+      new Intl.NumberFormat('es-AR', { style: 'currency', currency: order.currency || 'ARS' }).format(value);
+    const card = payment?.rawResponse?.card as { last_four_digits?: string } | undefined;
+    const brand = (payment?.paymentMethod ?? order.paymentMethod ?? '').toString();
+    const brandLabel = brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : '';
+    const paymentLabel = card?.last_four_digits
+      ? `${brandLabel || 'Tarjeta'} terminada en ${card.last_four_digits}`
+      : brandLabel || 'Pago online';
+    const installments = Number(payment?.installments ?? 1);
+    const paidAt = order.paidAt
+      ? new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(order.paidAt)
+      : null;
+    const discount = Number(order.discountAmount ?? 0);
+
+    const summary = {
+      lines: order.items.map(item => {
+        const unit = shortUnitLabel(item.unitLabel);
+        const tierName = (item.ticketType?.name ?? 'Entrada').replace(/\s*\d+\s*$/, '').trim() || 'Entrada';
+        const admissions = Math.max(1, Number(item.admissionsPerUnit ?? 1)) * item.quantity;
+        return {
+          name: unit || item.ticketType?.name || 'Entrada',
+          detail: `${unit ? `${tierName} · ` : ''}${admissions} ${admissions === 1 ? 'entrada' : 'entradas'}`,
+          amount: money(Number(item.unitPrice) * item.quantity)
+        };
+      }),
+      subtotal: money(Number(order.subtotal)),
+      hasDiscount: discount > 0,
+      discount: money(discount),
+      serviceFee: money(Number(order.serviceFee)),
+      total: money(Number(order.total)),
+      paymentLabel,
+      installmentsLabel: installments > 1 ? `${installments} cuotas` : '1 pago',
+      paidAt
+    };
+
     const templateData = {
+      summary,
       preheader: `Tus entradas para ${order.event.name} están adjuntas en este correo.`,
       firstName: order.user.firstName,
       eventName: order.event.name,
@@ -111,7 +156,7 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       ticketCount: tickets.length,
       tickets: tickets.map(t => ({
         ticketNumber: t.ticketNumber,
-        ticketTypeName: ticketDisplayName(t.ticketType?.name ?? 'Entrada', t.unitLabel)
+        ticketTypeName: `${shortUnitLabel(t.unitLabel) || t.ticketType?.name || 'Entrada'} · 1 Entrada`
       })),
       ticketsUrl: `${(this.envService.get('FRONTEND_URL') || '').replace(/\/$/, '')}/client/tickets`,
       // Portada: el banner del evento si lo hay. El template la trata como

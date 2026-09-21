@@ -70,7 +70,35 @@ export function formatUnitLabel(sector: Pick<UnitSaleSector, 'name' | 'level' | 
     const part = (raw ?? '').trim();
     // Una unidad sola suele llamarse igual que su categoría ("M3"): repetirlo
     // dejaba "M3 · M3" en la entrada y en el email.
-    if (!part || parts.some(prev => prev.toLowerCase() === part.toLowerCase())) continue;
+    if (!part) continue;
+    const low = part.toLowerCase();
+    if (parts.some(prev => prev.toLowerCase() === low)) continue;
+    // "Mesas" + "Mesas 8": queda solo "Mesas 8" (no "Mesas · Mesas 8").
+    const containedAt = parts.findIndex(prev => low.includes(prev.toLowerCase()));
+    if (containedAt >= 0) {
+      parts[containedAt] = part;
+      continue;
+    }
+    if (parts.some(prev => prev.toLowerCase().includes(low))) continue;
+    parts.push(part);
+  }
+  return parts.join(' · ');
+}
+
+/** "Mesas · Mesas 8" (órdenes viejas) → "Mesas 8". */
+export function shortUnitLabel(label: string | null | undefined): string {
+  const parts: string[] = [];
+  for (const raw of (label ?? '').split('·')) {
+    const part = raw.trim();
+    if (!part) continue;
+    const low = part.toLowerCase();
+    if (parts.some(prev => prev.toLowerCase() === low)) continue;
+    const containedAt = parts.findIndex(prev => low.includes(prev.toLowerCase()));
+    if (containedAt >= 0) {
+      parts[containedAt] = part;
+      continue;
+    }
+    if (parts.some(prev => prev.toLowerCase().includes(low))) continue;
     parts.push(part);
   }
   return parts.join(' · ');
@@ -155,9 +183,10 @@ export function isUnitAvailable(
  * Si la etiqueta ya empieza con el nombre de la tanda no se repite.
  */
 export function ticketDisplayName(ticketTypeName: string, unitLabel: string | null | undefined): string {
-  const label = (unitLabel ?? '').trim();
+  const label = shortUnitLabel(unitLabel);
   if (!label) return ticketTypeName;
-  return label.toLowerCase().startsWith(ticketTypeName.trim().toLowerCase())
-    ? label
-    : `${ticketTypeName} · ${label}`;
+  // "Preventa 12" es un número interno de la entrada: con unidad se muestra la
+  // tanda ("Preventa") y la unidad real ("Mesas 8").
+  const tier = ticketTypeName.replace(/\s*\d+\s*$/, '').trim() || ticketTypeName.trim();
+  return label.toLowerCase().startsWith(tier.toLowerCase()) ? label : `${tier} · ${label}`;
 }
