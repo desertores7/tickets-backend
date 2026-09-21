@@ -5,6 +5,10 @@ export type TRefundableTicket = {
   ticketUuid: string;
   ticketNumber: string;
   ticketTypeName: string;
+  /** Línea de compra a la que pertenece (una mesa completa = una línea). */
+  orderItemUuid: string;
+  /** Entradas que trae la línea: >1 en unidad completa, que se devuelve entera. */
+  admissionsPerUnit: number;
   /** Valor de la entrada, SIN costo de servicio (`BR-REFUND-006`). */
   amount: number;
   /** Por qué no se puede pedir, si no se puede. Null = disponible. */

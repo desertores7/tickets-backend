@@ -42,6 +42,8 @@ export class RefundableTicketResponse {
   @ApiProperty() ticketUuid: string;
   @ApiProperty() ticketNumber: string;
   @ApiProperty() ticketTypeName: string;
+  @ApiProperty() orderItemUuid: string;
+  @ApiProperty() admissionsPerUnit: number;
 
   @ApiProperty({ description: 'Valor de la entrada, SIN costo de servicio (BR-REFUND-006)' })
   amount: number;
@@ -57,6 +59,8 @@ export class RefundableTicketResponse {
     this.ticketUuid = data.ticketUuid;
     this.ticketNumber = data.ticketNumber;
     this.ticketTypeName = data.ticketTypeName;
+    this.orderItemUuid = data.orderItemUuid;
+    this.admissionsPerUnit = data.admissionsPerUnit;
     this.amount = data.amount;
     this.blockedReason = data.blockedReason;
   }

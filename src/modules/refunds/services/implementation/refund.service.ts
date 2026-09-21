@@ -24,6 +24,7 @@ import { RefundRequestTicketEntity } from '@config/db/entities/tickets/refund_re
 import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
+import { ticketDisplayName } from '@modules/orders/services/core/sector-unit-sale';
 import { resolveRefundWindowEndsAt } from '@modules/event/services/core/event-change.helpers';
 import {
   IRefundService,
@@ -42,6 +43,9 @@ type TicketRow = {
   ticketNumber: string;
   status: TicketStatus;
   ticketTypeName: string;
+  unitLabel: string | null;
+  orderItemUuid: string;
+  admissionsPerUnit: string | number;
   unitPrice: string;
   activeRequest: string | null;
 };
@@ -96,7 +100,10 @@ export class RefundService implements IRefundService {
       .select('t.uuid', 'ticketUuid')
       .addSelect('t.ticketNumber', 'ticketNumber')
       .addSelect('t.status', 'status')
-      .addSelect("CONCAT_WS(' · ', tt.name, t.unitLabel)", 'ticketTypeName')
+      .addSelect('tt.name', 'ticketTypeName')
+      .addSelect('t.unitLabel', 'unitLabel')
+      .addSelect('t.orderItemUuid', 'orderItemUuid')
+      .addSelect('oi.admissionsPerUnit', 'admissionsPerUnit')
       // En unidad completa (BR-SALE-010) la línea es la mesa entera y genera N
       // entradas: cada una devuelve su parte, no la mesa completa.
       .addSelect('oi.unitPrice / GREATEST(oi.admissionsPerUnit, 1)', 'unitPrice')
@@ -215,7 +222,9 @@ export class RefundService implements IRefundService {
     const tickets: TRefundableTicket[] = rows.map(r => ({
       ticketUuid: r.ticketUuid,
       ticketNumber: r.ticketNumber,
-      ticketTypeName: r.ticketTypeName,
+      ticketTypeName: ticketDisplayName(r.ticketTypeName, r.unitLabel),
+      orderItemUuid: r.orderItemUuid,
+      admissionsPerUnit: Math.max(1, Number(r.admissionsPerUnit ?? 1)),
       amount: this.round(Number(r.unitPrice)),
       blockedReason: this.blockedReason(r)
     }));
@@ -304,6 +313,20 @@ export class RefundService implements IRefundService {
           conocido
             ? `La entrada ${conocido.ticketNumber} no se puede reembolsar: ${conocido.blockedReason}`
             : 'Alguna de las entradas no pertenece a esta orden'
+        );
+      }
+    }
+
+    // Una mesa completa es UNA compra que trae N entradas: se devuelve entera o
+    // no se devuelve. No se puede devolver una por una.
+    const pedidosSet = new Set(pedidos);
+    for (const uuid of pedidos) {
+      const ticket = disponibles.get(uuid)!;
+      if (ticket.admissionsPerUnit <= 1) continue;
+      const hermanas = eligibility.tickets.filter(t => t.orderItemUuid === ticket.orderItemUuid);
+      if (hermanas.some(t => t.blockedReason || !pedidosSet.has(t.ticketUuid))) {
+        throw new BadRequestException(
+          `${ticket.ticketTypeName} se compró como una sola unidad: se devuelve completa, no por entrada.`
         );
       }
     }

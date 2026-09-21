@@ -183,9 +183,10 @@ export function isUnitAvailable(
  * Si la etiqueta ya empieza con el nombre de la tanda no se repite.
  */
 export function ticketDisplayName(ticketTypeName: string, unitLabel: string | null | undefined): string {
-  const label = (unitLabel ?? '').trim();
+  const label = shortUnitLabel(unitLabel);
   if (!label) return ticketTypeName;
-  return label.toLowerCase().startsWith(ticketTypeName.trim().toLowerCase())
-    ? label
-    : `${ticketTypeName} · ${label}`;
+  // "Preventa 12" es un número interno de la entrada: con unidad se muestra la
+  // tanda ("Preventa") y la unidad real ("Mesas 8").
+  const tier = ticketTypeName.replace(/\s*\d+\s*$/, '').trim() || ticketTypeName.trim();
+  return label.toLowerCase().startsWith(tier.toLowerCase()) ? label : `${tier} · ${label}`;
 }
