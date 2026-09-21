@@ -1245,11 +1245,43 @@ export class EventService implements IEventService {
    * mapa: los sectores y los vínculos ya están en memoria, y releerlos eran
    * tres consultas más para devolver exactamente lo mismo.
    */
+  /**
+   * Cronómetro de los guardados del mapa (PUT / PATCH). Deja UNA línea de log
+   * con el tiempo de cada paso, para ver dónde se va el tiempo de un guardado
+   * antes de optimizar nada. Quitar cuando deje de hacer falta.
+   */
+  private startMapTimer(kind: 'PUT' | 'PATCH', eventUuid: string, meta: Record<string, unknown>) {
+    const startedAt = Date.now();
+    let last = startedAt;
+    const steps: string[] = [];
+    return {
+      mark: (name: string) => {
+        const now = Date.now();
+        steps.push(`${name}=${now - last}ms`);
+        last = now;
+      },
+      done: (extra?: Record<string, unknown>) => {
+        const info = Object.entries({ ...meta, ...extra })
+          .map(([key, value]) => `${key}=${value}`)
+          .join(' ');
+        this.logger.log(
+          `[map-save] ${kind} event=${eventUuid} ${info} total=${Date.now() - startedAt}ms | ${steps.join(' ')}`
+        );
+      }
+    };
+  }
+
   async upsertEventMap(eventUuid: string, input: TUpsertEventMap, loggedUser: string): Promise<TEventMap> {
+    const timer = this.startMapTimer('PUT', eventUuid, {
+      sectors: input.sectors?.length ?? 0,
+      bytes: Buffer.byteLength(JSON.stringify(input))
+    });
     const data = this.extractStageSector(input);
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    timer.mark('ownership');
     this.assertUniqueSectorNames(data.sectors);
     await this.validateSectorTicketTypes(event.uuid, data.sectors);
+    timer.mark('validate');
 
     const existing = await this.dbRepository.findOne({
       entity: 'event_map',
@@ -1268,16 +1300,19 @@ export class EventService implements IEventService {
 
     // La grilla se valida entera ANTES de abrir la transacción: un layout
     // inválido o un solape es un 400, no un rollback.
+    timer.mark('lookup-published');
     const grid = this.resolveMapGrid(data, existing);
     // Se persiste solo la forma canónica en celdas (sin box/outline/pesos).
     const analysisToStore: Record<string, unknown> | null | undefined =
       data.analysis === undefined
         ? undefined
         : toGridAnalysis(data.analysis, { stageLayout: grid.stageLayout });
+    timer.mark('grid-analysis');
 
     const queryRunner = this.dbRepository.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+    timer.mark('tx-open');
 
     let map: {
       uuid: string;
@@ -1361,8 +1396,11 @@ export class EventService implements IEventService {
         };
       }
 
+      timer.mark('tx-map-row');
       sectors = await this.replaceMapSectors(map.uuid, data.sectors, grid.sectorLayouts, queryRunner);
+      timer.mark('tx-replace-sectors');
       await queryRunner.commitTransaction();
+      timer.mark('tx-commit');
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;
@@ -1371,6 +1409,7 @@ export class EventService implements IEventService {
     }
 
     const ticketTypes = await this.getTicketTypes(map.eventUuid);
+    timer.mark('ticket-types');
     const ticketTypesByUuid = new Map(ticketTypes.map(ticket => [ticket.uuid, ticket]));
     const resolvedSectors = sectors.map(sector => ({
       ...sector,
@@ -1382,7 +1421,7 @@ export class EventService implements IEventService {
         )?.uuid ?? null
     }));
 
-    return {
+    const response = {
       uuid: map.uuid,
       eventUuid: map.eventUuid,
       name: map.name,
@@ -1394,6 +1433,9 @@ export class EventService implements IEventService {
       sectors: resolvedSectors,
       ticketTypes
     };
+    timer.mark('build-response');
+    timer.done({ responseBytes: Buffer.byteLength(JSON.stringify(response)) });
+    return response;
   }
 
   /**
@@ -1411,7 +1453,13 @@ export class EventService implements IEventService {
    * dos sectores pisando la misma celda se rechaza igual que un PUT.
    */
   async patchEventMap(eventUuid: string, input: TPatchEventMap, loggedUser: string): Promise<TEventMap> {
+    const timer = this.startMapTimer('PATCH', eventUuid, {
+      upsert: input.sectors?.upsert?.length ?? 0,
+      remove: input.sectors?.remove?.length ?? 0,
+      bytes: Buffer.byteLength(JSON.stringify(input))
+    });
     const event = await this.assertOwnership(eventUuid, loggedUser);
+    timer.mark('ownership');
 
     const existing = await this.dbRepository.findOne({
       entity: 'event_map',
@@ -1438,6 +1486,7 @@ export class EventService implements IEventService {
       entity: 'event_map_sector',
       where: { mapUuid: existing.uuid }
     });
+    timer.mark('load-current');
 
     // BR-EVENT-020: publicado, `sectors.remove` no se acepta.
     if (removals.size && event.isPublished) {
@@ -1500,11 +1549,13 @@ export class EventService implements IEventService {
     this.assertUniqueSectorNames(merged);
     await this.validateSectorTicketTypes(event.uuid, upserts);
 
+    timer.mark('validate');
     const analysisToStore = this.mergePatchAnalysis(input, existing, stageLayout);
 
     const queryRunner = this.dbRepository.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+    timer.mark('tx-open');
 
     try {
       // Mismo lock que el PUT: los dos reemplazan filas del mismo mapa y no
@@ -1586,7 +1637,9 @@ export class EventService implements IEventService {
         }
       }
 
+      timer.mark('tx-writes');
       await queryRunner.commitTransaction();
+      timer.mark('tx-commit');
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;
@@ -1594,13 +1647,16 @@ export class EventService implements IEventService {
       await queryRunner.release();
     }
 
-    return this.loadEventMap({
+    const response = await this.loadEventMap({
       ...existing,
       name: input.name?.trim() || existing.name,
       analysis: analysisToStore !== undefined ? analysisToStore : existing.analysis,
       stageLayout,
       needsReanalysis: false
     });
+    timer.mark('load-response');
+    timer.done();
+    return response;
   }
 
   /** Escenario del patch: omitido conserva, null vuelve al default. */
