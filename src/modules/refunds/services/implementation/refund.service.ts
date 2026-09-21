@@ -25,7 +25,8 @@ import { EmailService } from '@root/shared/auth/services/email.service';
 import { UserPermissionService } from '@root/shared/services/userPermissions.service';
 import { AdminNotifierService } from '@root/shared/notifications/admin-notifier.service';
 import { ticketDisplayName } from '@modules/orders/services/core/sector-unit-sale';
-import { resolveRefundWindowEndsAt } from '@modules/event/services/core/event-change.helpers';
+import { resolveRefundWindowEndsAt } from '@modules/event/services/core/event-change.helpers';
+import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 import {
   IRefundService,
   TRefundEligibility,
@@ -898,7 +899,7 @@ export class RefundService implements IRefundService {
     // `FRONTEND_URL` y no `APP_URL`: el botón lleva a una pantalla del sitio,
     // no a la API. Con `APP_URL` el mail mandaba a tickets-api.gemdam.com, que
     // no tiene esa ruta.
-    const appUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
+    const appUrl = resolvePublicSiteUrl(this.envService.get('FRONTEND_URL'));
 
     try {
       await this.emailService.sendTemplateEmail(

@@ -30,7 +30,8 @@ import {
   normalizeLineup,
   resolveOpenRefundWindowEndsAt
 } from '../core/event-change.helpers';
-import { normalizeSocialLinks } from '../core/event-social-links';
+import { normalizeSocialLinks } from '../core/event-social-links';
+import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 export type TEventChangeItem = {
   uuid: string;
@@ -650,7 +651,7 @@ export class EventChangeService {
     if (!buyers.length) return 0;
 
     // El link va al frontend, no a la API: es una pantalla que ve el comprador.
-    const frontendUrl = (this.envService.get('FRONTEND_URL') ?? '').replace(/\/$/, '');
+    const frontendUrl = resolvePublicSiteUrl(this.envService.get('FRONTEND_URL'));
 
     // Filas en vez de un bloque de texto: el email las muestra como tabla y el
     // comprador ve de un vistazo qué cambió y a qué.

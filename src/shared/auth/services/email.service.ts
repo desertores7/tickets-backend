@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { EmailConfig, SendEmailOptions } from '../const/email';
-import { EMAIL_BRAND, emailBrandVars, emailHeroUrl } from '../const/email-brand';
+import { EMAIL_BRAND, emailBrandVars, emailHeroUrl, resolvePublicSiteUrl } from '../const/email-brand';
 import { EnvService } from '@config/env/env.service';
 import { DBRepository } from '@config/db/db.repository';
 import { IsNull } from 'typeorm';
@@ -229,7 +229,7 @@ export class EmailService {
   }
 
   private getFrontendUrl(): string {
-    return (this.envService.get('FRONTEND_URL') || 'http://localhost:3000').replace(/\/$/, '');
+    return resolvePublicSiteUrl(this.envService.get('FRONTEND_URL') || 'http://localhost:3000');
   }
 
   /**
@@ -238,7 +238,7 @@ export class EmailService {
    */
   private heroData(): Record<string, unknown> {
     return {
-      heroUrl: emailHeroUrl(this.envService.get('APP_URL')),
+      heroUrl: emailHeroUrl(this.getFrontendUrl()),
       heroAlt: EMAIL_BRAND.appName,
       heroKicker: EMAIL_BRAND.heroKicker
     };

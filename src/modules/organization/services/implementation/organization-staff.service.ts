@@ -36,7 +36,8 @@ import {
   StaffAssignedEventResponse,
   StaffMemberResponse
 } from '../../controllers/dtos/organization-staff/staff-member.response';
-import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
+import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 type UserWithRoles = UserEntity & {
   userRoles?: { isDeleted?: Date | null; role?: { uuid: string; name: string } | null }[];
@@ -852,10 +853,6 @@ export class OrganizationStaffService {
   }
 
   private getFrontendUrl(): string {
-    return (
-      this.envService.get('FRONTEND_URL') ||
-      this.envService.get('APP_URL') ||
-      'http://localhost:3000'
-    ).replace(/\/$/, '');
+    return resolvePublicSiteUrl(this.envService.get('FRONTEND_URL') || 'http://localhost:3000');
   }
 }

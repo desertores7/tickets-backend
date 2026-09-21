@@ -5,7 +5,7 @@ import { EnvService } from '@config/env/env.service';
 import { renderEmailTemplate } from '@root/shared/email/compile-template';
 import { formatGreetingName } from '@root/shared/email/format-greeting-name';
 import { EMAIL_TEMPLATES } from '@root/shared/email/resolve-templates-path';
-import { EMAIL_BRAND, emailBrandVars } from '@root/shared/auth/const/email-brand';
+import { EMAIL_BRAND, emailBrandVars, resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 export interface EmailAttachment {
   filename: string;
@@ -101,7 +101,7 @@ export class NotificationEmailService {
     const html = renderEmailTemplate(templateName, {
       ...emailBrandVars(
         this.envService.get('APP_URL'),
-        this.envService.get('FRONTEND_URL') || 'http://localhost:3000'
+        resolvePublicSiteUrl(this.envService.get('FRONTEND_URL') || 'http://localhost:3000')
       ),
       ...this.withGreetingNames(templateData)
     });
