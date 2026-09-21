@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDate,
   IsIn,
   IsInt,
@@ -8,6 +10,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min
@@ -59,6 +62,18 @@ export class CreateTicketTypeRequest {
   @Min(1)
   @ApiProperty({ description: 'Maximum tickets per order', required: false, default: 10 })
   maxPerOrder?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsUUID('all', { each: true })
+  @ApiProperty({
+    description:
+      'Sectores del mapa a los que se vincula la entrada al crearla (evita un PATCH de vínculo por cada entrada).',
+    required: false,
+    type: [String]
+  })
+  sectorUuids?: string[];
 
   @IsOptional()
   @IsIn(TICKET_TYPE_SALE_MODES)

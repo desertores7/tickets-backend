@@ -183,6 +183,25 @@ export class StockAlertService implements IStockAlertService {
     await this.dbRepository.create({ entity: 'stock_alert', data: alert });
   }
 
+  async ensureDefaultsForNewTicketTypes(eventUuid: string, ticketTypeUuids: string[]): Promise<void> {
+    if (!ticketTypeUuids.length) return;
+    const alerts = ticketTypeUuids.map(ticketTypeUuid => {
+      const alert = new StockAlertEntity();
+      alert.uuid = uuidv4();
+      alert.eventUuid = eventUuid;
+      alert.ticketTypeUuid = ticketTypeUuid;
+      alert.lowThreshold = StockAlertService.DEFAULT_LOW_THRESHOLD_PERCENT;
+      alert.thresholdIsPercent = true;
+      alert.notifySoldOut = true;
+      alert.active = true;
+      alert.lowNotifiedAt = null;
+      alert.soldOutNotifiedAt = null;
+      alert.isDeleted = null;
+      return alert;
+    });
+    await this.dbRepository.createMany({ entity: 'stock_alert', data: alerts as never });
+  }
+
   // ── Evaluación tras la venta (BR-EVENT-017) ─────────────────────────────────
 
   /**

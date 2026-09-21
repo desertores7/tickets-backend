@@ -40,6 +40,12 @@ export interface IStockAlertService {
   ensureDefaultForTicketType(eventUuid: string, ticketTypeUuid: string): Promise<void>;
 
   /**
+   * Alta en lote de las alertas por defecto de tandas RECIÉN creadas (no tienen
+   * alerta previa): un solo INSERT en vez de una consulta por tanda.
+   */
+  ensureDefaultsForNewTicketTypes(eventUuid: string, ticketTypeUuids: string[]): Promise<void>;
+
+  /**
    * Evalúa las alertas de las tandas afectadas por una compra y notifica si se
    * cruzó un umbral. Se invoca después de confirmar el stock.
    */
