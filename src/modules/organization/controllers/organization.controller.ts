@@ -233,7 +233,7 @@ export class OrganizationController {
     @User() userId: string,
     @Body() body: InviteProducerStaffRequest
   ): Promise<StaffMemberResponse> {
-    return this.organizationStaffService.inviteProducer(userId, body.email);
+    return this.organizationStaffService.inviteProducer(userId, body.email, body.role ?? 'producer');
   }
 
   @UserAuth(UpdateStaffRequest, StaffMemberResponse)

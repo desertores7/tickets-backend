@@ -480,18 +480,23 @@ export class EmailService {
     email: string;
     organizationName: string;
     inviteUrl: string;
+    role?: 'producer' | 'validator' | 'cashier';
   }): Promise<void> {
+    const roleLabel =
+      data.role === 'validator' ? 'Validador' : data.role === 'cashier' ? 'Caja' : 'Productor';
     await this.sendTemplateEmail(
       EMAIL_TEMPLATES.producerInvite,
       {
-        preheader: `Te invitaron a unirte como Productor de ${data.organizationName}.`,
+        preheader: `Te invitaron a unirte como ${roleLabel} de ${data.organizationName}.`,
+        roleLabel,
+        isProducer: !data.role || data.role === 'producer',
         organizationName: data.organizationName,
         inviteUrl: data.inviteUrl
       },
       {
         to: data.email,
-        subject: `Invitación Productor — ${data.organizationName}`,
-        text: `Te invitaron a unirte como Productor de ${data.organizationName}. Creá tu contraseña en: ${data.inviteUrl}`
+        subject: `Invitación ${roleLabel} — ${data.organizationName}`,
+        text: `Te invitaron a unirte como ${roleLabel} de ${data.organizationName}. Creá tu contraseña en: ${data.inviteUrl}`
       }
     );
   }

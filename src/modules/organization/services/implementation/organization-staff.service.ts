@@ -120,7 +120,8 @@ export class OrganizationStaffService {
           email: invite.email,
           createdAt: invite.createdAt,
           expiresAt: invite.expiresAt,
-          active: null
+          active: null,
+          inviteRole: invite.staffRole ?? 'producer'
         })
       );
     }
@@ -285,7 +286,11 @@ export class OrganizationStaffService {
     }
   }
 
-  async inviteProducer(callerUuid: string, emailRaw: string): Promise<StaffMemberResponse> {
+  async inviteProducer(
+    callerUuid: string,
+    emailRaw: string,
+    role: 'producer' | 'validator' | 'cashier' = 'producer'
+  ): Promise<StaffMemberResponse> {
     const org = await this.assertProducerContext(callerUuid);
     const email = emailRaw.trim().toLowerCase();
 
@@ -295,7 +300,9 @@ export class OrganizationStaffService {
       relations: { userRoles: { role: true }, userOrganizations: true } as any
     });
 
-    if (existingUser) {
+    if (existingUser && role !== 'producer') {
+      await this.assertUserCanJoinOrgStaff(existingUser.uuid, org.uuid, role);
+    } else if (existingUser) {
       const roles = (existingUser as UserWithRoles).userRoles ?? [];
       const activeRoleNames = roles
         .filter(r => !r.isDeleted && r.role?.name)
@@ -340,6 +347,7 @@ export class OrganizationStaffService {
     invite.organizationUuid = org.uuid;
     invite.token = uuidv4();
     invite.invitedByUuid = callerUuid;
+    invite.staffRole = role;
     invite.expiresAt = new Date(Date.now() + PRODUCER_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
     invite.isUsed = false;
 
@@ -352,7 +360,8 @@ export class OrganizationStaffService {
       await this.emailService.sendProducerInviteEmail({
         email,
         organizationName: org.name,
-        inviteUrl
+        inviteUrl,
+        role
       });
     } catch (error) {
       this.logger.error('Failed to send producer invite email', error);
@@ -364,7 +373,8 @@ export class OrganizationStaffService {
       email: invite.email,
       createdAt: invite.createdAt,
       expiresAt: invite.expiresAt,
-      active: null
+      active: null,
+      inviteRole: role
     });
   }
 

@@ -37,6 +37,9 @@ export class ProducerInviteValidationResponse {
   @ApiPropertyOptional()
   organizationName?: string;
 
+  @ApiPropertyOptional({ enum: ['producer', 'validator', 'cashier'] })
+  role?: 'producer' | 'validator' | 'cashier';
+
   @ApiPropertyOptional()
   expiresAt?: string;
 
@@ -48,6 +51,7 @@ export class ProducerInviteValidationResponse {
     email?: string;
     emailMasked?: string;
     organizationName?: string;
+    role?: 'producer' | 'validator' | 'cashier';
     expiresAt?: string;
     message?: string;
   }) {
@@ -55,6 +59,7 @@ export class ProducerInviteValidationResponse {
     this.email = data.email;
     this.emailMasked = data.emailMasked;
     this.organizationName = data.organizationName;
+    this.role = data.role;
     this.expiresAt = data.expiresAt;
     this.message = data.message;
   }

@@ -97,6 +97,7 @@ export interface IAuthService {
     email?: string;
     emailMasked?: string;
     organizationName?: string;
+    role?: 'producer' | 'validator' | 'cashier';
     expiresAt?: string;
     message?: string;
   }>;

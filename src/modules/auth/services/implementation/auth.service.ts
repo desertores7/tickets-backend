@@ -1386,6 +1386,7 @@ export class AuthService implements IAuthService {
     email?: string;
     emailMasked?: string;
     organizationName?: string;
+    role?: 'producer' | 'validator' | 'cashier';
     expiresAt?: string;
     message?: string;
   }> {
@@ -1411,6 +1412,7 @@ export class AuthService implements IAuthService {
       email: row.email,
       emailMasked: this.maskEmail(row.email),
       organizationName: org?.name ?? 'Productora',
+      role: row.staffRole ?? 'producer',
       expiresAt: new Date(row.expiresAt).toISOString()
     };
   }
@@ -1475,15 +1477,26 @@ export class AuthService implements IAuthService {
         await queryRunner.manager.save(UserEntity, user);
       }
 
+      const inviteRoleName =
+        row.staffRole === 'validator' ? 'Validador' : row.staffRole === 'cashier' ? 'Caja' : null;
+      let inviteRoleUuid = this.roleProductorUuid;
+      if (inviteRoleName) {
+        const roleRow = await queryRunner.manager.findOne(RoleEntity, {
+          where: { name: inviteRoleName, isDeleted: IsNull() }
+        });
+        if (!roleRow) throw new BadRequestException(`No existe el rol ${inviteRoleName}.`);
+        inviteRoleUuid = roleRow.uuid;
+      }
+
       const existingRole = await queryRunner.manager.findOne(UserRoleEntity, {
-        where: { userUuid: user.uuid, roleUuid: this.roleProductorUuid }
+        where: { userUuid: user.uuid, roleUuid: inviteRoleUuid }
       });
 
       if (!existingRole) {
         const userRole = new UserRoleEntity();
         userRole.uuid = uuidv4();
         userRole.userUuid = user.uuid;
-        userRole.roleUuid = this.roleProductorUuid;
+        userRole.roleUuid = inviteRoleUuid;
         userRole.createdBy = row.invitedByUuid;
         await queryRunner.manager.save(UserRoleEntity, userRole);
       } else if (existingRole.isDeleted) {

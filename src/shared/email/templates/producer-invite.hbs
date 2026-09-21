@@ -26,14 +26,15 @@
 
               <h1 class="h1" style="margin:0 0 18px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:28px; font-weight:800; line-height:1.15; color:#ffffff; letter-spacing:-0.2px; text-transform:uppercase;">Te sumaron a {{organizationName}}</h1>
 
-              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Te invitaron a unirte como <strong style="color:#ffffff;">Productor</strong> de <strong style="color:#ffffff;">{{organizationName}}</strong> en {{appName}}.</p>
+              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Te invitaron a unirte como <strong style="color:#ffffff;">{{roleLabel}}</strong> de <strong style="color:#ffffff;">{{organizationName}}</strong> en {{appName}}.</p>
 
-              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Creá tu contraseña para entrar al backoffice con los mismos permisos que el equipo principal.</p>
+              <p style="margin:0 0 14px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; line-height:1.65; color:#b4b0be;">Creá tu contraseña para entrar al backoffice {{#if isProducer}}con los mismos permisos que el equipo principal.{{else}}con los permisos de tu rol.{{/if}}</p>
 
               {{> button url=inviteUrl label="Aceptar invitación"}}
 
               {{> fallback-link url=inviteUrl}}
 
+              {{#if isProducer}}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 26px;"><tr><td style="height:1px; line-height:1px; font-size:0; background-color:#241f2e;">&nbsp;</td></tr></table>
 
               <p style="margin:0 0 16px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:700; color:#ffffff;">Como productor vas a poder</p>
@@ -67,6 +68,7 @@
                   </td>
                 </tr>
               </table>
+              {{/if}}
             </td>
           </tr>
 
