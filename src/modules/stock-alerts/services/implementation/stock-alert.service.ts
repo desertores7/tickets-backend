@@ -5,12 +5,14 @@ import { DBRepository } from '@config/db/db.repository';
 import { isAdministrador } from '@root/shared/services/is-administrador';
 import { StockAlertEntity } from '@config/db/entities/tickets/stock_alert.entity';
 import { TicketTypeEntity } from '@config/db/entities/tickets/ticket_type.entity';
+import { ticketTierKey } from '@modules/event/services/core/ticket-sales-policy';
 import { IUserNotificationService } from '@modules/notifications/services/contracts/iuser-notification.service';
 import { EmailService } from '@root/shared/auth/services/email.service';
 import {
   IStockAlert,
   IStockAlertService,
-  IUpsertStockAlertPayload
+  IUpsertStockAlertPayload,
+  SoldUnitInfo
 } from '../contracts/istock-alert.service';
 
 @Injectable()
@@ -210,7 +212,7 @@ export class StockAlertService implements IStockAlertService {
    * Nunca lanza: una alerta que falla no puede tumbar una venta ya cobrada. El
    * llamador la invoca sin esperarla.
    */
-  async evaluateAfterSale(ticketTypeUuids: string[]): Promise<void> {
+  async evaluateAfterSale(ticketTypeUuids: string[], soldUnits: SoldUnitInfo[] = []): Promise<void> {
     if (!ticketTypeUuids.length) return;
 
     try {
@@ -223,13 +225,83 @@ export class StockAlertService implements IStockAlertService {
         event?: { uuid: string; name: string; organizationUuid: string };
       })[];
 
+      // Una tanda por bloque ("Preventa 1..20") se avisa una sola vez por tanda,
+      // no una por unidad: se junta por clave de tanda.
+      const evaluatedTiers = new Set<string>();
       for (const alert of alerts) {
         if (!alert.ticketType || !alert.event) continue;
+        const tierKey = ticketTierKey(alert.ticketType);
+        if (tierKey.startsWith('tier:')) {
+          if (evaluatedTiers.has(tierKey)) continue;
+          evaluatedTiers.add(tierKey);
+          await this.evaluateTier(tierKey, alert.ticketType, alert.event, soldUnits);
+          continue;
+        }
         await this.evaluateOne(alert, alert.ticketType, alert.event);
       }
     } catch (err) {
       this.logger.warn(`No se pudieron evaluar las alertas de stock: ${err}`);
     }
+  }
+
+  /** Tanda por bloque: aviso de cada unidad vendida y umbrales sobre la tanda entera. */
+  private async evaluateTier(
+    tierKey: string,
+    sample: TicketTypeEntity,
+    event: { uuid: string; name: string; organizationUuid: string },
+    soldUnits: SoldUnitInfo[]
+  ): Promise<void> {
+    const members = ((await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { eventUuid: event.uuid, isActive: true }
+    })) as TicketTypeEntity[]).filter(ticket => ticketTierKey(ticket) === tierKey);
+    if (!members.length) return;
+
+    const tierName = sample.name.trim().replace(/\s*\d+\s*$/, '').trim() || sample.name;
+    const memberUuids = members.map(member => member.uuid);
+    const total = members.reduce((sum, member) => sum + Number(member.quantity), 0);
+    const available = members.reduce((sum, member) => sum + Math.max(0, Number(member.availableQuantity)), 0);
+
+    const alerts = (await this.dbRepository.findMany({
+      entity: 'stock_alert',
+      where: { ticketTypeUuid: In(memberUuids), active: true, isDeleted: IsNull() } as never
+    })) as StockAlertEntity[];
+    if (!alerts.length) return;
+
+    // Qué se vendió, dicho con la unidad: "Mesas 8", no el nombre interno.
+    const memberSet = new Set(memberUuids);
+    for (const sold of soldUnits.filter(unit => memberSet.has(unit.ticketTypeUuid))) {
+      const unit = sold.unitLabel?.trim() || sold.ticketTypeName?.trim() || tierName;
+      await this.notify(
+        event,
+        `Se vendió ${unit}`,
+        `Se vendió ${unit} de la tanda ${tierName} en ${event.name}. ` +
+          `Quedan ${available} de ${total} en esta tanda.`
+      );
+    }
+
+    if (available <= 0) {
+      if (alerts.some(alert => alert.soldOutNotifiedAt) || !alerts.some(alert => alert.notifySoldOut)) return;
+      await this.notify(
+        event,
+        `Se agotó la tanda ${tierName}`,
+        `Vendiste todo lo de la tanda ${tierName} en ${event.name} (${total}). ` +
+          'Si querés seguir vendiendo, la siguiente tanda pasa a estar vigente.'
+      );
+      await Promise.all(alerts.map(alert => this.markNotified(alert.uuid, { soldOutNotifiedAt: new Date() })));
+      return;
+    }
+
+    const reference = alerts[0];
+    const threshold = this.resolveThreshold(reference, total);
+    if (threshold === null || available > threshold || alerts.some(alert => alert.lowNotifiedAt)) return;
+    await this.notify(
+      event,
+      `Quedan pocas unidades de ${tierName}`,
+      `Quedan ${available} de ${total} de la tanda ${tierName} en ${event.name}. ` +
+        'Va muy bien: cuando se agote, pasa a la siguiente tanda.'
+    );
+    await Promise.all(alerts.map(alert => this.markNotified(alert.uuid, { lowNotifiedAt: new Date() })));
   }
 
   private async evaluateOne(

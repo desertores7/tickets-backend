@@ -70,7 +70,35 @@ export function formatUnitLabel(sector: Pick<UnitSaleSector, 'name' | 'level' | 
     const part = (raw ?? '').trim();
     // Una unidad sola suele llamarse igual que su categoría ("M3"): repetirlo
     // dejaba "M3 · M3" en la entrada y en el email.
-    if (!part || parts.some(prev => prev.toLowerCase() === part.toLowerCase())) continue;
+    if (!part) continue;
+    const low = part.toLowerCase();
+    if (parts.some(prev => prev.toLowerCase() === low)) continue;
+    // "Mesas" + "Mesas 8": queda solo "Mesas 8" (no "Mesas · Mesas 8").
+    const containedAt = parts.findIndex(prev => low.includes(prev.toLowerCase()));
+    if (containedAt >= 0) {
+      parts[containedAt] = part;
+      continue;
+    }
+    if (parts.some(prev => prev.toLowerCase().includes(low))) continue;
+    parts.push(part);
+  }
+  return parts.join(' · ');
+}
+
+/** "Mesas · Mesas 8" (órdenes viejas) → "Mesas 8". */
+export function shortUnitLabel(label: string | null | undefined): string {
+  const parts: string[] = [];
+  for (const raw of (label ?? '').split('·')) {
+    const part = raw.trim();
+    if (!part) continue;
+    const low = part.toLowerCase();
+    if (parts.some(prev => prev.toLowerCase() === low)) continue;
+    const containedAt = parts.findIndex(prev => low.includes(prev.toLowerCase()));
+    if (containedAt >= 0) {
+      parts[containedAt] = part;
+      continue;
+    }
+    if (parts.some(prev => prev.toLowerCase().includes(low))) continue;
     parts.push(part);
   }
   return parts.join(' · ');

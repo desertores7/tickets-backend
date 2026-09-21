@@ -1,3 +1,10 @@
+/** Unidad vendida en una compra (mesa 8), para avisar con su nombre real. */
+export interface SoldUnitInfo {
+  ticketTypeUuid: string;
+  ticketTypeName: string;
+  unitLabel: string | null;
+}
+
 export interface IStockAlert {
   uuid: string;
   ticketTypeUuid: string;
@@ -49,5 +56,5 @@ export interface IStockAlertService {
    * Evalúa las alertas de las tandas afectadas por una compra y notifica si se
    * cruzó un umbral. Se invoca después de confirmar el stock.
    */
-  evaluateAfterSale(ticketTypeUuids: string[]): Promise<void>;
+  evaluateAfterSale(ticketTypeUuids: string[], soldUnits?: SoldUnitInfo[]): Promise<void>;
 }
