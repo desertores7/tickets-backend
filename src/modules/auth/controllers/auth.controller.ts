@@ -193,8 +193,9 @@ export class AuthController {
   @ApiOperation({
     summary: 'Canjear ticket de Google',
     description:
-      'Cambia el ticket de un solo uso por los tokens de sesión. Mismo cuerpo de respuesta que `/auth/login`. ' +
-      'El ticket se consume en el primer canje y vence a los 2 minutos.'
+      'Cambia el ticket de un solo uso por los tokens de sesión. Mismo cuerpo de respuesta que `/auth/login`: ' +
+      'si la cuenta tiene 2FA activo devuelve `requiresTwoFactor: true` y manda el código de 6 dígitos por email ' +
+      '(se completa en el endpoint de verificación 2FA). El ticket se consume en el primer canje y vence a los 2 minutos.'
   })
   @Swagger(GoogleExchangeRequest, LoginAuthResponse)
   @HttpCode(200)

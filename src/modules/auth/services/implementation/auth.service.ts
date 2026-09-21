@@ -577,6 +577,10 @@ export class AuthService implements IAuthService {
     userRole.updatedBy = user.uuid;
     await this.dbRepository.create({ entity: 'user_role', data: userRole });
 
+    // Google ya verificó el email: la cuenta queda activa al instante, así que la
+    // bienvenida sale ahora (no hay paso de verificación que la posponga).
+    this.sendClientWelcomeEmail(user.firstName, user.lastName, email);
+
     void this.userNotificationService
       .create(
         user.uuid,
@@ -616,6 +620,11 @@ export class AuthService implements IAuthService {
 
     await this.attachProducerRoleAndDraftOrg(user);
 
+    // Google ya verificó el email: la cuenta queda activa al instante, así que el
+    // agradecimiento y la bienvenida salen ahora (con email/contraseña salen al
+    // verificar el correo, ver `validateEmailAuth`).
+    this.sendProducerWelcomeEmail(user.firstName, email);
+
     void this.userNotificationService
       .create(
         user.uuid,
@@ -628,6 +637,26 @@ export class AuthService implements IAuthService {
 
     this.logger.log(`Cuenta productora creada desde Google: ${user.uuid}`);
     return user.uuid;
+  }
+
+  /** Bienvenida al cliente que se registró con Google. No bloquea el alta si el SMTP falla. */
+  private sendClientWelcomeEmail(firstName: string, lastName: string, email: string): void {
+    void this.emailService
+      .initializeSmtp()
+      .then(() => this.emailService.sendNewUserEmail({ firstName, lastName, email }))
+      .catch((error) => {
+        this.logger.error(`Failed to send client welcome email to ${email}`, error?.stack);
+      });
+  }
+
+  /** Agradecimiento + bienvenida a la productora. No bloquea el alta si el SMTP falla. */
+  private sendProducerWelcomeEmail(firstName: string, email: string): void {
+    void this.emailService
+      .initializeSmtp()
+      .then(() => this.emailService.sendProducerWelcomeEmail({ firstName, email }))
+      .catch((error) => {
+        this.logger.error(`Failed to send producer welcome email to ${email}`, error?.stack);
+      });
   }
 
   /** Rol Productor + organización en draft_incomplete (alta email/pass o Google). */
@@ -663,10 +692,39 @@ export class AuthService implements IAuthService {
   }
 
   /**
-   * Emite la sesión de un usuario ya autenticado por un tercero.
-   *
-   * No pasa por 2FA a propósito: Google ya autenticó, y su segundo factor es
-   * mejor que un código de 6 dígitos por email.
+   * Login tras el ingreso con Google: si la cuenta tiene 2FA activo, no emite la
+   * sesión sino que manda el código de 6 dígitos por email y devuelve el desafío
+   * (mismo contrato que `userLoginAuth`); el front lo completa con
+   * `verifyTwoFactor`. Google prueba quién es el usuario, pero el 2FA es una
+   * decisión de la cuenta y tiene que respetarse en todos los accesos.
+   */
+  async loginByGoogleUserUuid(userUuid: string): Promise<TLoginAuthResult> {
+    const user = await this.dbRepository.findOne({
+      entity: 'user',
+      where: { uuid: userUuid, isDeleted: IsNull() },
+      relations: {
+        files: true,
+        userTokenSessions: true,
+        userRoles: { role: true }
+      }
+    });
+
+    if (!user || !user.active) {
+      throw new UnauthorizedException('Usuario inactivo o no encontrado');
+    }
+
+    if (user.twoAuthentication) {
+      await this.issueTwoFactorCode(user.uuid, user.email, user.firstName || 'Usuario');
+      return { requiresTwoFactor: true, email: user.email };
+    }
+
+    return this.buildLoginResponse(user);
+  }
+
+  /**
+   * Emite la sesión de un usuario que acaba de probar el control de su email
+   * (enlace de verificación). No pasa por 2FA: el enlace ya es el segundo paso.
+   * El ingreso con Google NO usa esto, ver `loginByGoogleUserUuid`.
    */
   async loginByUserUuid(userUuid: string): Promise<TUserLoginAuthResponse> {
     const user = await this.dbRepository.findOne({
@@ -910,11 +968,22 @@ export class AuthService implements IAuthService {
     });
 
     try {
-      await this.emailService.initializeSmtp();
-      await this.emailService.sendEmailVerifiedEmail({
-        firstName: user.firstName || user.username || 'Usuario',
-        email: user.email
+      const producerRole = await this.dbRepository.findOne({
+        entity: 'user_role',
+        where: { userUuid: user.uuid, roleUuid: this.roleProductorUuid, isDeleted: IsNull() }
       });
+
+      if (producerRole) {
+        // Productora: el correo verificado es el momento en que la cuenta queda
+        // activa, así que en vez de la confirmación genérica va la bienvenida.
+        this.sendProducerWelcomeEmail(user.firstName || user.username || 'Usuario', user.email);
+      } else {
+        await this.emailService.initializeSmtp();
+        await this.emailService.sendEmailVerifiedEmail({
+          firstName: user.firstName || user.username || 'Usuario',
+          email: user.email
+        });
+      }
     } catch (error) {
       console.error('Failed to send email verified confirmation:', error);
     }

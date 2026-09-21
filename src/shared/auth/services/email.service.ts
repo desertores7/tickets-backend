@@ -274,6 +274,28 @@ export class EmailService {
     );
   }
 
+  /** Agradecimiento y bienvenida a una productora recién dada de alta. */
+  async sendProducerWelcomeEmail(data: { firstName: string; email: string }): Promise<void> {
+    const loginUrl = `${this.getFrontendUrl()}/login`;
+    const firstName = formatGreetingName(data.firstName);
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.producerWelcome,
+      {
+        preheader: `Gracias por registrarte en ${EMAIL_BRAND.appName}, ${firstName}. Tu cuenta de productora ya está activa.`,
+        firstName,
+        email: data.email,
+        loginUrl,
+        ...this.heroData()
+      },
+      {
+        to: data.email,
+        subject: `¡Bienvenido a ${EMAIL_BRAND.appName}, ${firstName}!`,
+        text: `Hola ${firstName}, gracias por registrarte en ${EMAIL_BRAND.appName}. Tu cuenta de productora ya está activa. Completá la validación fiscal desde tu panel para poder publicar eventos: ${loginUrl}`
+      }
+    );
+  }
+
   async sendResetPasswordEmail(data: { firstName: string; email: string; code: string }): Promise<void> {
     const firstName = formatGreetingName(data.firstName);
 
