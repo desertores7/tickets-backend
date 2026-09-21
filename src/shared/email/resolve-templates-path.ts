@@ -21,6 +21,8 @@ export const EMAIL_TEMPLATES = {
   registrationWelcome: 'registration-welcome',
   /** Alta de productora (mismo flujo de verificación, copy orientado a ventas). */
   registrationWelcomeProducer: 'registration-welcome-producer',
+  /** Agradecimiento y bienvenida simple al alta de una productora (form o Google). */
+  producerWelcome: 'producer-welcome',
   emailVerified: 'email-verified',
   resetPasswordCode: 'reset-password-code',
   /** Confirmación tras restablecer la contraseña con el código. */

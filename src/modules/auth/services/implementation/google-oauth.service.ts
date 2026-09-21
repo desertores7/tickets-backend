@@ -5,7 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthService } from './auth.service';
-import { TUserLoginAuthResponse } from '../contracts/iauth.service';
+import { TLoginAuthResult } from '../contracts/iauth.service';
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -285,13 +285,13 @@ export class GoogleOAuthService {
   }
 
   /** Canje del ticket por la sesión. Un ticket sirve una sola vez. */
-  async exchangeTicket(ticket: string): Promise<TUserLoginAuthResponse> {
+  async exchangeTicket(ticket: string): Promise<TLoginAuthResult> {
     const userUuid = await this.redisService.takeEphemeral(TICKET_PREFIX + ticket);
 
     if (!userUuid) {
       throw new UnauthorizedException('El ingreso venció o ya se usó. Probá de nuevo.');
     }
 
-    return this.authService.loginByUserUuid(userUuid);
+    return this.authService.loginByGoogleUserUuid(userUuid);
   }
 }
