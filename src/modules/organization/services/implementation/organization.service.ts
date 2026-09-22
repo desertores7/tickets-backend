@@ -1877,7 +1877,13 @@ export class OrganizationService implements IOrganizationService {
 
     this.logger.log(`Productora ${org.uuid} reactivada por ${adminUuid}`);
 
-    return this.reloadOrganization(org.uuid);
+    const updated = await this.reloadOrganization(org.uuid);
+
+    this.notifyOwnerReactivated(updated).catch(err => {
+      this.logger.error(`Failed to notify org reactivated for ${organizationUuid}`, err?.stack);
+    });
+
+    return updated;
   }
 
   private async reloadOrganization(organizationUuid: string): Promise<OrganizationEntity> {
@@ -2092,6 +2098,29 @@ export class OrganizationService implements IOrganizationService {
       email,
       organizationName
     });
+  }
+
+  /**
+   * Avisa in-app que la suspensión se levantó. Sin email: el productor ya
+   * ve el backoffice operativo de nuevo apenas entra, no hace falta un mail
+   * aparte para algo que no requiere ninguna acción de su parte.
+   */
+  private async notifyOwnerReactivated(org: OrganizationEntity): Promise<void> {
+    const membership = await this.dbRepository.findOne({
+      entity: 'user_organization',
+      where: { organizationUuid: org.uuid, isDeleted: IsNull() },
+      relations: { user: true },
+      other: { order: { createdAt: 'ASC' } }
+    });
+    const ownerUuid = (membership?.user as { uuid?: string } | undefined)?.uuid;
+    if (!ownerUuid) return;
+
+    const organizationName = org.name || org.legalName || 'tu productora';
+    await this.userNotificationService.create(
+      ownerUuid,
+      'Cuenta reactivada',
+      `Tu cuenta como productor de ${organizationName} vuelve a operar con normalidad.`
+    );
   }
 
   private async notifyOwnerBankChangeSubmitted(
