@@ -384,12 +384,22 @@ export type AnalyzeMapResult = {
 };
 
 export interface IEventAiService {
-  analyzeFromFlyers(files: Express.Multer.File[], userId: string): Promise<AnalyzeFlyersResult>;
+  analyzeFromFlyers(
+    files: Express.Multer.File[],
+    userId: string,
+    eventUuid?: string | null
+  ): Promise<AnalyzeFlyersResult>;
 
   /**
    * Análisis completo del plano. Lo corre el worker de la cola: tarda minutos.
+   * `eventUuid` es opcional (puede no existir todavía durante el alta de un
+   * evento nuevo) y se usa para contabilizar la cuota diaria por evento.
    */
-  analyzeFromMapImage(file: Express.Multer.File, userId: string): Promise<AnalyzeMapResult>;
+  analyzeFromMapImage(
+    file: Express.Multer.File,
+    userId: string,
+    eventUuid?: string | null
+  ): Promise<AnalyzeMapResult>;
 
   /**
    * Valida el archivo y la configuración antes de encolar.
@@ -399,8 +409,28 @@ export interface IEventAiService {
    */
   validateMapRequest(file: Express.Multer.File): Express.Multer.File;
 
-  /** Cuota horaria de IA del usuario. Se comprueba antes de encolar. */
-  assertMapQuota(userId: string): Promise<void>;
+  /**
+   * Cuota horaria de IA del usuario y cuota diaria (24hs rolling) de
+   * generaciones de mapa del evento (`eventUuid`, opcional). Se comprueba
+   * antes de encolar.
+   */
+  assertMapQuota(userId: string, eventUuid?: string | null): Promise<void>;
+
+  /** Estado de la cuota diaria de mapa por evento, para mostrarlo en el frontend. */
+  getMapEventQuotaStatus(eventUuid: string): Promise<{
+    used: number;
+    max: number;
+    remaining: number;
+    resetAt: string | null;
+  }>;
+
+  /** Estado de la cuota diaria de análisis de flyer por evento, para mostrarlo en el frontend. */
+  getFlyerEventQuotaStatus(eventUuid: string): Promise<{
+    used: number;
+    max: number;
+    remaining: number;
+    resetAt: string | null;
+  }>;
 
   suggestMapSectors(input: {
     ticketTypes: Array<{ uuid: string; name: string }>;

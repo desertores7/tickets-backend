@@ -251,6 +251,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return v ? Number(v) || 0 : 0;
   }
 
+  /** TTL restante de una key en segundos. -1 si no expira, -2 si no existe. */
+  async getTtl(key: string): Promise<number> {
+    return this.redis.ttl(key);
+  }
+
   /** Siembra un contador con TTL. Se usa para el contador de ingresos por evento. */
   async setCounter(key: string, value: number, ttlSeconds: number): Promise<void> {
     await this.redis.set(key, String(value), 'EX', ttlSeconds);

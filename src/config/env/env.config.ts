@@ -177,7 +177,11 @@ export const envSchema = z.object({
   /** Compresión 0–100 (solo webp/jpeg; OpenAI ignora en png) */
   EVENT_AI_IMAGE_COMPRESSION: z.coerce.number().int().min(0).max(100).default(80),
   /** Tope de análisis IA por usuario / hora (Redis). `0` = sin límite. */
-  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(0).max(1000).default(0)
+  EVENT_AI_MAX_PER_HOUR: z.coerce.number().int().min(0).max(1000).default(0),
+  /** Tope de generaciones de mapa con IA por evento / 24hs (Redis, ventana rolling). `0` = sin límite. */
+  EVENT_AI_MAX_MAP_PER_EVENT_PER_DAY: z.coerce.number().int().min(0).max(1000).default(3),
+  /** Tope de análisis de flyer con IA por evento / 24hs (Redis, ventana rolling). `0` = sin límite. */
+  EVENT_AI_MAX_FLYER_PER_EVENT_PER_DAY: z.coerce.number().int().min(0).max(1000).default(3)
 });
 
 export type Env = z.infer<typeof envSchema>;
