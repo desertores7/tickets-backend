@@ -23,7 +23,8 @@ import {
   isSectorLayout,
   parseCellKey,
   scaleModelCell,
-  scaleModelLayout
+  scaleModelLayout,
+  translateLayout
 } from '../core/map-grid';
 
 /**
@@ -776,5 +777,67 @@ export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
       message: `El grupo "${id}" no entra en la grilla ${MAP_GRID_SIZE}×${MAP_GRID_SIZE} sin pisar otro sector.`
     });
   }
+
+  // 5. El modelo describe bien QUÉ hay y en qué orden relativo, pero copia la
+  //    asimetría del flyer (logos/textos a un costado empujan el plano entero
+  //    para un lado). El pack de arriba no corrige eso: si no hay conflicto,
+  //    cada grupo se queda exactamente donde `stretch`/`box` lo puso. Acá se
+  //    centra la composición completa (escenario + grupos) en la grilla, así
+  //    el productor no tiene que arrastrar todo al medio a mano.
+  centerCompositionHorizontally(result, area);
+
   return packed.unresolved;
+}
+
+/**
+ * Traslada TODO (escenario + grupos) para que el bounding box conjunto quede
+ * centrado horizontalmente en la grilla. Es una traslación rígida (no reescala
+ * nada), así que ninguna posición relativa ni tamaño cambia: solo se corrige
+ * el corrimiento a un costado.
+ */
+function centerCompositionHorizontally(result: AnalyzeMapResult, area: AiEventMapArea): void {
+  const groups = result.layout.groups;
+  if (!isSectorLayout(result.stage.layout)) return;
+  const stageLayout = result.stage.layout;
+  const stageCell = layoutBounds(stageLayout);
+
+  let minCol = stageCell.col;
+  let maxCol = stageCell.col + stageCell.colSpan - 1;
+  for (const g of groups) {
+    if (!isValidCell(g.cell)) continue;
+    minCol = Math.min(minCol, g.cell.col);
+    maxCol = Math.max(maxCol, g.cell.col + g.cell.colSpan - 1);
+  }
+
+  const width = maxCol - minCol + 1;
+  if (width <= 0 || width >= MAP_GRID_SIZE) return;
+
+  const desiredMinCol = Math.floor((MAP_GRID_SIZE - width) / 2) + 1;
+  const dc = desiredMinCol - minCol;
+  if (dc === 0) return;
+
+  // No correr si algún borde se saldría de la grilla (no debería pasar: el
+  // ancho ya entra, y el desplazamiento lo centra, no lo agranda).
+  if (minCol + dc < 1 || maxCol + dc > MAP_GRID_SIZE) return;
+
+  result.stage = {
+    ...result.stage,
+    layout: translateLayout(stageLayout, dc, 0),
+    cell: shiftCell(stageCell, dc, 0),
+    box: cellToAreaBox(shiftCell(stageCell, dc, 0), area)
+  };
+
+  result.layout.groups = groups.map((g): AiEventMapLayoutGroup => {
+    if (!isValidCell(g.cell)) return g;
+    const cell = shiftCell(g.cell, dc, 0);
+    return {
+      ...g,
+      cell,
+      box: cellToAreaBox(cell, area),
+      unitCells: g.unitCells?.length ? g.unitCells.map(c => shiftCell(c, dc, 0)) : g.unitCells,
+      footprintCells: g.footprintCells?.length
+        ? g.footprintCells.map(c => shiftCell(c, dc, 0))
+        : g.footprintCells
+    };
+  });
 }
