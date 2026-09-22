@@ -96,6 +96,7 @@ const MAP_VISION_JPEG_QUALITY = 82;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 2200;
 const HOUR_TTL_SEC = 60 * 60;
+const AI_EVENT_DAY_TTL_SEC = 60 * 60 * 24; // usado por mapa y flyer (cuota diaria por evento)
 /** Reintentos ante 429/5xx de OpenAI (no bucles infinitos). */
 const TRANSIENT_MAX_ATTEMPTS = 3;
 const TRANSIENT_BASE_DELAY_MS = 2_500;
@@ -379,7 +380,8 @@ export class EventAiService implements IEventAiService {
 
   async analyzeFromFlyers(
     files: Express.Multer.File[],
-    userId: string
+    userId: string,
+    eventUuid?: string | null
   ): Promise<AnalyzeFlyersResult> {
     const flyers = this.validateFiles(files);
     const apiKey = this.envService.get('OPENIA_API_KEY');
@@ -390,6 +392,7 @@ export class EventAiService implements IEventAiService {
     }
 
     await this.assertWithinQuota(userId);
+    await this.assertWithinFlyerEventQuota(eventUuid);
 
     const client = this.createClient(apiKey.trim(), EXTRACT_TIMEOUT_MS);
     const extraction = await this.extractEventData(client, flyers);
@@ -452,6 +455,7 @@ export class EventAiService implements IEventAiService {
     }
 
     await this.consumeQuota(userId);
+    await this.consumeFlyerEventQuota(eventUuid);
 
     return {
       extraction,
@@ -477,7 +481,8 @@ export class EventAiService implements IEventAiService {
    */
   async analyzeFromMapImage(
     file: Express.Multer.File,
-    userId: string
+    userId: string,
+    eventUuid?: string | null
   ): Promise<AnalyzeMapResult> {
     const [mapFile] = this.validateMapFile(file);
     const apiKey = this.envService.get('OPENIA_API_KEY');
@@ -491,6 +496,7 @@ export class EventAiService implements IEventAiService {
     const result = await this.analyzeSalesMap(client, mapFile, userId);
 
     await this.consumeQuota(userId);
+    await this.consumeMapEventQuota(eventUuid);
     return result;
   }
 
@@ -506,8 +512,9 @@ export class EventAiService implements IEventAiService {
     return mapFile;
   }
 
-  async assertMapQuota(userId: string): Promise<void> {
+  async assertMapQuota(userId: string, eventUuid?: string | null): Promise<void> {
     await this.assertWithinQuota(userId);
+    await this.assertWithinMapEventQuota(eventUuid);
   }
 
   private validateMapFile(file: Express.Multer.File | undefined): Express.Multer.File[] {
@@ -1058,6 +1065,123 @@ export class EventAiService implements IEventAiService {
     const maxHour = this.envService.get('EVENT_AI_MAX_PER_HOUR');
     if (!maxHour || maxHour <= 0) return;
     await this.redisService.incrWithExpire(`event-ai:hour:${userId}`, HOUR_TTL_SEC);
+  }
+
+  private mapEventQuotaKey(eventUuid: string): string {
+    return `event-ai:map-daily:${eventUuid}`;
+  }
+
+  /**
+   * Cuota de generaciones de mapa con IA por EVENTO (no por usuario), con
+   * ventana rolling de 24hs: el TTL arranca a correr en la primera
+   * generación del día y se resetea recién cuando esa key expira, es decir
+   * 24hs después de esa primera generación (no a medianoche).
+   *
+   * `eventUuid` es opcional porque el alta de un evento nuevo puede analizar
+   * un mapa antes de que exista un evento persistido (todavía no hay
+   * `eventUuid`): en ese caso no hay nada que contar todavía y no bloqueamos.
+   */
+  private async assertWithinMapEventQuota(eventUuid?: string | null): Promise<void> {
+    if (!eventUuid) return;
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_MAP_PER_EVENT_PER_DAY');
+    // 0 = sin límite
+    if (!maxPerDay || maxPerDay <= 0) return;
+
+    const used = await this.redisService.getCounter(this.mapEventQuotaKey(eventUuid));
+    if (used >= maxPerDay) {
+      throw new HttpException(
+        `Límite de generaciones de mapa alcanzado: máximo ${maxPerDay} por día para este evento. Probá de nuevo más tarde.`,
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+  }
+
+  private async consumeMapEventQuota(eventUuid?: string | null): Promise<void> {
+    if (!eventUuid) return;
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_MAP_PER_EVENT_PER_DAY');
+    if (!maxPerDay || maxPerDay <= 0) return;
+    await this.redisService.incrWithExpire(this.mapEventQuotaKey(eventUuid), AI_EVENT_DAY_TTL_SEC);
+  }
+
+  /** Estado de la cuota diaria de mapa por evento, para mostrarlo en el frontend. */
+  async getMapEventQuotaStatus(eventUuid: string): Promise<{
+    used: number;
+    max: number;
+    remaining: number;
+    resetAt: string | null;
+  }> {
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_MAP_PER_EVENT_PER_DAY');
+    if (!maxPerDay || maxPerDay <= 0) {
+      return { used: 0, max: 0, remaining: Number.MAX_SAFE_INTEGER, resetAt: null };
+    }
+
+    const key = this.mapEventQuotaKey(eventUuid);
+    const used = await this.redisService.getCounter(key);
+    const ttl = await this.redisService.getTtl(key);
+    const resetAt = ttl > 0 ? new Date(Date.now() + ttl * 1000).toISOString() : null;
+
+    return {
+      used,
+      max: maxPerDay,
+      remaining: Math.max(0, maxPerDay - used),
+      resetAt
+    };
+  }
+
+  private flyerEventQuotaKey(eventUuid: string): string {
+    return `event-ai:flyer-daily:${eventUuid}`;
+  }
+
+  /**
+   * Misma lógica que la cuota de mapa (ver `assertWithinMapEventQuota`), pero
+   * para el análisis de flyer del evento ("Flyer del evento" en el editor):
+   * ventana rolling de 24hs por evento, `eventUuid` opcional (alta de evento
+   * nuevo antes de que exista el borrador no cuenta contra nadie).
+   */
+  private async assertWithinFlyerEventQuota(eventUuid?: string | null): Promise<void> {
+    if (!eventUuid) return;
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_FLYER_PER_EVENT_PER_DAY');
+    if (!maxPerDay || maxPerDay <= 0) return;
+
+    const used = await this.redisService.getCounter(this.flyerEventQuotaKey(eventUuid));
+    if (used >= maxPerDay) {
+      throw new HttpException(
+        `Límite de análisis de flyer alcanzado: máximo ${maxPerDay} por día para este evento. Probá de nuevo más tarde.`,
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+  }
+
+  private async consumeFlyerEventQuota(eventUuid?: string | null): Promise<void> {
+    if (!eventUuid) return;
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_FLYER_PER_EVENT_PER_DAY');
+    if (!maxPerDay || maxPerDay <= 0) return;
+    await this.redisService.incrWithExpire(this.flyerEventQuotaKey(eventUuid), AI_EVENT_DAY_TTL_SEC);
+  }
+
+  /** Estado de la cuota diaria de análisis de flyer por evento, para mostrarlo en el frontend. */
+  async getFlyerEventQuotaStatus(eventUuid: string): Promise<{
+    used: number;
+    max: number;
+    remaining: number;
+    resetAt: string | null;
+  }> {
+    const maxPerDay = this.envService.get('EVENT_AI_MAX_FLYER_PER_EVENT_PER_DAY');
+    if (!maxPerDay || maxPerDay <= 0) {
+      return { used: 0, max: 0, remaining: Number.MAX_SAFE_INTEGER, resetAt: null };
+    }
+
+    const key = this.flyerEventQuotaKey(eventUuid);
+    const used = await this.redisService.getCounter(key);
+    const ttl = await this.redisService.getTtl(key);
+    const resetAt = ttl > 0 ? new Date(Date.now() + ttl * 1000).toISOString() : null;
+
+    return {
+      used,
+      max: maxPerDay,
+      remaining: Math.max(0, maxPerDay - used),
+      resetAt
+    };
   }
 
   private validateFiles(files: Express.Multer.File[] | undefined): Express.Multer.File[] {

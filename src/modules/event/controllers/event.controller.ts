@@ -92,6 +92,8 @@ import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
 import { MapAnalysisStatusResponse } from './responses/map-analysis-job.response';
 import { EventMapResponse, TicketTypeMapSectorsResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
+import { MapAiQuotaResponse } from './responses/map-ai-quota.response';
+import { FlyerAiQuotaResponse } from './responses/flyer-ai-quota.response';
 import {
   SetMapBaseFromMediaRequest,
   SetTicketTypeMapSectorsRequest,
@@ -145,6 +147,11 @@ export class EventController {
           type: 'string',
           format: 'binary',
           description: 'Flyer principal (única imagen usada para extracción + banner)'
+        },
+        eventUuid: {
+          type: 'string',
+          description:
+            'UUID del evento (opcional). Se usa para contabilizar el límite de 3 análisis de flyer por evento cada 24hs.'
         }
       },
       required: ['flyers']
@@ -152,7 +159,7 @@ export class EventController {
   })
   @ApiResponse({ status: 200, type: AnalyzeFlyersResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid files.' })
-  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota or daily per-event flyer quota exceeded.' })
   @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing or OpenAI error.' })
   @UseInterceptors(
     FilesInterceptor('flyers', 1, {
@@ -164,9 +171,10 @@ export class EventController {
   @Post('ai/from-flyers')
   async analyzeFromFlyers(
     @UploadedFiles() files: Express.Multer.File[],
+    @Body('eventUuid') eventUuid: string | undefined,
     @User() loggedUser: string
   ): Promise<AnalyzeFlyersResponse> {
-    const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser);
+    const result = await this._eventAiService.analyzeFromFlyers(files ?? [], loggedUser, eventUuid);
     return new AnalyzeFlyersResponse(result);
   }
 
@@ -190,6 +198,11 @@ export class EventController {
           type: 'string',
           format: 'binary',
           description: 'Mapa de ventas / plano con precios'
+        },
+        eventUuid: {
+          type: 'string',
+          description:
+            'UUID del evento (opcional). Se usa para contabilizar el límite de 3 generaciones de mapa por evento cada 24hs.'
         }
       },
       required: ['mapImage']
@@ -198,7 +211,7 @@ export class EventController {
   @ApiResponse({ status: 200, type: AnalyzeFromMapResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid file.' })
   @ApiResponse({ status: 409, description: 'Another map analysis is already running for this user.' })
-  @ApiResponse({ status: 429, description: 'Hourly AI quota exceeded.' })
+  @ApiResponse({ status: 429, description: 'Hourly AI quota or daily per-event map quota exceeded.' })
   @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing.' })
   @UseInterceptors(
     FileInterceptor('mapImage', {
@@ -210,10 +223,11 @@ export class EventController {
   @Post('ai/from-map')
   async analyzeFromMap(
     @UploadedFile() file: Express.Multer.File,
+    @Body('eventUuid') eventUuid: string | undefined,
     @User() loggedUser: string
   ): Promise<AnalyzeFromMapResponse> {
     const mapFile = this._eventAiService.validateMapRequest(file);
-    await this._eventAiService.assertMapQuota(loggedUser);
+    await this._eventAiService.assertMapQuota(loggedUser, eventUuid);
 
     const lockId = randomUUID();
     const acquired = await this._mapJobStore.acquireUserLock(loggedUser, lockId);
@@ -224,7 +238,7 @@ export class EventController {
     }
 
     try {
-      const result = await this._eventAiService.analyzeFromMapImage(mapFile, loggedUser);
+      const result = await this._eventAiService.analyzeFromMapImage(mapFile, loggedUser, eventUuid);
       return new AnalyzeFromMapResponse(result);
     } finally {
       await this._mapJobStore.releaseUserLock(loggedUser);
@@ -592,6 +606,42 @@ export class EventController {
     });
     setPublicCacheHeaders(res, cacheable, PUBLIC_CACHE_TTL.map);
     return value;
+  }
+
+  @UserAuth(null, FlyerAiQuotaResponse)
+  @ApiOperation({
+    summary: 'Estado de la cuota diaria de análisis de flyer con IA',
+    description:
+      'Devuelve cuántos análisis de flyer con IA (`POST /events/ai/from-flyers`) ' +
+      'se consumieron para este evento en la ventana de 24hs actual (rolling: arranca en la ' +
+      'primera generación y se reinicia recién 24hs después de esa primera generación), ' +
+      'el máximo permitido y cuándo se reinicia. Pensado para que el frontend deshabilite ' +
+      'la tarjeta de "Flyer del evento" antes de intentar y sin gastar la última solicitud en un 429.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Eventos')
+  @Get(':eventUuid/flyer/ai-quota')
+  async getFlyerAiQuota(@Param('eventUuid') eventUuid: string): Promise<FlyerAiQuotaResponse> {
+    const status = await this._eventAiService.getFlyerEventQuotaStatus(eventUuid);
+    return new FlyerAiQuotaResponse(status);
+  }
+
+  @UserAuth(null, MapAiQuotaResponse)
+  @ApiOperation({
+    summary: 'Estado de la cuota diaria de generación de mapa con IA',
+    description:
+      'Devuelve cuántas generaciones de mapa con IA (`POST /events/ai/from-map`) ' +
+      'se consumieron para este evento en la ventana de 24hs actual (rolling: arranca en la ' +
+      'primera generación y se reinicia recién 24hs después de esa primera generación), ' +
+      'el máximo permitido y cuándo se reinicia. Pensado para que el frontend deshabilite ' +
+      'el botón de generación con IA antes de intentar y sin gastar la última solicitud en un 429.'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Mapa')
+  @Get(':eventUuid/map/ai-quota')
+  async getMapAiQuota(@Param('eventUuid') eventUuid: string): Promise<MapAiQuotaResponse> {
+    const status = await this._eventAiService.getMapEventQuotaStatus(eventUuid);
+    return new MapAiQuotaResponse(status);
   }
 
   @UserAuth(null, EventMapResponse)
