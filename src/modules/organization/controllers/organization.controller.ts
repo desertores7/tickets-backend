@@ -446,14 +446,9 @@ export class OrganizationController {
   @Post(':organizationUuid/suspend')
   async suspendOrganization(
     @Param('organizationUuid') organizationUuid: string,
-    @User() adminId: string,
-    @Body() body: SuspendOrganizationRequest
+    @User() adminId: string
   ): Promise<OrganizationMeResponse> {
-    const org = await this._organizationService.suspendOrganization(
-      organizationUuid,
-      adminId,
-      body.reason
-    );
+    const org = await this._organizationService.suspendOrganization(organizationUuid, adminId);
     return this.toMeResponse(org);
   }
 
