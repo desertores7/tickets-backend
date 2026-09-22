@@ -11,7 +11,9 @@ export const ORGANIZATION_ACTIVITY_KINDS = [
   'bank_change_rejected',
   'fiscal_change_requested',
   'fiscal_change_approved',
-  'fiscal_change_rejected'
+  'fiscal_change_rejected',
+  'suspended',
+  'reactivated'
 ] as const;
 
 export type OrganizationActivityKind = (typeof ORGANIZATION_ACTIVITY_KINDS)[number];
@@ -29,5 +31,7 @@ export const ORGANIZATION_ACTIVITY_TITLES: Record<OrganizationActivityKind, stri
   bank_change_rejected: 'Cambio de cuenta rechazado',
   fiscal_change_requested: 'Solicitó cambio fiscal',
   fiscal_change_approved: 'Cambio fiscal aprobado',
-  fiscal_change_rejected: 'Cambio fiscal rechazado'
+  fiscal_change_rejected: 'Cambio fiscal rechazado',
+  suspended: 'Productora suspendida',
+  reactivated: 'Productora reactivada'
 };

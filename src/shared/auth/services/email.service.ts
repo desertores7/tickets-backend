@@ -476,6 +476,31 @@ export class EmailService {
     );
   }
 
+  async sendOrganizationSuspendedEmail(data: {
+    firstName: string;
+    email: string;
+    organizationName: string;
+  }): Promise<void> {
+    const firstName = formatGreetingName(data.firstName);
+    const supportEmail = EMAIL_BRAND.supportEmail;
+    const supportMailto = `mailto:${supportEmail}`;
+
+    await this.sendTemplateEmail(
+      EMAIL_TEMPLATES.organizationSuspended,
+      {
+        preheader: `Tu cuenta como productor de ${data.organizationName} fue suspendida.`,
+        firstName,
+        organizationName: data.organizationName,
+        supportMailto
+      },
+      {
+        to: data.email,
+        subject: `Cuenta suspendida — ${data.organizationName}`,
+        text: `Hola ${firstName}, tu cuenta como productor de ${data.organizationName} fue suspendida por infringir las normas de Showpass. Si creés que es un error, contactate con soporte de inmediato: ${supportEmail}`
+      }
+    );
+  }
+
   async sendProducerInviteEmail(data: {
     email: string;
     organizationName: string;

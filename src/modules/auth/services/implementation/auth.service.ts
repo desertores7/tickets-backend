@@ -134,6 +134,21 @@ export class AuthService implements IAuthService {
       throw new UnauthorizedException('Usuario o contraseña incorrectos');
     }
 
+    // Productor/Validador/Caja de una productora suspendida (BR-PROD-006) no
+    // entra: el backoffice queda en solo lectura igual, pero avisar aca evita
+    // que inicie sesion pensando que todo sigue normal.
+    const memberships = await this.dbRepository.findMany({
+      entity: 'user_organization',
+      where: { userUuid: user.uuid, isDeleted: IsNull() },
+      relations: { organization: true }
+    });
+    const suspendedMembership = (memberships as UserOrganizationEntity[]).find(
+      m => m.organization && !m.organization.active
+    );
+    if (suspendedMembership) {
+      throw new UnauthorizedException('Tu cuenta ha sido suspendida');
+    }
+
     const hasUserRole = user.userRoles && Array.isArray(user.userRoles) && user.userRoles.length > 0;
     if (!hasUserRole) {
       const roleUuid = await this.resolveDefaultRoleUuid(user.uuid);

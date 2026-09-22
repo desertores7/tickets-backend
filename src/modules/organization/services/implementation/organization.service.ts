@@ -71,6 +71,13 @@ import {
 export type TOrganizationFilters = IFiltersParams<typeof organizationFilters>;
 
 @Injectable()
+/**
+ * Mensaje unico de suspension (BR-PROD-006): el modal y el email del
+ * productor siempre dicen lo mismo, no hay motivo a medida por admin.
+ */
+export const ORGANIZATION_SUSPENSION_REASON =
+  'La cuenta infringio las normas de Showpass y fue bloqueada.';
+
 export class OrganizationService implements IOrganizationService {
   private readonly logger = new Logger(OrganizationService.name);
 
@@ -1799,11 +1806,7 @@ export class OrganizationService implements IOrganizationService {
    * webhook llegaría igual; el hold dura 10 minutos y se vence solo. Lo que se
    * corta es la creación de órdenes nuevas.
    */
-  async suspendOrganization(
-    organizationUuid: string,
-    adminUuid: string,
-    reason: string
-  ): Promise<OrganizationEntity> {
+  async suspendOrganization(organizationUuid: string, adminUuid: string): Promise<OrganizationEntity> {
     const org = await this.dbRepository.findOne({
       entity: 'organization',
       where: { uuid: organizationUuid, isDeleted: IsNull() },
@@ -1812,24 +1815,33 @@ export class OrganizationService implements IOrganizationService {
     if (!org) throw new NotFoundException('Organización no encontrada');
     if (!org.active) throw new BadRequestException('La productora ya está suspendida');
 
-    const trimmedReason = reason.trim();
-    if (!trimmedReason) throw new BadRequestException('El motivo de la suspensión es obligatorio');
-
     await this.dbRepository.update({
       entity: 'organization',
       where: { uuid: org.uuid },
       data: {
         active: 0,
         suspendedAt: new Date(),
-        suspensionReason: trimmedReason,
+        suspensionReason: ORGANIZATION_SUSPENSION_REASON,
         suspendedByUuid: adminUuid,
         updatedBy: adminUuid
       }
     });
 
-    this.logger.warn(`Productora ${org.uuid} suspendida por ${adminUuid}: ${trimmedReason}`);
+    this.logger.warn(`Productora ${org.uuid} suspendida por ${adminUuid}`);
 
-    return this.reloadOrganization(org.uuid);
+    const updated = await this.reloadOrganization(org.uuid);
+
+    this.notifyOwnerSuspended(updated).catch(err => {
+      this.logger.error(`Failed to send org suspended email for ${organizationUuid}`, err?.stack);
+    });
+    this.recordActivity({
+      organizationUuid,
+      kind: 'suspended',
+      detail: ORGANIZATION_SUSPENSION_REASON,
+      actorUserUuid: adminUuid
+    }).catch(() => undefined);
+
+    return updated;
   }
 
   /**
@@ -2039,6 +2051,46 @@ export class OrganizationService implements IOrganizationService {
       email,
       organizationName,
       rejectionReason: rejectionReason || org.rejectionReason || 'Sin motivo indicado'
+    });
+  }
+
+  /**
+   * Avisa al dueño de la productora que la cuenta fue suspendida: aviso
+   * in-app + email, mismo mensaje fijo que ve en el modal del backoffice.
+   */
+  private async notifyOwnerSuspended(org: OrganizationEntity): Promise<void> {
+    const membership = await this.dbRepository.findOne({
+      entity: 'user_organization',
+      where: { organizationUuid: org.uuid, isDeleted: IsNull() },
+      relations: { user: true },
+      other: { order: { createdAt: 'ASC' } }
+    });
+
+    const owner = membership?.user as
+      | { uuid?: string; firstName?: string; email?: string }
+      | undefined;
+    const email = owner?.email?.trim() || org.contactEmail?.trim();
+    const firstName = owner?.firstName?.trim() || 'Productor';
+    const organizationName = org.name || org.legalName || 'tu productora';
+    const ownerUuid = owner?.uuid;
+
+    if (ownerUuid) {
+      await this.userNotificationService.create(
+        ownerUuid,
+        'Cuenta suspendida',
+        `Tu cuenta como productor de ${organizationName} fue suspendida por infringir las normas de Showpass. Si creés que es un error, contactate con soporte de inmediato.`
+      );
+    }
+
+    if (!email) {
+      this.logger.warn(`No email for organization ${org.uuid}; skip suspension mail`);
+      return;
+    }
+
+    await this.emailService.sendOrganizationSuspendedEmail({
+      firstName,
+      email,
+      organizationName
     });
   }
 

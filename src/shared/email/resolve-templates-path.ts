@@ -32,6 +32,8 @@ export const EMAIL_TEMPLATES = {
   ticketEmail: 'ticket-email',
   organizationApproved: 'organization-approved',
   organizationRejected: 'organization-rejected',
+  /** Cuenta de productor suspendida por incumplir las normas de Showpass. */
+  organizationSuspended: 'organization-suspended',
   organizationSubmitted: 'organization-submitted',
   producerInvite: 'producer-invite',
   /** Aviso interno a Administradores (validaciones, cambios fiscales, etc.). */
