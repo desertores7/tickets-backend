@@ -797,7 +797,9 @@ export function rasterizeMapAnalysis(result: AnalyzeMapResult): string[] {
  */
 function centerCompositionHorizontally(result: AnalyzeMapResult, area: AiEventMapArea): void {
   const groups = result.layout.groups;
-  const stageCell = layoutBounds(result.stage.layout);
+  if (!isSectorLayout(result.stage.layout)) return;
+  const stageLayout = result.stage.layout;
+  const stageCell = layoutBounds(stageLayout);
 
   let minCol = stageCell.col;
   let maxCol = stageCell.col + stageCell.colSpan - 1;
@@ -820,7 +822,7 @@ function centerCompositionHorizontally(result: AnalyzeMapResult, area: AiEventMa
 
   result.stage = {
     ...result.stage,
-    layout: translateLayout(result.stage.layout, dc, 0),
+    layout: translateLayout(stageLayout, dc, 0),
     cell: shiftCell(stageCell, dc, 0),
     box: cellToAreaBox(shiftCell(stageCell, dc, 0), area)
   };
