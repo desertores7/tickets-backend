@@ -39,10 +39,28 @@ export async function resolveEventCoverPaths(
   return covers;
 }
 
-/** Banner del evento, o su flyer si no tiene banner cargado. */
+/**
+ * Banner del evento, o su flyer si no tiene banner cargado.
+ *
+ * Preferimos la variante `mobile` (`eventImages.bannerMobile`): tanto las
+ * cards de "Mis entradas" como el email de entradas listas muestran la
+ * imagen en un recorte angosto, y la variante `desktop`/`bannerUrl` ahi queda
+ * recortada de forma rara (se pierde el centro de la imagen). Si el evento
+ * nunca cargo banner mobile, caemos al desktop viejo y despues al flyer.
+ */
 export function pickEventCover(
-  event: { uuid: string; bannerUrl?: string | null; bannerImages?: Record<string, string> | null },
+  event: {
+    uuid: string;
+    bannerUrl?: string | null;
+    bannerImages?: Record<string, string> | null;
+  },
   covers: Map<string, string | null>
 ): string | null {
-  return event.bannerUrl ?? event.bannerImages?.desktop ?? covers.get(event.uuid) ?? null;
+  return (
+    event.bannerImages?.mobile ??
+    event.bannerUrl ??
+    event.bannerImages?.desktop ??
+    covers.get(event.uuid) ??
+    null
+  );
 }
