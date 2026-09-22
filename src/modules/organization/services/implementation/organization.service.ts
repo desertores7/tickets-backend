@@ -70,7 +70,6 @@ import {
 
 export type TOrganizationFilters = IFiltersParams<typeof organizationFilters>;
 
-@Injectable()
 /**
  * Mensaje unico de suspension (BR-PROD-006): el modal y el email del
  * productor siempre dicen lo mismo, no hay motivo a medida por admin.
@@ -78,6 +77,7 @@ export type TOrganizationFilters = IFiltersParams<typeof organizationFilters>;
 export const ORGANIZATION_SUSPENSION_REASON =
   'La cuenta infringio las normas de Showpass y fue bloqueada.';
 
+@Injectable()
 export class OrganizationService implements IOrganizationService {
   private readonly logger = new Logger(OrganizationService.name);
 
