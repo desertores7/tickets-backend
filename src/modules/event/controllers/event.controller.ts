@@ -431,7 +431,7 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Eliminar evento — baja lógica', description: 'Soft-deletes an event by setting isActive to false. Only members of the owning organization can delete.' })
+  @ApiOperation({ summary: 'Eliminar evento — borrado físico', description: 'Hard-deletes an event and every row across the schema that references it (map/sectors, ticket types, orders/tickets/payments, coupons, payouts, MP movements, etc.), inside a single transaction. Only members of the owning organization can delete; events with paid/refunded orders require an admin.' })
   @HttpCode(200)
   @ApiTags('Productora — Eventos')
   @Delete(':eventUuid')

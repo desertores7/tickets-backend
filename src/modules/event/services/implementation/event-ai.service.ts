@@ -59,6 +59,7 @@ import {
 import {
   VISION_REPAIR_CODES,
   collectDeclaredCounts,
+  dedupeDuplicateLabels,
   fixStructuralIssues,
   mergeRepairedGroups,
   needsVisionRepair,
@@ -88,10 +89,16 @@ const MAP_EMPTY_CONTENT_RETRIES = 2;
  */
 const MAP_REPAIR_MAX_TOKENS = 12_000;
 /**
- * Lado máximo del flyer enviado a visión. 1536 baja patches/latencia vs 2048
- * sin perder legibilidad de labels en planos típicos de sala.
+ * Lado máximo del flyer enviado a visión.
+ *
+ * Subido de 1536 a 2048: en planos densos (30-50+ recuadros numerados chicos,
+ * como los de "ticketera" con VIP/palcos/pista numerados por separado) 1536
+ * volvía ilegibles los números tras el resize + JPEG 82, y el modelo
+ * terminaba subcontando labels de un grupo (ej. una grilla real de 10 leída
+ * como 8) o separando mal un sector chico del resto. Más patches/latencia,
+ * pero para este tipo de flyer la lectura correcta importa más.
  */
-const MAP_VISION_MAX_EDGE_PX = 1536;
+const MAP_VISION_MAX_EDGE_PX = 2048;
 const MAP_VISION_JPEG_QUALITY = 82;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 2200;
@@ -493,7 +500,7 @@ export class EventAiService implements IEventAiService {
     }
 
     const client = this.createClient(apiKey.trim(), MAP_LAYOUT_TIMEOUT_MS);
-    const result = await this.analyzeSalesMap(client, mapFile, userId);
+    const result = await this.analyzeSalesMap(client, mapFile, userId, eventUuid ?? null);
 
     await this.consumeQuota(userId);
     await this.consumeMapEventQuota(eventUuid);
@@ -544,7 +551,8 @@ export class EventAiService implements IEventAiService {
   private async analyzeSalesMap(
     client: OpenAI,
     mapFile: Express.Multer.File,
-    userId: string
+    userId: string,
+    eventUuid: string | null = null
   ): Promise<AnalyzeMapResult> {
     const model = this.envService.get('EVENT_AI_MAP_MODEL');
     const reasoningEffort = this.envService.get('EVENT_AI_MAP_REASONING_EFFORT');
@@ -625,12 +633,23 @@ export class EventAiService implements IEventAiService {
       if (unplaced.length) {
         this.logger.warn(`[MAP] Grupos sin lugar en la grilla: ${unplaced.join(', ')}`);
       }
+      // Red de seguridad: dos sectores con el mismo nombre en el mismo nivel
+      // no se guardan (assertUniqueSectorNames en event.service.ts). La
+      // reparación con visión de arriba ya lo intentó si hizo falta, pero
+      // depende de que el modelo relea bien la imagen; esto renumera en
+      // código lo que haya quedado sin resolver, para que el mapa que llega
+      // al productor ya sea guardable.
+      const dedupedLabels = dedupeDuplicateLabels(result);
+      if (dedupedLabels) {
+        this.logger.warn(`[MAP] ${dedupedLabels} etiqueta(s) duplicada(s) renumeradas`);
+      }
       // Estado final para la traza: lo estructural ya quedó resuelto.
       const unresolved = result.warnings.filter(w => w.code === 'GRID_OVERLAP_UNRESOLVED');
       result.warnings = [...verifyMapLayout(result, declaredCounts), ...unresolved];
 
       await this.recordMapRun({
         userId,
+        eventUuid,
         mapFile,
         imageHash,
         model,
@@ -664,6 +683,7 @@ export class EventAiService implements IEventAiService {
       this.logger.warn(`[MAP] Total (failed): ${Date.now() - t0} ms`);
       await this.recordMapRun({
         userId,
+        eventUuid,
         mapFile,
         imageHash,
         model,
@@ -810,6 +830,7 @@ export class EventAiService implements IEventAiService {
    */
   private async recordMapRun(params: {
     userId: string;
+    eventUuid?: string | null;
     mapFile: Express.Multer.File;
     imageHash: string;
     model: string;
@@ -829,6 +850,7 @@ export class EventAiService implements IEventAiService {
       const run = new EventAiMapRunEntity();
       run.uuid = randomUUID();
       run.userUuid = params.userId || null;
+      run.eventUuid = params.eventUuid ?? null;
       run.imageHash = params.imageHash;
       run.imageName = params.mapFile.originalname?.slice(0, 255) ?? null;
       run.imageBytes = params.mapFile.size ?? null;

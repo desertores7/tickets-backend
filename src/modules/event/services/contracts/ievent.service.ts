@@ -408,6 +408,7 @@ export interface IEventService {
     loggedUser: string
   ): Promise<TEventMap>;
 
+
   setMapBaseFromMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<TEventMap>;
 
   /** Quita el plano del mapa; devuelve null si el evento no tiene mapa todavia. */

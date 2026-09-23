@@ -181,7 +181,14 @@ function normalizeGroup(raw: Obj, mapArea: NormBox | null): GridAnalysisGroup | 
     out.unitCells = rawUnits;
   }
 
-  if (unitIds.length === Math.max(1, labels.length)) out.unitIds = unitIds;
+  // Antes se pisaban si `unitIds.length` no calzaba EXACTO con `labels.length`
+  // (por ejemplo, un `tidyAiMapLayout` que recompone `labels` sin tocar
+  // `unitIds`, o viceversa). Eso tiraba la identidad del grupo entero y el
+  // siguiente guardado volvia a emparejar por nombre -- que es justo lo que
+  // el comentario de arriba dice que no debe pasar. Mientras haya AL MENOS un
+  // id, se conserva: el frontend ya sabe resolver un index sin id (cae al
+  // fallback sintetico), pero no puede recuperar un id que este lado borro.
+  if (unitIds.length > 0) out.unitIds = unitIds;
 
   const ordering = strOrNull(raw.ordering);
   const rows = numOrNull(raw.rows);

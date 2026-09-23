@@ -341,6 +341,11 @@ export type AiEventMapLayout = {
  * - DECLARED_COUNT_MISMATCH: el grupo declara N elementos y listó otra cantidad.
  * - GRID_SHAPE_MISMATCH: filas × columnas no coincide con los labels de la grilla.
  * - CATEGORY_WITHOUT_GROUP: hay una categoría con precio que no tiene sector.
+ * - CATEGORY_ASSIGNMENT_UNRESOLVED: un grupo (o un rango dentro de un grupo)
+ *   referencia una categoría con un texto que no calzó con ninguna de
+ *   `categories`. Antes esto se adivinaba en silencio (misma `elementType` o
+ *   directamente la primera categoría de la lista) y la tanda de un sector
+ *   terminaba pegada a otro sector sin que nadie se enterara.
  * - DUPLICATE_LABEL: dos elementos con el mismo nombre dentro de un mismo nivel.
  * - MISSING_GROUP_CELLS: algún grupo llegó sin celdas en la grilla 24×24.
  * - CELL_OVERLAP: dos grupos (o un grupo y el escenario) comparten una celda.
@@ -351,6 +356,7 @@ export type MapLayoutWarningCode =
   | 'DECLARED_COUNT_MISMATCH'
   | 'GRID_SHAPE_MISMATCH'
   | 'CATEGORY_WITHOUT_GROUP'
+  | 'CATEGORY_ASSIGNMENT_UNRESOLVED'
   | 'DUPLICATE_LABEL'
   | 'MISSING_GROUP_CELLS'
   | 'CELL_OVERLAP'
@@ -408,6 +414,7 @@ export interface IEventAiService {
    * inválido no puede descubrirse dos minutos después dentro de un job.
    */
   validateMapRequest(file: Express.Multer.File): Express.Multer.File;
+
 
   /**
    * Cuota horaria de IA del usuario y cuota diaria (24hs rolling) de
