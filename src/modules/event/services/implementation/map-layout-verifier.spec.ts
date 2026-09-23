@@ -59,6 +59,7 @@ function category(patch: Partial<AiEventMapCategory> & { id: string }): AiEventM
     selectionUnit: 'ticket',
     detectedCapacity: null,
     includedAdmissions: null,
+    perks: null,
     color: null,
     confidence: 0.9,
     ...patch

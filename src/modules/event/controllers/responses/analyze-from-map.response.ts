@@ -46,6 +46,7 @@ export class GridCategoryResponse implements GridAnalysisCategory {
   selectionUnit: string;
   @ApiProperty({ nullable: true }) detectedCapacity: number | null;
   @ApiProperty({ nullable: true }) includedAdmissions: number | null;
+  @ApiProperty({ nullable: true, example: '2 whiskys gold + 4 speed' }) perks: string | null;
   @ApiProperty({ nullable: true, example: '#f5b301' }) color: string | null;
 }
 

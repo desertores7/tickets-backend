@@ -86,6 +86,13 @@ function parseNonNegIntOrNull(raw: unknown): number | null {
   return n;
 }
 
+/** Texto libre corto (extras/perks). null si vacio, se recorta a 200 chars. */
+function parseNullableText(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const text = String(raw).trim().slice(0, 200);
+  return text ? text : null;
+}
+
 function slugify(text: string): string {
   return (
     text
@@ -595,6 +602,7 @@ function normalizeCategories(raw: unknown): AiEventMapCategory[] {
       includedAdmissions: parseNullableInt(
         c.includedAdmissions ?? c.includedTickets ?? c.admissions
       ),
+      perks: parseNullableText(c.perks ?? c.extras ?? c.includes ?? c.bonus),
       color: parseHexColor(c.color ?? c.hexColor ?? c.fillColor),
       confidence: round3(clamp01(Number(c.confidence ?? 0.7)))
     });
@@ -1116,6 +1124,7 @@ function ensureCategoriesForAssignments(
         selectionUnit: defaultSelectionForType(g.elementType, saleMode),
         detectedCapacity: null,
         includedAdmissions: null,
+        perks: null,
         color: null,
         confidence: 0.55
       });
