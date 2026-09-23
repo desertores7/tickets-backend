@@ -462,8 +462,97 @@ export class EventService implements IEventService {
       );
     }
 
-    await this.dbRepository.update({ entity: 'event', where: { uuid: event.uuid }, data: { isActive: false } });
+    // Borrado físico: se eliminan todas las filas que referencian al evento en
+    // cada tabla (mapa/sectores, tandas, órdenes/tickets/pagos, cupones,
+    // liquidaciones, movimientos de MP, etc.) y recién al final la fila del
+    // evento. Sin esto quedaban sectores y tandas huérfanos de eventos de
+    // prueba borrados. No hay FKs con ON DELETE CASCADE en el schema, así que
+    // el orden hoja→raíz se resuelve acá, dentro de una única transacción.
+    await this.hardDeleteEventCascade(event.uuid);
     return true;
+  }
+
+  /**
+   * Elimina físicamente un evento y todo lo que depende de él, en orden
+   * hoja→raíz, dentro de una transacción. Pensado para poder limpiar del
+   * todo un evento de prueba (o uno que un admin decide borrar de verdad)
+   * sin dejar sectores, tandas, órdenes ni registros financieros colgados.
+   */
+  private async hardDeleteEventCascade(eventUuid: string): Promise<void> {
+    const queryRunner = this.dbRepository.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const run = (sql: string) => this.dbRepository.query(sql, [eventUuid], queryRunner);
+      const runTwice = (sql: string) => this.dbRepository.query(sql, [eventUuid, eventUuid], queryRunner);
+
+      // 1) Filas que cuelgan de refund_request / ticket / coupon / ticket_type
+      //    / event_map_sector (ninguna tiene eventUuid propio).
+      await run(
+        'DELETE FROM refund_request_ticket WHERE refundRequestUuid IN (SELECT uuid FROM refund_request WHERE eventUuid = ?)'
+      );
+      await run('DELETE FROM check_in_log WHERE eventUuid = ?');
+      await run('DELETE FROM coupon_redemption WHERE couponUuid IN (SELECT uuid FROM coupon WHERE eventUuid = ?)');
+      await runTwice(
+        'DELETE FROM coupon_ticket_type WHERE couponUuid IN (SELECT uuid FROM coupon WHERE eventUuid = ?) OR ticketTypeUuid IN (SELECT uuid FROM ticket_type WHERE eventUuid = ?)'
+      );
+      await runTwice(
+        `DELETE FROM event_map_sector_ticket_type
+         WHERE ticketTypeUuid IN (SELECT uuid FROM ticket_type WHERE eventUuid = ?)
+            OR sectorUuid IN (
+              SELECT s.uuid FROM event_map_sector s
+              INNER JOIN event_map m ON m.uuid = s.mapUuid
+              WHERE m.eventUuid = ?
+            )`
+      );
+      await run(
+        'DELETE FROM event_income_product WHERE eventIncomeUuid IN (SELECT uuid FROM event_income WHERE eventUuid = ?)'
+      );
+
+      // 2) Registros financieros/de órdenes (incluye pagos, reembolsos,
+      //    contracargos, liquidaciones y movimientos de MP: el usuario pidió
+      //    borrado físico total, también sobre estas tablas).
+      await run('DELETE FROM refund_request WHERE eventUuid = ?');
+      await runTwice('DELETE FROM chargeback WHERE eventUuid = ? OR orderUuid IN (SELECT uuid FROM orders WHERE eventUuid = ?)');
+      await run('DELETE FROM payment WHERE orderUuid IN (SELECT uuid FROM orders WHERE eventUuid = ?)');
+      await run('DELETE FROM ticket WHERE eventUuid = ?');
+      await run('DELETE FROM order_item WHERE orderUuid IN (SELECT uuid FROM orders WHERE eventUuid = ?)');
+
+      // 3) Resto de filas colgadas directamente de tandas/evento que todavía
+      //    tienen alguna dependiente (sectores del mapa, cupón, orden, tanda).
+      await run('DELETE FROM stock_alert WHERE eventUuid = ?');
+      await run('DELETE FROM event_change WHERE eventUuid = ?');
+      await run('DELETE FROM event_map_sector WHERE mapUuid IN (SELECT uuid FROM event_map WHERE eventUuid = ?)');
+      await run('DELETE FROM coupon WHERE eventUuid = ?');
+      await run('DELETE FROM orders WHERE eventUuid = ?');
+      await run('DELETE FROM ticket_type WHERE eventUuid = ?');
+
+      // 4) Filas con eventUuid directo y sin nada más colgando de ellas.
+      await run('DELETE FROM event_map WHERE eventUuid = ?');
+      await run('DELETE FROM event_ai_map_run WHERE eventUuid = ?');
+      await run('DELETE FROM event_income WHERE eventUuid = ?');
+      await run('DELETE FROM event_media WHERE eventUuid = ?');
+      await run('DELETE FROM event_mp_account WHERE eventUuid = ?');
+      await run('DELETE FROM event_producer WHERE eventUuid = ?');
+      await run('DELETE FROM event_validator WHERE eventUuid = ?');
+      await run('DELETE FROM event_fee_summary WHERE eventUuid = ?');
+      await run('DELETE FROM event_expense WHERE eventUuid = ?');
+      await run('DELETE FROM payout WHERE eventUuid = ?');
+      await run('DELETE FROM mp_movement WHERE eventUuid = ?');
+      await run('DELETE FROM user_event_cashier WHERE eventUuid = ?');
+      await run('DELETE FROM user_event_favorite WHERE eventUuid = ?');
+
+      // 5) La fila del evento, al final.
+      await this.dbRepository.query('DELETE FROM event WHERE uuid = ?', [eventUuid], queryRunner);
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async publishEvent(uuid: string, loggedUser: string): Promise<boolean> {
@@ -1561,7 +1650,7 @@ export class EventService implements IEventService {
       }
 
       timer.mark('tx-map-row');
-      sectors = await this.replaceMapSectors(map.uuid, data.sectors, grid.sectorLayouts, queryRunner);
+      sectors = await this.replaceMapSectors(map.uuid, event.uuid, data.sectors, grid.sectorLayouts, queryRunner);
       timer.mark('tx-replace-sectors');
       await queryRunner.commitTransaction();
       timer.mark('tx-commit');
@@ -2042,6 +2131,10 @@ export class EventService implements IEventService {
     }
   }
 
+  async assertEventOwnership(eventUuid: string, loggedUser: string): Promise<void> {
+    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
+  }
+
   async uploadMapBaseImage(
     eventUuid: string,
     file: Express.Multer.File,
@@ -2390,8 +2483,29 @@ export class EventService implements IEventService {
     if (removed.length) throw new ConflictException(removedSectorsMessage(removed));
   }
 
+  /**
+   * Resuelve el vinculo sector <-> tanda por NOMBRE, no por id.
+   *
+   * Antes el frontend mandaba `ticketTypeUuids` ya resueltos (por id de
+   * categoria, con dos o tres niveles de fallback -- por familia, por nombre
+   * de sector, por id de unidad estable). Esa cadena tenia demasiados pasos
+   * intermedios (analisis de IA -> categorias -> grupos -> unitIds -> drafts
+   * -> uuids reales) y en la practica terminaba linkeando sectores con la
+   * tanda de OTRO sector sin que ninguno de esos pasos, mirado por separado,
+   * se viera roto.
+   *
+   * La regla ahora es la que tiene sentido para el productor: un sector se
+   * llama igual que su tanda ("Platea B" el sector, "Platea B" la tanda). Si
+   * hay una tanda activa del evento con ese nombre (comparando sin mayusculas
+   * ni espacios de mas), se linkea. Si no hay ninguna o el nombre es
+   * ambiguo (dos tandas con el mismo nombre), el sector queda SIN tanda --
+   * mejor eso que adivinar mal. El nombre a comparar es `familyLabel` cuando
+   * existe (sectores en grupo, tipo "Mesa 1".."Mesa 10" que comparten
+   * categoria comercial) y si no el propio `name` del sector.
+   */
   private async replaceMapSectors(
     mapUuid: string,
+    eventUuid: string,
     sectors: TUpsertEventMap['sectors'],
     layouts: MapSectorLayout[],
     queryRunner: QueryRunner
@@ -2403,6 +2517,19 @@ export class EventService implements IEventService {
       where: { mapUuid } as any,
       queryRunner
     });
+
+    const activeTicketTypes = (await this.dbRepository.findMany({
+      entity: 'ticket_type',
+      where: { eventUuid, isActive: true } as any,
+      select: { uuid: true, name: true } as any
+    })) as Array<{ uuid: string; name: string }>;
+    const ticketUuidByName = new Map<string, string | null>();
+    for (const tt of activeTicketTypes) {
+      const key = tt.name.trim().toLowerCase().replace(/\s+/g, ' ');
+      // Nombre repetido entre tandas: no hay forma de saber cual es la
+      // correcta, así que ese nombre no resuelve ninguna (null = ambiguo).
+      ticketUuidByName.set(key, ticketUuidByName.has(key) ? null : tt.uuid);
+    }
 
     // Un mapa de estadio son cientos de sectores: se arma todo en memoria y se
     // inserta en dos lotes. Insertar de a uno eran ~2N round trips a la base y
@@ -2438,11 +2565,13 @@ export class EventService implements IEventService {
       sector.capacity = src.capacity ?? null;
       newSectors.push(sector);
 
-      for (const ttUuid of src.ticketTypeUuids ?? []) {
+      const matchName = (sector.familyLabel || sector.name).trim().toLowerCase().replace(/\s+/g, ' ');
+      const ticketUuid = matchName ? ticketUuidByName.get(matchName) : undefined;
+      if (ticketUuid) {
         const link = new EventMapSectorTicketTypeEntity();
         link.uuid = uuidv4();
         link.sectorUuid = sector.uuid;
-        link.ticketTypeUuid = ttUuid;
+        link.ticketTypeUuid = ticketUuid;
         newLinks.push(link);
       }
     }

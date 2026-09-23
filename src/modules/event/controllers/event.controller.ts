@@ -431,7 +431,7 @@ export class EventController {
   }
 
   @UserAuth(null, null)
-  @ApiOperation({ summary: 'Eliminar evento — baja lógica', description: 'Soft-deletes an event by setting isActive to false. Only members of the owning organization can delete.' })
+  @ApiOperation({ summary: 'Eliminar evento — borrado físico', description: 'Hard-deletes an event and every row across the schema that references it (map/sectors, ticket types, orders/tickets/payments, coupons, payouts, MP movements, etc.), inside a single transaction. Only members of the owning organization can delete; events with paid/refunded orders require an admin.' })
   @HttpCode(200)
   @ApiTags('Productora — Eventos')
   @Delete(':eventUuid')
@@ -767,6 +767,28 @@ export class EventController {
   ): Promise<EventMapResponse> {
     const map = await this._eventService.uploadMapBaseImage(eventUuid, file, loggedUser);
     return new EventMapResponse(map);
+  }
+
+  @UserAuth(null, AnalyzeFromMapResponse)
+  @ApiOperation({
+    summary: 'Reajustar mapa con IA (geometría, sin re-analizar)',
+    description:
+      'Re-deriva SOLO la disposición (geometría) del último mapa generado con IA para este evento, ' +
+      'a partir de la misma imagen que se usó para analizarlo — sectores, nombres y precios no cambian. ' +
+      'Más barato que volver a analizar desde cero: no consume la cuota de 3 generaciones cada 24hs. ' +
+      '400 si el mapa no tiene imagen guardada o se generó antes de que existiera este endpoint ' +
+      '(en ese caso el frontend reacomoda localmente, sin IA).'
+  })
+  @HttpCode(200)
+  @ApiTags('Productora — Mapa')
+  @Post(':eventUuid/map/reajustar')
+  async reajustarMap(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<AnalyzeFromMapResponse> {
+    await this._eventService.assertEventOwnership(eventUuid, loggedUser);
+    const result = await this._eventAiService.reajustarMapLayout(eventUuid, loggedUser);
+    return new AnalyzeFromMapResponse(result);
   }
 
   @UserAuth(null, EventMapResponse)

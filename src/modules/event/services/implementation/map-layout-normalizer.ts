@@ -611,30 +611,75 @@ function parseHexColor(raw: unknown): string | null {
   return `#${value.toLowerCase()}`;
 }
 
+/**
+ * Id reservado para una referencia de categoria que no se pudo resolver con
+ * certeza. `slugify` nunca produce `\u0000`, asi que ninguna categoria real
+ * puede llamarse asi: es seguro usarlo como centinela sin arriesgar una
+ * colision.
+ *
+ * Antes, cuando el texto que la IA escribio en `categoryAssignments`/`group.
+ * category` no calzaba exacto contra ninguna categoria (typo, sinonimo,
+ * mayusculas, un espacio de mas), se adivinaba por `elementType` (la primera
+ * categoria del mismo tipo) y, si tampoco habia, directamente `categories[0]`.
+ * Eso pegaba en silencio la tanda de un sector en OTRO sector del mismo tipo
+ * ("Platea A" terminaba mostrando la tanda de "Vip Real G"), sin log ni aviso,
+ * y como el texto de la IA varia un poco entre corridas el resultado parecia
+ * reordenarse solo cada vez que se regeneraba el mapa.
+ *
+ * Ahora, si no hay match, queda sin resolver: `checkCategoryAssignmentsUnresolved`
+ * (map-layout-verifier.ts) lo detecta y dispara la reparacion con vision: si
+ * ni asi se resuelve, el sector queda sin tanda asignada ("sin entrada
+ * asignada" en el panel) en vez de robarle la suya a otro sector.
+ */
+export const UNRESOLVED_CATEGORY_ID = '\u0000unresolved';
+
+/** `slugify` envuelto en delimitadores para poder buscar contencion de
+ * tokens completos sin matchear a mitad de palabra ("Platea A" no debe
+ * calzar dentro de "Platea AB"). */
+function normalizedToken(value: string): string {
+  return `-${slugify(value)}-`;
+}
+
+/**
+ * Match difuso por contencion de tokens ("Vip Real G - Fila 1" contiene a
+ * "Vip Real G"). Se acepta solo si hay una unica categoria candidata: ante
+ * ambiguedad es mas seguro no resolver que adivinar.
+ */
+function fuzzyCategoryMatch(
+  raw: string,
+  categories: AiEventMapCategory[]
+): AiEventMapCategory | null {
+  const normalizedRaw = normalizedToken(raw);
+  const candidates = categories.filter(c => {
+    const normalizedLabel = normalizedToken(c.label);
+    return (
+      normalizedRaw.includes(normalizedLabel) || normalizedLabel.includes(normalizedRaw)
+    );
+  });
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
 function resolveCategoryId(
   rawCategory: string,
-  categories: AiEventMapCategory[],
-  fallbackElementType: MapElementType
+  categories: AiEventMapCategory[]
 ): string {
   const raw = rawCategory.trim();
-  if (raw) {
-    const byId = categories.find(c => c.id === raw || c.id === slugify(raw));
-    if (byId) return byId.id;
-    const byLabel = categories.find(
-      c => c.label.trim().toLowerCase() === raw.toLowerCase()
-    );
-    if (byLabel) return byLabel.id;
-  }
+  if (!raw) return UNRESOLVED_CATEGORY_ID;
 
-  const byType = categories.find(c => c.elementType === fallbackElementType);
-  if (byType) return byType.id;
+  const byId = categories.find(c => c.id === raw || c.id === slugify(raw));
+  if (byId) return byId.id;
 
-  if (fallbackElementType === 'zone') {
-    const ga = categories.find(c => c.saleMode === 'general_admission');
-    if (ga) return ga.id;
-  }
+  const byLabel = categories.find(
+    c => c.label.trim().toLowerCase() === raw.toLowerCase()
+  );
+  if (byLabel) return byLabel.id;
 
-  return categories[0]?.id ?? 'unknown';
+  const byFuzzyLabel = fuzzyCategoryMatch(raw, categories);
+  if (byFuzzyLabel) return byFuzzyLabel.id;
+
+  // Sin match de texto: ya no se adivina por elementType ni se toma
+  // categories[0] (ver UNRESOLVED_CATEGORY_ID).
+  return UNRESOLVED_CATEGORY_ID;
 }
 
 function normalizeLabels(raw: unknown): string[] {
@@ -813,7 +858,7 @@ function extractLabelsAndPreset(
     seen.add(key);
     labels.push(label);
     const cat = String(rawCategory ?? '').trim();
-    presetByIndex.push(cat ? resolveCategoryId(cat, categories, elementType) : null);
+    presetByIndex.push(cat ? resolveCategoryId(cat, categories) : null);
   };
 
   if (Array.isArray(g.labels) && g.labels.length) {
@@ -866,11 +911,7 @@ function normalizeAssignments(
   for (const row of rawAssignments) {
     if (!row || typeof row !== 'object') continue;
     const r = row as Record<string, unknown>;
-    const category = resolveCategoryId(
-      String(r.category ?? ''),
-      categories,
-      elementType
-    );
+    const category = resolveCategoryId(String(r.category ?? ''), categories);
 
     const rect = parseRect(r, shape);
     if (rect) {
@@ -887,7 +928,7 @@ function normalizeAssignments(
     for (let i = from; i <= to; i++) byIndex[i] = category;
   }
 
-  const fallbackCat = resolveCategoryId(String(g.category ?? ''), categories, elementType);
+  const fallbackCat = resolveCategoryId(String(g.category ?? ''), categories);
   for (let i = 0; i < n; i++) {
     if (!byIndex[i]) byIndex[i] = fallbackCat;
   }
@@ -1052,6 +1093,10 @@ function ensureCategoriesForAssignments(
 
   for (const g of groups) {
     for (const a of g.categoryAssignments) {
+      // Sin match de texto (UNRESOLVED_CATEGORY_ID): no se inventa una
+      // categoria nueva a partir de un centinela. El verificador lo marca
+      // (CATEGORY_ASSIGNMENT_UNRESOLVED) y dispara reparacion con vision.
+      if (a.category === UNRESOLVED_CATEGORY_ID) continue;
       if (out.some(c => c.id === a.category)) continue;
       const saleMode = defaultSaleForType(g.elementType);
       const id = ensureUniqueId(slugify(a.category), usedIds);
@@ -1406,7 +1451,7 @@ export function normalizeMapLayout(raw: Record<string, unknown>): AnalyzeMapResu
       ...a,
       category: categories.some(c => c.id === a.category)
         ? a.category
-        : resolveCategoryId(a.category, categories, g.elementType)
+        : resolveCategoryId(a.category, categories)
     }));
     return {
       ...g,

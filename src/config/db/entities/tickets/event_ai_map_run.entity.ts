@@ -28,6 +28,16 @@ export class EventAiMapRunEntity {
   @Column({ type: 'varchar', length: 36, nullable: true, default: null })
   userUuid: string | null;
 
+  /**
+   * Evento al que pertenece esta corrida; null en corridas de antes de esta
+   * columna. Es lo que permite a "Reajustar mapa con IA" encontrar la última
+   * corrida OK de un evento y reusar su `normalizedResult` completo (con
+   * `box`/pesos) en vez de la versión reducida a grilla que persiste
+   * `event_map.analysis`.
+   */
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  eventUuid: string | null;
+
   /** SHA-256 del archivo subido. Permite reconocer la misma imagen entre corridas. */
   @Column({ type: 'varchar', length: 64 })
   imageHash: string;

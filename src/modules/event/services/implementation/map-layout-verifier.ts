@@ -24,7 +24,7 @@ import {
   MapLayoutWarning,
   MapLayoutWarningCode
 } from '../contracts/ievent-ai.service';
-import { normalizeMapLayout } from './map-layout-normalizer';
+import { normalizeMapLayout, UNRESOLVED_CATEGORY_ID } from './map-layout-normalizer';
 import { expandCell, isSectorLayout, layoutKeys, parseCellKey } from '../core/map-grid';
 import { applySpatialPlacement } from './map-spatial-layout';
 
@@ -119,6 +119,35 @@ function checkCategoriesWithoutGroup(result: AnalyzeMapResult): MapLayoutWarning
         `"${category.label}" figura en los precios del flyer pero no tiene ningún sector en el mapa.`
       )
     );
+}
+
+/**
+ * Un grupo (o un rango dentro de un grupo) cuyo texto de categoría no calzó
+ * con ninguna categoría real (`UNRESOLVED_CATEGORY_ID`, ver
+ * map-layout-normalizer.ts).
+ *
+ * Antes esto no se detectaba: se adivinaba una categoría del mismo tipo y la
+ * tanda de un sector quedaba pegada a otro sin que nadie se enterara. Ahora se
+ * marca para que dispare reparación con visión (VISION_REPAIR_CODES) y, si ni
+ * así se resuelve, el sector sale sin tanda asignada en vez de robarle la de
+ * otro.
+ */
+function checkCategoryAssignmentsUnresolved(result: AnalyzeMapResult): MapLayoutWarning[] {
+  const warnings: MapLayoutWarning[] = [];
+  for (const group of result.layout.groups) {
+    const unresolved =
+      group.category === UNRESOLVED_CATEGORY_ID ||
+      group.categoryAssignments.some(a => a.category === UNRESOLVED_CATEGORY_ID);
+    if (!unresolved) continue;
+    warnings.push(
+      warn(
+        'CATEGORY_ASSIGNMENT_UNRESOLVED',
+        group.id,
+        `No se pudo identificar a qué sector de precios corresponde ${describeGroup(group)}.`
+      )
+    );
+  }
+  return warnings;
 }
 
 /**
@@ -269,6 +298,7 @@ export function verifyMapLayout(
   }
 
   warnings.push(...checkCategoriesWithoutGroup(result));
+  warnings.push(...checkCategoryAssignmentsUnresolved(result));
   warnings.push(...checkDuplicateLabels(result));
   warnings.push(...checkGroupCells(result));
   warnings.push(...checkCellOverlaps(result));
@@ -405,6 +435,7 @@ export const VISION_REPAIR_CODES: ReadonlySet<MapLayoutWarningCode> = new Set<Ma
   'DECLARED_COUNT_MISMATCH',
   'GRID_SHAPE_MISMATCH',
   'CATEGORY_WITHOUT_GROUP',
+  'CATEGORY_ASSIGNMENT_UNRESOLVED',
   'DUPLICATE_LABEL'
 ]);
 
