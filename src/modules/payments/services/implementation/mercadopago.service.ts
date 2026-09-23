@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { MercadoPagoConfig, Preference, Payment as MPPaymentClient } from 'mercadopago';
 import { EnvService } from '@config/env/env.service';
@@ -386,6 +387,77 @@ export class MercadoPagoService {
       createdAt: toDate(data.date_created),
       raw: data
     };
+  }
+
+  /**
+   * Id de la cuenta (collector) dueña del `MERCADOPAGO_ACCESS_TOKEN`. MP lo
+   * exige como header `X-Caller-Id` al subir evidencia de un contracargo; se
+   * pide por API en vez de guardarlo en `.env` porque así nunca queda
+   * desincronizado con el token que efectivamente está configurado.
+   */
+  private async fetchCollectorId(accessToken: string): Promise<string> {
+    const response = await fetch('https://api.mercadopago.com/users/me', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`MP respondió ${response.status} al consultar la cuenta (users/me): ${body}`);
+    }
+
+    const data = (await response.json()) as { id?: number | string };
+    if (data.id == null) {
+      throw new Error('MP no devolvió un id de cuenta en users/me');
+    }
+    return String(data.id);
+  }
+
+  /**
+   * Sube evidencia (facturas, capturas, comprobantes) para un contracargo
+   * (`BR-SUPPORT-004`). `POST /v1/chargebacks/{id}/documentation`, multipart,
+   * hasta 10 archivos / 10MB entre todos (JPEG, PNG o PDF — lo valida MP, acá
+   * solo se pasan tal cual llegaron del controller).
+   *
+   * `X-Idempotency-Key` nueva en cada llamado a propósito: cada envío de
+   * evidencia es un evento distinto, no un reintento del mismo — MP no debe
+   * deduplicarlos entre sí.
+   */
+  async submitChargebackDocumentation(
+    chargebackId: string,
+    files: { buffer: Buffer; filename: string; mimetype: string }[]
+  ): Promise<{ type: string; uuid: string; url: string; description: string }[]> {
+    const accessToken = this.envService.get('MERCADOPAGO_ACCESS_TOKEN');
+    if (!accessToken) {
+      throw new Error('MERCADOPAGO_ACCESS_TOKEN no configurado: no se puede subir evidencia');
+    }
+
+    const collectorId = await this.fetchCollectorId(accessToken);
+
+    const form = new FormData();
+    for (const file of files) {
+      form.append(
+        'file',
+        new Blob([new Uint8Array(file.buffer)], { type: file.mimetype }),
+        file.filename
+      );
+    }
+
+    const response = await fetch(`https://api.mercadopago.com/v1/chargebacks/${chargebackId}/documentation`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'X-Caller-Id': collectorId,
+        'X-Idempotency-Key': randomUUID()
+      },
+      body: form
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new BadRequestException(`MP rechazó la evidencia del contracargo ${chargebackId} (${response.status}): ${body}`);
+    }
+
+    return (await response.json()) as { type: string; uuid: string; url: string; description: string }[];
   }
 
   async processWebhookPayload(payload: MercadoPagoWebhookRequest): Promise<PaymentWebhookResult | null> {

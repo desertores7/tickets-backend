@@ -1,6 +1,22 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseFilePipeBuilder,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UploadedFiles,
+  UseInterceptors
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
+import { User } from '@root/shared/auth/decorator/user.decorator';
 import {
   ApiPagination,
   IPaginationParams,
@@ -12,6 +28,10 @@ import {
   GetChargebacksResponse,
   UpdateChargebackNotesRequest
 } from './dtos/chargeback.dto';
+
+/** JPEG, PNG o PDF: es lo único que acepta `documentation` de MP. */
+const ALLOWED_EVIDENCE_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const MAX_EVIDENCE_TOTAL_BYTES = 10 * 1024 * 1024;
 
 /**
  * Bandeja de contracargos (`BR-SUPPORT-004`). Solo Admin: es plata de la
@@ -56,6 +76,55 @@ export class ChargebackController {
   @Get(':uuid')
   async getDetail(@Param('uuid', new ParseUUIDPipe()) uuid: string): Promise<ChargebackResponse> {
     return new ChargebackResponse(await this.chargebackService.getDetail(uuid));
+  }
+
+  @AdminAuth(null, ChargebackResponse)
+  @ApiOperation({
+    summary: 'Responder evidencia del contracargo',
+    description:
+      'Sube evidencia (facturas, capturas, comprobantes) a Mercado Pago ' +
+      '(`POST /v1/chargebacks/:id/documentation`). Hasta 10 archivos, 10MB entre todos, ' +
+      'JPEG/PNG/PDF. Después de subir, se vuelve a consultar el contracargo en MP para ' +
+      'reflejar el nuevo `documentationStatus` (normalmente pasa a `review_pending`).'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { files: { type: 'array', items: { type: 'string', format: 'binary' } } },
+      required: ['files']
+    }
+  })
+  @ApiParam({ name: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Evidencia subida y contracargo actualizado.' })
+  @ApiResponse({ status: 400, description: 'Sin archivos, tipo no permitido, o MP rechazó la evidencia.' })
+  @HttpCode(200)
+  @UseInterceptors(FilesInterceptor('files', 10, { limits: { fileSize: MAX_EVIDENCE_TOTAL_BYTES } }))
+  @Post(':uuid/documentation')
+  async submitEvidence(
+    @Param('uuid', new ParseUUIDPipe()) uuid: string,
+    @UploadedFiles(new ParseFilePipeBuilder().build({ fileIsRequired: true }))
+    files: Express.Multer.File[],
+    @User() userId: string
+  ): Promise<ChargebackResponse> {
+    if (!files.length) throw new BadRequestException('Subí al menos un archivo');
+
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > MAX_EVIDENCE_TOTAL_BYTES) {
+      throw new BadRequestException('El total de archivos no puede superar los 10MB');
+    }
+
+    const invalid = files.find(file => !ALLOWED_EVIDENCE_MIME_TYPES.includes(file.mimetype));
+    if (invalid) {
+      throw new BadRequestException(`Tipo de archivo no permitido: ${invalid.mimetype}. Solo JPEG, PNG o PDF`);
+    }
+
+    const result = await this.chargebackService.submitEvidence(
+      uuid,
+      files.map(file => ({ buffer: file.buffer, filename: file.originalname, mimetype: file.mimetype })),
+      userId
+    );
+    return new ChargebackResponse(result);
   }
 
   @AdminAuth(UpdateChargebackNotesRequest, ChargebackResponse)

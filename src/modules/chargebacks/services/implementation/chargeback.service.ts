@@ -29,6 +29,7 @@ export type TChargebackItem = {
   documentationDeadline: string | null;
   coverageApplied: boolean;
   internalNotes: string | null;
+  evidenceSubmissions: Record<string, unknown>[];
   receivedAt: string | null;
   closedAt: string | null;
 };
@@ -43,12 +44,11 @@ export type TChargebackFilters = {
 /**
  * Contracargos (`BR-SUPPORT-004`).
  *
- * Primera etapa del circuito: **enterarse y dejar constancia**. Mercado Pago
- * avisa por webhook, acá se guarda la disputa con su plazo y se le avisa al
- * Admin. Responder la evidencia sigue siendo manual desde el panel de MP; lo
- * que no puede pasar es que el contracargo llegue y nadie se entere, porque el
- * plazo corre igual y perderlo es plata descontada de la cuenta
- * (`BR-SUPPORT-005`).
+ * Dos etapas: **enterarse y dejar constancia** (Mercado Pago avisa por
+ * webhook, acá se guarda la disputa con su plazo y se le avisa al Admin) y
+ * **responder evidencia** (`submitEvidence`, sube archivos a MP). Lo que no
+ * puede pasar es que el contracargo llegue y nadie se entere, porque el plazo
+ * corre igual y perderlo es plata descontada de la cuenta (`BR-SUPPORT-005`).
  */
 @Injectable()
 export class ChargebackService {
@@ -174,6 +174,41 @@ export class ChargebackService {
     return this.toItem(row);
   }
 
+  /**
+   * Responder evidencia (`BR-SUPPORT-004`, segunda mitad del circuito). Sube
+   * los archivos a MP y, si sale bien, vuelve a leer el contracargo de MP
+   * (`syncFromMercadoPago`) para que `documentationStatus` refleje lo que MP
+   * ya cambió con la subida (`review_pending`) — el mismo principio de "nunca
+   * confiar en el estado local" que usa `fetchChargeback`.
+   */
+  async submitEvidence(
+    uuid: string,
+    files: { buffer: Buffer; filename: string; mimetype: string }[],
+    submittedBy: string
+  ): Promise<TChargebackItem> {
+    const row = (await this.dbRepository.findOne({
+      entity: 'chargeback',
+      where: { uuid }
+    })) as ChargebackEntity | null;
+    if (!row) throw new NotFoundException('Contracargo no encontrado');
+
+    const uploaded = await this.mercadoPagoService.submitChargebackDocumentation(row.mpChargebackId, files);
+
+    const submissions = [
+      ...(row.evidenceSubmissions ?? []),
+      { submittedAt: new Date().toISOString(), submittedBy, files: uploaded }
+    ];
+
+    await this.dbRepository.update({
+      entity: 'chargeback',
+      where: { uuid },
+      data: { evidenceSubmissions: submissions }
+    });
+
+    await this.syncFromMercadoPago(row.mpChargebackId);
+    return this.getDetail(uuid);
+  }
+
   /** Notas internas del equipo. Lo que informa MP no se toca desde acá. */
   async updateNotes(uuid: string, notes: string | null): Promise<TChargebackItem> {
     const row = await this.dbRepository.findOne({ entity: 'chargeback', where: { uuid } });
@@ -255,6 +290,7 @@ export class ChargebackService {
       documentationDeadline: iso(row.documentationDeadline),
       coverageApplied: Boolean(row.coverageApplied),
       internalNotes: row.internalNotes ?? null,
+      evidenceSubmissions: row.evidenceSubmissions ?? [],
       receivedAt: iso(row.receivedAt),
       closedAt: iso(row.closedAt)
     };
