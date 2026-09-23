@@ -33,6 +33,8 @@ export type GridAnalysisCategory = {
   selectionUnit: string;
   detectedCapacity: number | null;
   includedAdmissions: number | null;
+  /** Extras que incluye el precio (tragos, botellas, merch), tal cual figuran en el flyer. */
+  perks: string | null;
   color: string | null;
 };
 
@@ -222,6 +224,7 @@ function normalizeCategory(raw: Obj): GridAnalysisCategory | null {
     selectionUnit: str(raw.selectionUnit, 'ticket'),
     detectedCapacity: numOrNull(raw.detectedCapacity),
     includedAdmissions: numOrNull(raw.includedAdmissions),
+    perks: strOrNull(raw.perks),
     color: strOrNull(raw.color)
   };
 }

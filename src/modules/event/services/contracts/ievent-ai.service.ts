@@ -224,6 +224,8 @@ export type AiEventMapCategory = {
   detectedCapacity: number | null;
   /** Admisiones/precintos incluidos al comprar la unidad completa. */
   includedAdmissions: number | null;
+  /** Extras que incluye el precio (tragos, botellas, merch, consumición), tal cual figuran en el flyer. null si no hay. */
+  perks: string | null;
   /** Color con que el flyer pinta esa categoria, en hex (#rrggbb). null si no se distingue. */
   color: string | null;
   confidence: number;

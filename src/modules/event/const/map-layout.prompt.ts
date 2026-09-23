@@ -59,6 +59,7 @@ CATEGORIES (commercial)
 - One per distinct offer. id = lowercase slug.
 - detectedPrice as a plain number ("$750.000" → 750000). Ignore consumición credits.
 - detectedCapacity (people per unit) ≠ includedAdmissions (tickets included). null when not printed. Never invent data.
+- perks: bundled extras printed next to the price (drinks, bottles, wristbands beyond the admission count, merch, consumición) as a short verbatim phrase (e.g. "2 whiskys gold + 4 speed"). null when the price legend lists nothing beyond the admission/capacity count. Don't repeat detectedCapacity/includedAdmissions here — only extras, not the count of people or tickets.
 - Assignments: grids use rowStart/rowEnd/columnStart/columnEnd (1-based); column/row/zone use from/to (0-based indexes into labels). Fewest blocks, full coverage, no overlaps. group.category = id when the whole group is one category, else null.
 
 OUTPUT
@@ -66,7 +67,7 @@ OUTPUT
   "mapArea": {"x":0-1,"y":0-1,"w":0-1,"h":0-1} | null,
   "stage": {"visible": boolean, "position": "top"|"bottom"|"left"|"right"|"center"|null},
   "stageLayout": {"kind":"rect","cell":{"col","row","colSpan","rowSpan"}} | null,
-  "categories": [{"id","label","detectedPrice","elementType":"table"|"box"|"palco"|"seat"|"zone"|"section","saleMode":"whole_unit"|"per_person"|"general_admission","selectionUnit":"table"|"seat"|"box"|"palco"|"ticket"|"section","detectedCapacity","includedAdmissions","color":"#rrggbb"|null}],
+  "categories": [{"id","label","detectedPrice","elementType":"table"|"box"|"palco"|"seat"|"zone"|"section","saleMode":"whole_unit"|"per_person"|"general_admission","selectionUnit":"table"|"seat"|"box"|"palco"|"ticket"|"section","detectedCapacity","includedAdmissions","perks":string|null,"color":"#rrggbb"|null}],
   "layout": {"groups": [{
     "id", "elementType", "layoutType", "count",
     "rows": number|null, "columns": number|null,
