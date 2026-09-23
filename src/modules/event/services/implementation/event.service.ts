@@ -1762,7 +1762,13 @@ export class EventService implements IEventService {
     const stageLayout = this.resolvePatchStageLayout(input, existing);
 
     let sortOrder = untouched.reduce((max, row) => Math.max(max, row.sortOrder ?? 0), -1);
-    const merged: Array<{ uuid: string; name: string; level: string | null; layout: MapSectorLayout }> = [];
+    const merged: Array<{
+      uuid: string;
+      name: string;
+      level: string | null;
+      color: string | null;
+      layout: MapSectorLayout;
+    }> = [];
     const items: MapGridItem[] = [{ id: '__stage__', label: 'Escenario', layout: stageLayout }];
 
     for (const row of untouched) {
@@ -1774,7 +1780,7 @@ export class EventService implements IEventService {
           `El sector "${row.name}" quedó sin celdas de una versión anterior. Guardá el mapa completo una vez.`
         );
       }
-      merged.push({ uuid: row.uuid, name: row.name, level: row.level ?? null, layout });
+      merged.push({ uuid: row.uuid, name: row.name, level: row.level ?? null, color: row.color ?? null, layout });
       items.push({
         id: row.uuid,
         label: [row.level?.trim(), row.name].filter(Boolean).join(' · '),
@@ -1787,7 +1793,13 @@ export class EventService implements IEventService {
         const uuid = sector.uuid!.trim();
         const label = sector.name?.trim() || uuid;
         const layout = validateSectorLayout(sector.layout, `"${label}"`);
-        merged.push({ uuid, name: label, level: sector.level?.trim() || null, layout });
+        merged.push({
+          uuid,
+          name: label,
+          level: sector.level?.trim() || null,
+          color: sector.color?.trim() || null,
+          layout
+        });
         items.push({
           id: uuid,
           label: [sector.level?.trim(), label].filter(Boolean).join(' · '),
@@ -2395,24 +2407,31 @@ export class EventService implements IEventService {
    * compara sin distinguir mayusculas ni espacios de mas.
    */
   /**
-   * Un sector se identifica por (nivel, nombre), no por nombre.
+   * Un sector se identifica por (nivel, nombre, color), no por nombre solo.
    *
    * Los planos de varias plantas reinician la numeración en cada una: el "15"
    * del primer piso y el del segundo son unidades distintas con la misma
    * etiqueta impresa. Comparar solo por nombre rechazaba el mapa entero.
    *
-   * La restricción sigue existiendo porque el nombre es lo que ve el validador
-   * en la puerta: dentro de un mismo nivel no puede haber dos iguales.
+   * Dentro del MISMO piso también puede repetirse el número entre sectores
+   * de categoría distinta — flyers reales lo hacen (dos palcos "19", uno
+   * dorado y uno blanco, cada uno a un precio) y el productor los distingue
+   * por color, tal como impresos. Por eso el color entra en la clave: dos
+   * sectores solo chocan si comparten nombre Y color, que es cuando el
+   * validador en la puerta no tendría cómo distinguirlos.
    */
   private assertUniqueSectorNames(
-    sectors: ReadonlyArray<{ name?: string | null; level?: string | null }>
+    sectors: ReadonlyArray<{ name?: string | null; level?: string | null; color?: string | null }>
   ): void {
     const seen = new Map<string, { name: string; level: string | null }>();
     for (const sector of sectors) {
       const name = sector.name?.trim() ?? '';
       if (!name) continue;
       const level = sector.level?.trim() || null;
-      const key = `${(level ?? '').toLowerCase()}\u0000${name.toLowerCase().replace(/\s+/g, ' ')}`;
+      const color = sector.color?.trim().toLowerCase() || '';
+      const key =
+        `${(level ?? '').toLowerCase()}\u0000${name.toLowerCase().replace(/\s+/g, ' ')}` +
+        `\u0000${color}`;
       const previous = seen.get(key);
       if (previous) {
         throw new BadRequestException(

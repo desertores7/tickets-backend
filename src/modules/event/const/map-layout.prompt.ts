@@ -37,6 +37,7 @@ SCOPE
 
 STRUCTURE (physical)
 - One group = one visually separated cluster. Left, right and bottom palcos are three groups. Never merge opposite sides.
+- Numbering RESTARTS between unrelated groups — this is normal, not a hint about grouping. A VIP grid numbered 1..10, a row of boxes numbered 1..8 and a palco column numbered 1..6 can all coexist on the same flyer with the same numbers. Decide group membership ONLY from what touches/clusters visually (position, color, borders) — never from numeric continuity or from "these numbers look sequential so they must be one group". Do not merge two visually separate clusters just because their labels would form a clean run, and do not split one cluster into two just because its numbering jumps (e.g. 1-6 then 11-14 with 7-10 used elsewhere is still ONE group if it is one unbroken visual column).
 - layoutType: "grid" | "column" | "row" | "zone".
 - labels[]: every readable label, verbatim, in visual reading order. Never invent, extrapolate or renumber. If M1..M50 are visible, list all 50.
 - count = labels.length. For grid: rows × columns = count.
@@ -49,8 +50,10 @@ STRUCTURE (physical)
 - Multi-floor flyers (1ER PISO, PLANTA BAJA…): set "level" verbatim on each group; omit for single-floor venues.
 
 STAGE
-- stage.visible = the front of the venue can be determined. If ENTRADA/INGRESO is marked, the front is usually the opposite edge. "center" only for arena layouts. Do not default to top without evidence.
-- stageLayout: a rect band (rowSpan or colSpan 1..2) on that edge, or null.
+- stage.visible = true always; every ticket map gets a stage band, even if the flyer never draws or labels one.
+- Only set a position other than "top" when there is an explicit visual cue: a labeled ESCENARIO/STAGE/TARIMA block, a stage icon/graphic, or an ENTRADA/INGRESO marked on one edge (front is then usually the opposite edge). "center" only for arena layouts with seating all around.
+- No cue at all (most nightclub/salon flyers: no stage drawn, just DJ/orchestra names in the price list) → default position "top", no further guessing. Don't spend effort inferring a position the flyer doesn't show.
+- stageLayout: a rect band (rowSpan or colSpan 1..2) on that edge, or null when defaulting to "top" with no cue.
 
 CATEGORIES (commercial)
 - One per distinct offer. id = lowercase slug.

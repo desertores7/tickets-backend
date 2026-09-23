@@ -89,10 +89,16 @@ const MAP_EMPTY_CONTENT_RETRIES = 2;
  */
 const MAP_REPAIR_MAX_TOKENS = 12_000;
 /**
- * Lado máximo del flyer enviado a visión. 1536 baja patches/latencia vs 2048
- * sin perder legibilidad de labels en planos típicos de sala.
+ * Lado máximo del flyer enviado a visión.
+ *
+ * Subido de 1536 a 2048: en planos densos (30-50+ recuadros numerados chicos,
+ * como los de "ticketera" con VIP/palcos/pista numerados por separado) 1536
+ * volvía ilegibles los números tras el resize + JPEG 82, y el modelo
+ * terminaba subcontando labels de un grupo (ej. una grilla real de 10 leída
+ * como 8) o separando mal un sector chico del resto. Más patches/latencia,
+ * pero para este tipo de flyer la lectura correcta importa más.
  */
-const MAP_VISION_MAX_EDGE_PX = 1536;
+const MAP_VISION_MAX_EDGE_PX = 2048;
 const MAP_VISION_JPEG_QUALITY = 82;
 const HERO_TIMEOUT_MS = 5 * 60_000;
 const EXTRACT_MAX_OUTPUT_TOKENS = 2200;

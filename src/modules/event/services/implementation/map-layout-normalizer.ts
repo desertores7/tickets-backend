@@ -840,7 +840,18 @@ function indexRangeToRect(from: number, to: number, shape: GridShape): RectRange
   return rect;
 }
 
-/** Labels del grupo + categoría por índice si venían en el legacy items[]. */
+/**
+ * Labels del grupo + categoría por índice si venían en el legacy items[].
+ *
+ * NO deduplica por nombre: un mismo flyer puede imprimir el mismo número dos
+ * veces dentro de una misma columna/grupo (visto en un plano real: la columna
+ * derecha traía "19" repetido) para dos unidades físicas distintas. Borrar
+ * acá la segunda ocurrencia hacía desaparecer una unidad vendible sin dejar
+ * rastro (declared count no cerraba, pero nada la recuperaba). La colisión de
+ * nombre para persistir se resuelve más abajo, después de rasterizar, en
+ * `dedupeDuplicateLabels` — que RENOMBRA la segunda unidad al siguiente número
+ * libre en vez de eliminarla.
+ */
 function extractLabelsAndPreset(
   g: Record<string, unknown>,
   categories: AiEventMapCategory[],
@@ -848,14 +859,10 @@ function extractLabelsAndPreset(
 ): { labels: string[]; presetByIndex: Array<string | null> } {
   const labels: string[] = [];
   const presetByIndex: Array<string | null> = [];
-  const seen = new Set<string>();
 
   const pushLabel = (rawLabel: unknown, rawCategory: unknown): void => {
     const label = String(rawLabel ?? '').trim().slice(0, 80);
     if (!label) return;
-    const key = label.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
     labels.push(label);
     const cat = String(rawCategory ?? '').trim();
     presetByIndex.push(cat ? resolveCategoryId(cat, categories) : null);

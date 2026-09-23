@@ -151,11 +151,19 @@ function checkCategoryAssignmentsUnresolved(result: AnalyzeMapResult): MapLayout
 }
 
 /**
- * Dos sectores con el mismo nombre dentro del mismo nivel.
+ * Dos sectores con el mismo nombre Y LA MISMA CATEGORÍA dentro del mismo nivel.
  *
  * El guardado los rechaza (la puerta no sabría cuál escaneó), así que conviene
  * avisarlo en el análisis y no cuando el productor aprieta guardar. Si el plano
  * tiene pisos y el modelo los declaró, cada piso se evalúa por separado.
+ *
+ * La categoría entra en la comparación porque el mismo número puede repetirse
+ * a propósito entre categorías distintas dentro de un mismo piso (dos palcos
+ * "19" de precio y color distintos): eso no es un choque, el productor los
+ * distingue por color. Antes se usaba group.id como aproximación (no avisaba
+ * si las dos ocurrencias caían en el mismo grupo), pero un grupo puede tener
+ * dos categorías adentro (rangos de categoryAssignments), así que la
+ * categoría real de cada unidad es la única comparación correcta.
  */
 function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
   const seen = new Map<string, string>();
@@ -164,10 +172,12 @@ function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
   for (const group of result.layout.groups) {
     if (group.layoutType === 'zone') continue;
     const level = (group.level ?? '').trim().toLowerCase();
-    for (const label of group.labels) {
-      const key = `${level}\u0000${label.trim().toLowerCase()}`;
+    for (let i = 0; i < group.labels.length; i++) {
+      const label = group.labels[i];
+      const category = categoryAtIndex(group, i);
+      const key = `${level}\u0000${category}\u0000${label.trim().toLowerCase()}`;
       const previous = seen.get(key);
-      if (previous && previous !== group.id) {
+      if (previous) {
         warnings.push(
           warn(
             'DUPLICATE_LABEL',
@@ -188,27 +198,41 @@ function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
   return [...unique.values()];
 }
 
+/** Categoría de la unidad en `labels[i]`: la asignación cuyo from..to la cubre. */
+function categoryAtIndex(group: AiEventMapLayoutGroup, index: number): string {
+  const hit = group.categoryAssignments.find(a => index >= a.from && index <= a.to);
+  return hit?.category ?? group.category ?? '';
+}
+
 /**
  * Corrige en código lo que `checkDuplicateLabels` detecta: dos sectores con
- * el mismo nombre dentro del mismo nivel. El guardado del mapa (`event.
- * service.ts`, `assertUniqueSectorNames`) los rechaza sin distinguir de qué
- * grupo vino cada uno — la reparación con visión (VISION_REPAIR_CODES) es el
- * primer intento, pero depende de que el modelo relea bien la imagen, así que
- * esto queda como red de seguridad determinística: si después de reparar
- * sigue habiendo un choque, se renumera acá mismo en vez de dejar que el
- * productor se entere recién al apretar "Guardar mapa".
+ * el mismo nombre EN LA MISMA CATEGORÍA dentro del mismo nivel.
+ *
+ * Dos unidades con el mismo número pero categoría distinta (p. ej. "19" en el
+ * palco $1.500.000 y "19" en el palco $1.300.000, cada una con su color en el
+ * flyer) no son un choque: son dos sectores distintos que el productor
+ * distingue por color/categoría, tal como están impresos. Solo se renumera
+ * cuando el nombre Y la categoría coinciden — ahí sí el guardado del mapa
+ * (`event.service.ts`, `assertUniqueSectorNames`) no podría distinguirlos.
+ *
+ * La reparación con visión (VISION_REPAIR_CODES) es el primer intento, pero
+ * depende de que el modelo relea bien la imagen, así que esto queda como red
+ * de seguridad determinística: si después de reparar sigue habiendo un
+ * choque real, se renumera acá mismo en vez de dejar que el productor se
+ * entere recién al apretar "Guardar mapa".
  *
  * Mantiene el resto del label igual (o el número, si el nombre termina en
- * uno) y solo avanza al siguiente valor libre dentro del mismo nivel.
+ * uno) y solo avanza al siguiente valor libre dentro del mismo nivel+categoría.
  * Devuelve cuántas etiquetas tuvo que tocar, para loguearlo.
  */
 export function dedupeDuplicateLabels(result: AnalyzeMapResult): number {
   const seen = new Map<string, true>();
   let renamed = 0;
 
-  const keyFor = (level: string, label: string) => `${level}\u0000${label.trim().toLowerCase()}`;
+  const keyFor = (level: string, category: string, label: string) =>
+    `${level}\u0000${category}\u0000${label.trim().toLowerCase()}`;
 
-  function nextAvailableLabel(level: string, original: string): string {
+  function nextAvailableLabel(level: string, category: string, original: string): string {
     const trailingNumber = original.match(/^(.*?)(\d+)(\D*)$/);
     if (trailingNumber) {
       const [, prefix, numStr, suffix] = trailingNumber;
@@ -218,12 +242,12 @@ export function dedupeDuplicateLabels(result: AnalyzeMapResult): number {
       do {
         n += 1;
         candidate = `${prefix}${String(n).padStart(width, '0')}${suffix}`;
-      } while (seen.has(keyFor(level, candidate)));
+      } while (seen.has(keyFor(level, category, candidate)));
       return candidate;
     }
     let n = 2;
     let candidate = `${original} (${n})`;
-    while (seen.has(keyFor(level, candidate))) {
+    while (seen.has(keyFor(level, category, candidate))) {
       n += 1;
       candidate = `${original} (${n})`;
     }
@@ -235,11 +259,12 @@ export function dedupeDuplicateLabels(result: AnalyzeMapResult): number {
     const level = (group.level ?? '').trim().toLowerCase();
     for (let i = 0; i < group.labels.length; i++) {
       const label = group.labels[i];
-      const key = keyFor(level, label);
+      const category = categoryAtIndex(group, i);
+      const key = keyFor(level, category, label);
       if (seen.has(key)) {
-        const newLabel = nextAvailableLabel(level, label);
+        const newLabel = nextAvailableLabel(level, category, label);
         group.labels[i] = newLabel;
-        seen.set(keyFor(level, newLabel), true);
+        seen.set(keyFor(level, category, newLabel), true);
         renamed++;
       } else {
         seen.set(key, true);
