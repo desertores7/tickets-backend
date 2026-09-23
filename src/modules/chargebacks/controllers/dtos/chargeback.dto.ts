@@ -33,6 +33,12 @@ export class ChargebackResponse {
   documentationDeadline: string | null;
   @ApiProperty({ description: 'Mercado Pago cubre el monto.' }) coverageApplied: boolean;
   @ApiProperty({ nullable: true }) internalNotes: string | null;
+  @ApiProperty({
+    description: 'Historial de envíos de evidencia a MP, más reciente al final.',
+    type: 'array',
+    items: { type: 'object' }
+  })
+  evidenceSubmissions: Record<string, unknown>[];
   @ApiProperty({ nullable: true }) receivedAt: string | null;
   @ApiProperty({ nullable: true }) closedAt: string | null;
 
