@@ -408,14 +408,6 @@ export interface IEventService {
     loggedUser: string
   ): Promise<TEventMap>;
 
-  /**
-   * Solo el chequeo de ownership (organización dueña / no suspendida), sin
-   * devolver ni tocar nada. Lo usa el endpoint de "Reajustar mapa con IA":
-   * ese flujo vive en `IEventAiService` (no tiene el contexto de
-   * organización/membresía de `EventService`), así que el controller valida
-   * acá antes de llamarlo.
-   */
-  assertEventOwnership(eventUuid: string, loggedUser: string): Promise<void>;
 
   setMapBaseFromMedia(eventUuid: string, mediaUuid: string, loggedUser: string): Promise<TEventMap>;
 

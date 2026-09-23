@@ -415,14 +415,6 @@ export interface IEventAiService {
    */
   validateMapRequest(file: Express.Multer.File): Express.Multer.File;
 
-  /**
-   * "Reajustar mapa con IA": re-deriva SOLO la geometría del último análisis
-   * OK de este evento (mismos sectores/precios) a partir de la misma imagen,
-   * sin releer inventario. Lanza `BadRequestException` si el mapa no tiene
-   * imagen guardada o no tiene una corrida asociada (mapas de antes de esta
-   * feature) — el llamador cae al reempaquetado local sin costo en ese caso.
-   */
-  reajustarMapLayout(eventUuid: string, userId: string): Promise<AnalyzeMapResult>;
 
   /**
    * Cuota horaria de IA del usuario y cuota diaria (24hs rolling) de

@@ -7,12 +7,10 @@ import {
   ServiceUnavailableException
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
-import { readFile } from 'fs/promises';
 import { DBRepository } from '@config/db/db.repository';
 import { EventAiMapRunEntity } from '@config/db/entities/tickets/event_ai_map_run.entity';
 import { EnvService } from '@config/env/env.service';
 import { RedisService } from '@config/redis/redis.service';
-import { StorageService } from '@root/shared/services/storage.service';
 import OpenAI, { APIError, toFile } from 'openai';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import sharp from 'sharp';
@@ -23,9 +21,7 @@ import {
   MAP_LAYOUT_USER_TEXT
 } from '../../const/map-layout.prompt';
 import {
-  MAP_REAJUSTAR_SYSTEM_PROMPT,
   MAP_REPAIR_SYSTEM_PROMPT,
-  buildMapReajustarUserText,
   buildMapRepairUserText
 } from '../../const/map-repair.prompt';
 import {
@@ -63,6 +59,7 @@ import {
 import {
   VISION_REPAIR_CODES,
   collectDeclaredCounts,
+  dedupeDuplicateLabels,
   fixStructuralIssues,
   mergeRepairedGroups,
   needsVisionRepair,
@@ -379,8 +376,7 @@ export class EventAiService implements IEventAiService {
   constructor(
     private readonly envService: EnvService,
     private readonly redisService: RedisService,
-    private readonly dbRepository: DBRepository,
-    private readonly storageService: StorageService
+    private readonly dbRepository: DBRepository
   ) {}
 
   async analyzeFromFlyers(
@@ -503,175 +499,6 @@ export class EventAiService implements IEventAiService {
     await this.consumeQuota(userId);
     await this.consumeMapEventQuota(eventUuid);
     return result;
-  }
-
-  /**
-   * "Reajustar mapa con IA": el layout de un mapa ya generado quedó mal
-   * acomodado (bloques superpuestos, zona en el lugar equivocado) pero todo
-   * lo demás — sectores, nombres, precios — está bien. En vez de repetir el
-   * análisis completo (releer precios, inventariar sectores desde cero, la
-   * llamada cara), se le vuelve a mostrar la imagen al modelo pidiéndole
-   * SOLO la geometría: mismos ids, mismos labels, mismas categorías, nueva
-   * posición. Usa el modelo de reparación (más barato) en vez del de mapa
-   * completo.
-   *
-   * Necesita dos cosas que sobreviven al guardado del mapa por separado:
-   * - La imagen original: `event_map.baseImageUrl` (se sube en paralelo al
-   *   analizar, sea cual sea el resultado — ver `uploadMapBaseImage`).
-   * - El layout CON geometría (`box`, pesos): `event_map.analysis` guarda la
-   *   versión ya reducida a grilla para el editor, así que se usa el
-   *   `normalizedResult` de la última corrida OK de `event_ai_map_run` para
-   *   este evento (columna `eventUuid`, ver migración
-   *   `EventAiMapRunEventUuid`). Sin esa corrida (mapas de antes de esta
-   *   columna) no hay forma de reajustar con IA — el llamador cae al
-   *   reempaquetado local, sin costo.
-   */
-  async reajustarMapLayout(eventUuid: string, userId: string): Promise<AnalyzeMapResult> {
-    await this.assertWithinQuota(userId);
-
-    const map = await this.dbRepository.findOne({
-      entity: 'event_map',
-      where: { eventUuid } as never
-    });
-    if (!map?.baseImageUrl) {
-      throw new BadRequestException(
-        'Este mapa no tiene la imagen original guardada, así que no se puede reajustar con IA.'
-      );
-    }
-
-    const lastRun = await this.dbRepository.findOne({
-      entity: 'event_ai_map_run',
-      where: { eventUuid, status: 'ok' } as never,
-      other: { order: { createdAt: 'DESC' } } as never
-    });
-    if (!lastRun?.normalizedResult) {
-      throw new BadRequestException(
-        'Este mapa se generó antes de que existiera el reajuste con IA, así que no se puede usar acá.'
-      );
-    }
-
-    let original: AnalyzeMapResult;
-    try {
-      original = JSON.parse(lastRun.normalizedResult) as AnalyzeMapResult;
-    } catch {
-      throw new BadRequestException('No se pudo leer el análisis original de este mapa.');
-    }
-
-    const pathname = this.storageService.staticPathname(map.baseImageUrl);
-    const filename = pathname?.split('/').pop();
-    const relativeDir = pathname
-      ?.replace(/^\/static\//, '')
-      .split('/')
-      .slice(0, -1)
-      .join('/');
-    if (!filename || !relativeDir) {
-      throw new BadRequestException('No se pudo leer la imagen original del mapa.');
-    }
-
-    let buffer: Buffer;
-    try {
-      buffer = await readFile(this.storageService.resolveAbsolutePath(relativeDir, filename));
-    } catch {
-      throw new BadRequestException('No se pudo leer la imagen original del mapa.');
-    }
-
-    const apiKey = this.envService.get('OPENIA_API_KEY');
-    if (!apiKey?.trim()) {
-      throw new ServiceUnavailableException(
-        'OPENIA_API_KEY no está configurada en el servidor. Agregala al .env del backend.'
-      );
-    }
-
-    const client = this.createClient(apiKey.trim(), MAP_LAYOUT_TIMEOUT_MS);
-    const model = this.envService.get('EVENT_AI_MAP_REPAIR_MODEL')?.trim() || this.envService.get('EVENT_AI_MAP_MODEL');
-    const reasoningEffort = this.envService.get('EVENT_AI_MAP_REPAIR_REASONING_EFFORT');
-    const t0 = Date.now();
-
-    const file = {
-      buffer,
-      size: buffer.length,
-      mimetype: 'image/webp',
-      originalname: filename
-    } as unknown as Express.Multer.File;
-
-    try {
-      const { parsed, usage } = await this.mapVisionJson({
-        label: 'map-reajustar',
-        client,
-        model,
-        maxTokens: MAP_REPAIR_MAX_TOKENS,
-        reasoningEffort,
-        system: MAP_REAJUSTAR_SYSTEM_PROMPT,
-        userText: buildMapReajustarUserText({
-          layoutJson: JSON.stringify(this.layoutForReajuste(original))
-        }),
-        images: this.flyerDataUrlParts([file], 'high')
-      });
-
-      const merged = mergeRepairedGroups(original, parsed);
-      const result = merged.result;
-
-      // Mismo cierre determinístico que el análisis inicial: grillas
-      // coherentes y pack sin solapes.
-      fixStructuralIssues(result);
-      const unplaced = rasterizeMapAnalysis(result);
-      result.warnings = verifyMapLayout(result, new Map());
-      if (unplaced.length) {
-        this.logger.warn(`[MAP] Reajuste: grupos sin lugar en la grilla: ${unplaced.join(', ')}`);
-      }
-
-      await this.recordMapRun({
-        userId,
-        eventUuid,
-        mapFile: file,
-        imageHash: createHash('sha256').update(buffer).digest('hex'),
-        model,
-        reasoningEffort,
-        status: 'ok',
-        latencyMs: Date.now() - t0,
-        openaiMs: Date.now() - t0,
-        usage,
-        groupCount: result.layout.groups.length,
-        labelCount: result.layout.groups.reduce((n, g) => n + g.labels.length, 0),
-        warnings: result.warnings,
-        rawResponse: parsed,
-        normalizedResult: result,
-        errorMessage: null
-      });
-
-      await this.consumeQuota(userId);
-
-      this.logger.log(
-        `[MAP] Reajuste con IA: total_ms=${Date.now() - t0} changed=${merged.changed} model=${model} ` +
-          `usage(in=${usage?.prompt_tokens ?? 'n/a'} out=${usage?.completion_tokens ?? 'n/a'})`
-      );
-      return result;
-    } catch (err) {
-      if (err instanceof BadRequestException || err instanceof ServiceUnavailableException || err instanceof HttpException) {
-        throw err;
-      }
-      this.logger.error('OpenAI map reajuste failed', err instanceof Error ? err.stack : err);
-      throw new ServiceUnavailableException(this.friendlyOpenAiError(err, 'Error al reajustar el mapa con OpenAI.'));
-    }
-  }
-
-  /**
-   * Layout recortado para el prompt de reajuste: solo lo que el modelo
-   * necesita para orientarse (ids, labels, categoría) sin mandar cell/box —
-   * eso es justo lo que le estamos pidiendo que recalcule.
-   */
-  private layoutForReajuste(result: AnalyzeMapResult): Record<string, unknown> {
-    const grid = toGridAnalysis(result, { stageLayout: result.stage.layout ?? null });
-    return {
-      stageLayout: result.stage.layout ?? null,
-      categories: grid?.categories ?? [],
-      groups: (grid?.layout.groups ?? []).map(g => ({
-        id: g.id,
-        level: g.level ?? null,
-        labels: g.labels,
-        category: g.category
-      }))
-    };
   }
 
   /** Validación y cuota: corre en el request, antes de encolar. */
@@ -799,6 +626,16 @@ export class EventAiService implements IEventAiService {
       const rasterMs = Date.now() - tRaster;
       if (unplaced.length) {
         this.logger.warn(`[MAP] Grupos sin lugar en la grilla: ${unplaced.join(', ')}`);
+      }
+      // Red de seguridad: dos sectores con el mismo nombre en el mismo nivel
+      // no se guardan (assertUniqueSectorNames en event.service.ts). La
+      // reparación con visión de arriba ya lo intentó si hizo falta, pero
+      // depende de que el modelo relea bien la imagen; esto renumera en
+      // código lo que haya quedado sin resolver, para que el mapa que llega
+      // al productor ya sea guardable.
+      const dedupedLabels = dedupeDuplicateLabels(result);
+      if (dedupedLabels) {
+        this.logger.warn(`[MAP] ${dedupedLabels} etiqueta(s) duplicada(s) renumeradas`);
       }
       // Estado final para la traza: lo estructural ya quedó resuelto.
       const unresolved = result.warnings.filter(w => w.code === 'GRID_OVERLAP_UNRESOLVED');

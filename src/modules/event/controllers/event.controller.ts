@@ -769,28 +769,6 @@ export class EventController {
     return new EventMapResponse(map);
   }
 
-  @UserAuth(null, AnalyzeFromMapResponse)
-  @ApiOperation({
-    summary: 'Reajustar mapa con IA (geometría, sin re-analizar)',
-    description:
-      'Re-deriva SOLO la disposición (geometría) del último mapa generado con IA para este evento, ' +
-      'a partir de la misma imagen que se usó para analizarlo — sectores, nombres y precios no cambian. ' +
-      'Más barato que volver a analizar desde cero: no consume la cuota de 3 generaciones cada 24hs. ' +
-      '400 si el mapa no tiene imagen guardada o se generó antes de que existiera este endpoint ' +
-      '(en ese caso el frontend reacomoda localmente, sin IA).'
-  })
-  @HttpCode(200)
-  @ApiTags('Productora — Mapa')
-  @Post(':eventUuid/map/reajustar')
-  async reajustarMap(
-    @Param('eventUuid') eventUuid: string,
-    @User() loggedUser: string
-  ): Promise<AnalyzeFromMapResponse> {
-    await this._eventService.assertEventOwnership(eventUuid, loggedUser);
-    const result = await this._eventAiService.reajustarMapLayout(eventUuid, loggedUser);
-    return new AnalyzeFromMapResponse(result);
-  }
-
   @UserAuth(null, EventMapResponse)
   @ApiOperation({
     summary: 'Eliminar imagen base del mapa',

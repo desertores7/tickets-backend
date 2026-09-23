@@ -188,6 +188,68 @@ function checkDuplicateLabels(result: AnalyzeMapResult): MapLayoutWarning[] {
   return [...unique.values()];
 }
 
+/**
+ * Corrige en código lo que `checkDuplicateLabels` detecta: dos sectores con
+ * el mismo nombre dentro del mismo nivel. El guardado del mapa (`event.
+ * service.ts`, `assertUniqueSectorNames`) los rechaza sin distinguir de qué
+ * grupo vino cada uno — la reparación con visión (VISION_REPAIR_CODES) es el
+ * primer intento, pero depende de que el modelo relea bien la imagen, así que
+ * esto queda como red de seguridad determinística: si después de reparar
+ * sigue habiendo un choque, se renumera acá mismo en vez de dejar que el
+ * productor se entere recién al apretar "Guardar mapa".
+ *
+ * Mantiene el resto del label igual (o el número, si el nombre termina en
+ * uno) y solo avanza al siguiente valor libre dentro del mismo nivel.
+ * Devuelve cuántas etiquetas tuvo que tocar, para loguearlo.
+ */
+export function dedupeDuplicateLabels(result: AnalyzeMapResult): number {
+  const seen = new Map<string, true>();
+  let renamed = 0;
+
+  const keyFor = (level: string, label: string) => `${level}\u0000${label.trim().toLowerCase()}`;
+
+  function nextAvailableLabel(level: string, original: string): string {
+    const trailingNumber = original.match(/^(.*?)(\d+)(\D*)$/);
+    if (trailingNumber) {
+      const [, prefix, numStr, suffix] = trailingNumber;
+      const width = numStr.length;
+      let n = parseInt(numStr, 10);
+      let candidate: string;
+      do {
+        n += 1;
+        candidate = `${prefix}${String(n).padStart(width, '0')}${suffix}`;
+      } while (seen.has(keyFor(level, candidate)));
+      return candidate;
+    }
+    let n = 2;
+    let candidate = `${original} (${n})`;
+    while (seen.has(keyFor(level, candidate))) {
+      n += 1;
+      candidate = `${original} (${n})`;
+    }
+    return candidate;
+  }
+
+  for (const group of result.layout.groups) {
+    if (group.layoutType === 'zone') continue;
+    const level = (group.level ?? '').trim().toLowerCase();
+    for (let i = 0; i < group.labels.length; i++) {
+      const label = group.labels[i];
+      const key = keyFor(level, label);
+      if (seen.has(key)) {
+        const newLabel = nextAvailableLabel(level, label);
+        group.labels[i] = newLabel;
+        seen.set(keyFor(level, newLabel), true);
+        renamed++;
+      } else {
+        seen.set(key, true);
+      }
+    }
+  }
+
+  return renamed;
+}
+
 /** Celdas 1×1 que ocupa un grupo según lo que declaró el modelo (cell o footprint). */
 function occupiedKeys(group: AiEventMapLayoutGroup): string[] {
   // unitCells no cuenta: el modelo no las define, las genera el rasterizado.

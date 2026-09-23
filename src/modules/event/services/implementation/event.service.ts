@@ -2131,10 +2131,6 @@ export class EventService implements IEventService {
     }
   }
 
-  async assertEventOwnership(eventUuid: string, loggedUser: string): Promise<void> {
-    await this.assertOwnership(eventUuid, loggedUser, { readOnly: true });
-  }
-
   async uploadMapBaseImage(
     eventUuid: string,
     file: Express.Multer.File,
