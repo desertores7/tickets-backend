@@ -419,7 +419,13 @@ describe('identidad de unidad', () => {
     expect(grid?.layout.groups[0].unitIds).toEqual(unitIds);
   });
 
-  it('descarta unitIds que no coinciden con la cantidad de labels', () => {
+  it('conserva unitIds aunque no coincidan exactamente con la cantidad de labels', () => {
+    // Antes esto se descartaba (ver comentario en `normalizeGroup` de
+    // map-grid-analysis.ts): un `tidyAiMapLayout` que recompone `labels` sin
+    // tocar `unitIds` (o viceversa) tiraba la identidad del grupo entero, y el
+    // siguiente guardado volvía a emparejar por nombre. Mientras haya al menos
+    // un id, se conserva.
+    const unitIds = ['4db814eb-28e4-48d9-8739-08f014c6ea7f'];
     const grid = toGridAnalysis({
       categories: [],
       layout: {
@@ -429,7 +435,7 @@ describe('identidad de unidad', () => {
             elementType: 'palco',
             layoutType: 'column',
             labels: ['PALCO 1', 'PALCO 2'],
-            unitIds: ['4db814eb-28e4-48d9-8739-08f014c6ea7f'],
+            unitIds,
             count: 2,
             cell: { col: 4, row: 4, colSpan: 1, rowSpan: 2 }
           }
@@ -437,6 +443,6 @@ describe('identidad de unidad', () => {
       }
     });
 
-    expect(grid?.layout.groups[0].unitIds).toBeUndefined();
+    expect(grid?.layout.groups[0].unitIds).toEqual(unitIds);
   });
 });
