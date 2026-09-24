@@ -13,11 +13,35 @@ import { TicketEntity } from '@config/db/entities/tickets/ticket.entity';
 import { RedisService } from '@config/redis/redis.service';
 import { StorageService } from '@root/shared/services/storage.service';
 import { pickEventCover, resolveEventCoverPaths } from '@root/shared/services/event-cover';
-import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
+import { NotificationEmailService, EmailAttachment } from '../services/implementation/notification-email.service';
+
 import { resolvePublicSiteUrl } from '@root/shared/auth/const/email-brand';
 
 /** Ventana del candado anti-duplicado: sobra para que lleguen los dos caminos. */
 const ORDER_EMAIL_IDEMPOTENCY_TTL = 24 * 60 * 60;
+
+/** Tipos de pago de Mercado Pago (`payment_type_id`). Mismo mapeo que el frontend. */
+const PAYMENT_TYPE_LABEL: Record<string, string> = {
+  credit_card: 'Tarjeta de crédito',
+  debit_card: 'Tarjeta de débito',
+  prepaid_card: 'Tarjeta prepaga',
+  account_money: 'Dinero en cuenta',
+  ticket: 'Pago en efectivo',
+  bank_transfer: 'Transferencia',
+  atm: 'Cajero',
+  digital_currency: 'Moneda digital'
+};
+
+/** Marcas / métodos concretos (`payment_method_id`). */
+const PAYMENT_BRAND_LABEL: Record<string, string> = {
+  visa: 'Visa',
+  master: 'Mastercard',
+  amex: 'American Express',
+  naranja: 'Naranja',
+  cabal: 'Cabal',
+  debvisa: 'Visa Débito',
+  debmaster: 'Mastercard Débito'
+};
 
 @Processor(QUEUE_NAMES.NOTIFICATIONS)
 export class SendOrderTicketsEmailProcessor extends WorkerHost {
@@ -113,11 +137,20 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
     const money = (value: number) =>
       new Intl.NumberFormat('es-AR', { style: 'currency', currency: order.currency || 'ARS' }).format(value);
     const card = payment?.rawResponse?.card as { last_four_digits?: string } | undefined;
-    const brand = (payment?.paymentMethod ?? order.paymentMethod ?? '').toString();
-    const brandLabel = brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : '';
+    // `paymentType` = payment_type_id de MP (credit_card, account_money, ticket…),
+    // `paymentMethod` = payment_method_id (visa, master, account_money…). Antes se
+    // mostraba el código crudo de MP capitalizado ("Account_money"); acá se
+    // traduce con el mismo mapeo que ya usa el frontend
+    // (tickets-frontend/src/lib/payments/payment-method-labels.ts).
+    const paymentTypeCode = (payment?.paymentType ?? '').toString().trim();
+    const paymentMethodCode = (payment?.paymentMethod ?? order.paymentMethod ?? '').toString().trim();
+    const typeLabel = PAYMENT_TYPE_LABEL[paymentTypeCode];
+    const brandLabel = PAYMENT_BRAND_LABEL[paymentMethodCode];
     const paymentLabel = card?.last_four_digits
-      ? `${brandLabel || 'Tarjeta'} terminada en ${card.last_four_digits}`
-      : brandLabel || 'Pago online';
+      ? `${brandLabel ?? typeLabel ?? 'Tarjeta'} terminada en ${card.last_four_digits}`
+      : typeLabel ??
+        brandLabel ??
+        (paymentMethodCode ? paymentMethodCode.charAt(0).toUpperCase() + paymentMethodCode.slice(1) : 'Pago online');
     const installments = Number(payment?.installments ?? 1);
     const paidAt = order.paidAt
       ? new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(order.paidAt)
@@ -141,7 +174,9 @@ export class SendOrderTicketsEmailProcessor extends WorkerHost {
       serviceFee: money(Number(order.serviceFee)),
       total: money(Number(order.total)),
       paymentLabel,
-      installmentsLabel: installments > 1 ? `${installments} cuotas` : '1 pago',
+      // En 1 pago no aporta nada mostrar "Cuotas: 1 pago" — el template
+      // solo muestra la fila cuando esto tiene valor.
+      installmentsLabel: installments > 1 ? `${installments} cuotas` : null,
       paidAt
     };
 
