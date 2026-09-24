@@ -110,6 +110,9 @@ const BASE_OPTIONS: RedisOptions = {
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private redis: Redis;
+  /** Conexion dedicada de Pub/Sub. Ioredis no permite mezclar SUBSCRIBE con el resto de comandos en la misma conexion. */
+  private subscriber: Redis | null = null;
+  private readonly channelListeners = new Map<string, Set<(payload: string) => void>>();
 
   constructor(private readonly envService: EnvService) {}
 
@@ -139,6 +142,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (!this.redis) return;
 
     await this.redis.quit();
+    if (this.subscriber) await this.subscriber.quit();
     this.logger.log('Redis disconnected');
   }
 
@@ -292,5 +296,62 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async takeEphemeral(key: string): Promise<string | null> {
     const value = await this.redis.eval(LUA_TAKE_EPHEMERAL, 1, key);
     return typeof value === 'string' ? value : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pub/Sub (contador de check-in en vivo, BR-QR-003)
+  // ---------------------------------------------------------------------------
+
+  async publish(channel: string, message: string): Promise<void> {
+    await this.redis.publish(channel, message);
+  }
+
+  /** Conexion de SUBSCRIBE, creada recien cuando algo se suscribe por primera vez. */
+  private ensureSubscriber(): Redis {
+    if (this.subscriber) return this.subscriber;
+
+    this.subscriber = this.redis.duplicate();
+    this.subscriber.on('error', (err: Error) => this.logger.error(`Redis subscriber error: ${err.message}`));
+    this.subscriber.on('message', (channel: string, message: string) => {
+      const listeners = this.channelListeners.get(channel);
+      if (!listeners) return;
+      for (const listener of listeners) listener(message);
+    });
+
+    return this.subscriber;
+  }
+
+  /**
+   * Se suscribe a un canal de Pub/Sub. Varios llamadores pueden escuchar el
+   * mismo canal sin abrir una conexion por cada uno: se multiplexan sobre la
+   * unica conexion de `ensureSubscriber`. Devuelve la funcion para
+   * desuscribirse; cuando el ultimo listener de un canal se va, se manda el
+   * UNSUBSCRIBE real.
+   */
+  subscribeChannel(channel: string, listener: (payload: string) => void): () => void {
+    const subscriber = this.ensureSubscriber();
+
+    let listeners = this.channelListeners.get(channel);
+    if (!listeners) {
+      listeners = new Set();
+      this.channelListeners.set(channel, listeners);
+      subscriber
+        .subscribe(channel)
+        .catch(err => this.logger.error(`No se pudo suscribir a ${channel}: ${err}`));
+    }
+    listeners.add(listener);
+
+    let unsubscribed = false;
+    return () => {
+      if (unsubscribed) return;
+      unsubscribed = true;
+      const current = this.channelListeners.get(channel);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        this.channelListeners.delete(channel);
+        subscriber.unsubscribe(channel).catch(() => {});
+      }
+    };
   }
 }

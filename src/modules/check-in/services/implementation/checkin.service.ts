@@ -6,6 +6,8 @@ import {
   Logger,
   NotFoundException
 } from '@nestjs/common';
+import { Observable, from } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { DataSource, In, IsNull } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
@@ -25,6 +27,16 @@ import { CheckInResultData, CheckInTicket, CheckInResultEnum } from '../core/che
 const CHECKIN_LOCK_TTL = 86400; // 24 horas
 /** El contador vive un poco mas que el evento mas largo razonable. */
 const CHECKIN_COUNTER_TTL = 172800; // 48 horas
+/** Canal de Pub/Sub del contador en vivo de un evento (BR-QR-003). */
+const checkinLiveChannel = (eventUuid: string) => `checkin:live:${eventUuid}`;
+/**
+ * Republica el contador aunque no haya cambios, ademas de cada check-in real.
+ * Sostiene la conexion SSE viva a traves de proxies con timeout de
+ * inactividad y es la red de contencion si algun PUBLISH puntual se pierde
+ * (Redis Pub/Sub no reintenta ni guarda mensajes: un suscriptor que no estaba
+ * escuchando en ese instante se lo pierde para siempre).
+ */
+const CHECKIN_LIVE_HEARTBEAT_MS = 20000;
 
 @Injectable()
 export class CheckInService implements ICheckInService {
@@ -254,9 +266,17 @@ export class CheckInService implements ICheckInService {
       // Contador vivo (`BR-QR-003`). Fuera de la transaccion y sin await que
       // frene la respuesta: si Redis falla, el contador se resiembra desde la
       // base en la proxima consulta y el check-in no se ve afectado.
+      // Encadenado con la publicacion al canal en vivo: hasta que no se
+      // termino de incrementar no tiene sentido leer el contador para avisar
+      // a los demas validadores, si no el numero que se publica puede ser el
+      // de antes de este check-in.
       this.redisService
         .incrWithExpire(`checkin:count:${event.uuid}`, CHECKIN_COUNTER_TTL)
-        .catch(err => this.logger.warn(`No se pudo incrementar el contador: ${err}`));
+        .then(() => this.computeCounter(event.uuid))
+        .then(counter =>
+          this.redisService.publish(checkinLiveChannel(event.uuid), JSON.stringify(counter))
+        )
+        .catch(err => this.logger.warn(`No se pudo publicar el contador en vivo: ${err}`));
 
       const updatedTicket: CheckInTicket = {
         uuid: ticket.uuid,
@@ -538,7 +558,16 @@ export class CheckInService implements ICheckInService {
    */
   async getEventCounter(eventId: string, requestedBy: string): Promise<IEventCheckInCounter> {
     await this.assertCanOperateEvent(eventId, requestedBy);
+    return this.computeCounter(eventId);
+  }
 
+  /**
+   * Lee el contador sin chequear permisos — la usan tanto `getEventCounter`
+   * (que ya valido) como el publish tras cada check-in y el heartbeat del
+   * stream SSE, que corren del lado del servidor y no representan a un
+   * usuario puntual.
+   */
+  private async computeCounter(eventId: string): Promise<IEventCheckInCounter> {
     const key = `checkin:count:${eventId}`;
     let checkedIn = await this.redisService.getCounter(key);
 
@@ -570,6 +599,55 @@ export class CheckInService implements ICheckInService {
       .getRawOne<{ n: string }>();
 
     return { eventUuid: eventId, checkedIn, totalTickets: Number(totalRow?.n ?? 0) };
+  }
+
+  /**
+   * Stream en vivo del contador (BR-QR-003), para que todos los validadores
+   * de la puerta vean el mismo numero sin esperar un polling. Un solo
+   * `Observable`: emite el valor actual al conectarse, despues cada vez que
+   * `commitCheckIn` publica un cambio, y ademas cada `CHECKIN_LIVE_HEARTBEAT_MS`
+   * como red de contencion (sostiene la conexion a traves de proxies y cubre
+   * el caso de un PUBLISH perdido).
+   */
+  watchEventCounter(eventId: string, requestedBy: string): Observable<IEventCheckInCounter> {
+    return from(this.assertCanOperateEvent(eventId, requestedBy)).pipe(
+      switchMap(
+        () =>
+          new Observable<IEventCheckInCounter>(subscriber => {
+            let closed = false;
+
+            const emitCurrent = () => {
+              this.computeCounter(eventId)
+                .then(counter => {
+                  if (!closed) subscriber.next(counter);
+                })
+                .catch(err => this.logger.warn(`No se pudo leer el contador para el stream: ${err}`));
+            };
+
+            emitCurrent();
+
+            const unsubscribeRedis = this.redisService.subscribeChannel(
+              checkinLiveChannel(eventId),
+              payload => {
+                if (closed) return;
+                try {
+                  subscriber.next(JSON.parse(payload) as IEventCheckInCounter);
+                } catch (err) {
+                  this.logger.warn(`Payload invalido en ${checkinLiveChannel(eventId)}: ${err}`);
+                }
+              }
+            );
+
+            const heartbeat = setInterval(emitCurrent, CHECKIN_LIVE_HEARTBEAT_MS);
+
+            return () => {
+              closed = true;
+              clearInterval(heartbeat);
+              unsubscribeRedis();
+            };
+          })
+      )
+    );
   }
 
   /**
