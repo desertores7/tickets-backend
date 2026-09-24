@@ -22,6 +22,7 @@ import {
 import type { Response } from 'express';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { OptionalUserAuth } from '@root/shared/auth/decorator/optional-user-auth.decorator';
@@ -278,6 +279,13 @@ export class EventController {
     });
   }
 
+  // Publica, cacheada en Redis (`_publicCache`) y pensada para trafico alto
+  // (catalogo, sitemap, "salida a la venta"). Ademas, el render server-side
+  // de Next.js pega este mismo endpoint por cada visita SIN el IP real del
+  // visitante (es un pedido servidor-a-servidor, no pasa por Cloudflare con
+  // `CF-Connecting-IP`): todas esas visitas terminaban compartiendo un solo
+  // cupo del limite global y tirando 429 con trafico normal.
+  @SkipThrottle()
   @OptionalUserAuth(null, GetAllEventResponse)
   @ApiOperation({
     summary: 'Listar eventos',
@@ -339,6 +347,8 @@ export class EventController {
     return value;
   }
 
+  // Ver comentario de `GET /events` mas arriba: misma razon.
+  @SkipThrottle()
   @OptionalUserAuth(null, GetIdEventResponse)
   @ApiOperation({
     summary: 'Obtener evento por slug',
@@ -371,6 +381,8 @@ export class EventController {
     return value;
   }
 
+  // Ver comentario de `GET /events` mas arriba: misma razon.
+  @SkipThrottle()
   @OptionalUserAuth(null, GetIdEventResponse)
   @ApiOperation({
     summary: 'Obtener evento',
@@ -580,6 +592,8 @@ export class EventController {
     return new EventChangeResponse(change);
   }
 
+  // Ver comentario de `GET /events` mas arriba: misma razon.
+  @SkipThrottle()
   @OptionalUserAuth(null, EventMapResponse)
   @ApiOperation({
     summary: 'Obtener mapa de sala — lectura pública',
