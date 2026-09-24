@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsDate,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -12,6 +13,10 @@ import {
   Min,
   ValidateNested
 } from 'class-validator';
+import {
+  EVENT_AGE_RESTRICTIONS,
+  EventAgeRestriction
+} from '@modules/event/const/event-age-restriction.const';
 import { EventSocialLinkRequest } from './event-social-link.request';
 
 function parseArgentinaDate({ value }: { value: unknown }): Date | unknown {
@@ -136,6 +141,15 @@ export class UpdateEventRequest {
   @Min(1)
   @ApiProperty({ description: 'Maximum venue capacity', required: false })
   maxCapacity?: number;
+
+  @IsOptional()
+  @IsIn(EVENT_AGE_RESTRICTIONS)
+  @ApiProperty({
+    description: 'Restricción de edad del evento',
+    required: false,
+    enum: EVENT_AGE_RESTRICTIONS
+  })
+  ageRestriction?: EventAgeRestriction;
 
   @IsOptional()
   @IsArray()

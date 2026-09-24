@@ -1,4 +1,5 @@
 import type { TicketTypeSaleMode } from './ticket-type-sale-mode';
+import type { EventAgeRestriction } from '../../const/event-age-restriction.const';
 import type { EventSocialLink } from '../../const/event-social-network.const';
 
 export interface IEventCreate {
@@ -20,6 +21,7 @@ export interface IEventCreate {
   venuePostalCode?: string;
   googleMapsUrl?: string | null;
   maxCapacity: number;
+  ageRestriction?: EventAgeRestriction;
 }
 
 export interface IEventUpdate {
@@ -40,6 +42,7 @@ export interface IEventUpdate {
   venuePostalCode?: string;
   googleMapsUrl?: string | null;
   maxCapacity?: number;
+  ageRestriction?: EventAgeRestriction;
   /** Lineup estructurado (`BR-EVENT-016`). Cambiarlo es material. */
   lineup?: string[] | null;
 }

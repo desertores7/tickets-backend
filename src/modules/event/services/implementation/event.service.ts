@@ -304,6 +304,7 @@ export class EventService implements IEventService {
     event.venuePostalCode = data.venuePostalCode?.trim() ?? '';
     event.googleMapsUrl = data.googleMapsUrl ?? null;
     event.maxCapacity = data.maxCapacity;
+    event.ageRestriction = data.ageRestriction ?? 'ALL_AGES';
 
     await this.dbRepository.create({ entity: 'event', data: event });
     return { uuid: event.uuid };
@@ -347,6 +348,7 @@ export class EventService implements IEventService {
     if (data.venuePostalCode !== undefined) patch.venuePostalCode = data.venuePostalCode;
     if (data.googleMapsUrl !== undefined) patch.googleMapsUrl = data.googleMapsUrl;
     if (data.maxCapacity !== undefined) patch.maxCapacity = data.maxCapacity;
+    if (data.ageRestriction !== undefined) patch.ageRestriction = data.ageRestriction;
     if (data.lineup !== undefined) {
       const normalized = normalizeLineup(data.lineup);
       patch.lineup = normalized.length ? normalized : null;

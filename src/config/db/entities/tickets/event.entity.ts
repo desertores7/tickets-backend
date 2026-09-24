@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn
 } from 'typeorm';
+import { EVENT_AGE_RESTRICTIONS, EventAgeRestriction } from '@modules/event/const/event-age-restriction.const';
 import { OrganizationEntity } from '../user/organization.entity';
 import { EventMediaEntity } from './event_media.entity';
 import { TicketTypeEntity } from './ticket_type.entity';
@@ -135,6 +136,10 @@ export class EventEntity {
 
   @Column({ type: 'int' })
   maxCapacity: number;
+
+  /** Edad mínima de ingreso (select fijo, ver EVENT_AGE_RESTRICTIONS). */
+  @Column({ type: 'enum', enum: EVENT_AGE_RESTRICTIONS, default: 'ALL_AGES' })
+  ageRestriction: EventAgeRestriction;
 
   @CreateDateColumn({ type: 'timestamp', nullable: true, default: () => 'CURRENT_TIMESTAMP(3)' })
   createdAt: Date;
