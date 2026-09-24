@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TEventDetailItem } from '@modules/event/services/contracts/ievent.service';
+import { EventAgeRestriction } from '@modules/event/const/event-age-restriction.const';
 import { EventImagesResponse } from './event-images.response';
 
 /** Datos públicos de la productora dueña del evento (nombre, contacto y redes). */
@@ -79,6 +80,8 @@ export class GetIdEventResponse {
   })
   lineup: string[] | null;
   @ApiProperty() maxCapacity: number;
+  @ApiProperty({ description: 'Restricción de edad del evento' })
+  ageRestriction: EventAgeRestriction;
   @ApiProperty({ nullable: true, description: 'Cancelado el (BR-EVENT-010)' })
   cancelledAt: Date | null;
   @ApiProperty({ nullable: true }) cancellationReason: string | null;
@@ -112,6 +115,7 @@ export class GetIdEventResponse {
     this.googleMapsUrl = data.googleMapsUrl ?? null;
     this.lineup = data.lineup ?? null;
     this.maxCapacity = data.maxCapacity;
+    this.ageRestriction = data.ageRestriction;
     this.cancelledAt = data.cancelledAt ?? null;
     this.cancellationReason = data.cancellationReason ?? null;
     this.salesClosedAt = data.salesClosedAt ?? null;
