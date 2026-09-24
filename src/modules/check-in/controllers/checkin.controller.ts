@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Inject, MessageEvent, Param, Post, Sse } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { User } from '@root/shared/auth/decorator/user.decorator';
@@ -130,6 +131,12 @@ export class CheckInController {
     return new ValidateQrResponse(result);
   }
 
+  // Lectura desde Redis, sin efectos secundarios, y pensada justo para que
+  // varios validadores del mismo evento (a menudo detras del mismo IP/WiFi
+  // del lugar) la golpeen seguido: el limite global por IP (`BR-SEC-001`) no
+  // aplica aca — de lo contrario terminaban pisando su propio cupo entre
+  // ellos y se veian 429 (`ThrottlerException`) sin haber abusado de nada.
+  @SkipThrottle()
   @ValidatorAuth(null, EventCounterResponse)
   @ApiOperation({
     summary: 'Obtener contador de ingresos en vivo',
@@ -153,6 +160,12 @@ export class CheckInController {
   // GET /api/check-in/counter/:eventId/stream (SSE)
   // ---------------------------------------------------------------------------
 
+  // Conexion persistente + reconexion automatica del propio `EventSource`
+  // del navegador: si el proxy la corta (buffering, timeout, etc.) el
+  // cliente reintenta solo, cada pocos segundos. Sin este skip, esos
+  // reintentos —multiplicados por varios validadores en la misma red—
+  // agotaban el cupo global y tiraban 429 en vez de simplemente reconectar.
+  @SkipThrottle()
   @ValidatorAuth(null, null)
   @ApiOperation({
     summary: 'Contador de ingresos en vivo (SSE)',
