@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, MessageEvent, Param, Post, Sse } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { User } from '@root/shared/auth/decorator/user.decorator';
 import { ValidatorAuth } from '@root/shared/auth/decorator/validator-auth.decorator';
 import { ICheckInService } from '../services/contracts/icheckin.service';
@@ -145,5 +147,30 @@ export class CheckInController {
     @User() userId: string
   ): Promise<EventCounterResponse> {
     return new EventCounterResponse(await this.checkInService.getEventCounter(eventId, userId));
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/check-in/counter/:eventId/stream (SSE)
+  // ---------------------------------------------------------------------------
+
+  @ValidatorAuth(null, null)
+  @ApiOperation({
+    summary: 'Contador de ingresos en vivo (SSE)',
+    description:
+      'Server-Sent Events version of `GET /check-in/counter/:eventId`. Pushes the counter to every ' +
+      'connected validator the moment any of them checks a ticket in, instead of each device polling ' +
+      'on its own — several doors stay in sync within roughly a second of each other, and this does ' +
+      'not change what a scan accepts or rejects: that is still decided fresh against MySQL + a Redis ' +
+      'lock on every `POST /check-in/validate`, regardless of what any screen shows.\n\n' +
+      'Auth note: the native `EventSource` API cannot send custom headers, so this endpoint also ' +
+      'accepts the JWT as `?token=` in the query string (in addition to the usual `Authorization` ' +
+      'header, which every other endpoint keeps using exclusively).'
+  })
+  @ApiParam({ name: 'eventId' })
+  @Sse('counter/:eventId/stream')
+  streamCounter(@Param('eventId') eventId: string, @User() userId: string): Observable<MessageEvent> {
+    return this.checkInService
+      .watchEventCounter(eventId, userId)
+      .pipe(map(counter => ({ data: new EventCounterResponse(counter) })));
   }
 }

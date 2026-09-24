@@ -1,3 +1,4 @@
+import { Observable } from 'rxjs';
 import { CheckInResultData } from '../core/checkin';
 
 /** Evento del día de trabajo del validador (`29` §20). */
@@ -66,4 +67,7 @@ export interface ICheckInService {
 
   /** Contador vivo agregado entre todos los puntos de acceso (`BR-QR-003`). */
   getEventCounter(eventId: string, requestedBy: string): Promise<IEventCheckInCounter>;
+
+  /** Stream en vivo del contador: mismo dato que `getEventCounter`, empujado por SSE (`BR-QR-003`). */
+  watchEventCounter(eventId: string, requestedBy: string): Observable<IEventCheckInCounter>;
 }
