@@ -65,7 +65,10 @@ async function bootstrap() {
     const port = envService.get('PORT') || 3005;
     setupSwagger(app, {
       port,
-      baseUrl: envService.get('BASE_URL')
+      baseUrl: envService.get('BASE_URL'),
+      swaggerUser: envService.get('SWAGGER_USER'),
+      swaggerPassword: envService.get('SWAGGER_PASSWORD'),
+      isProduction: envService.get('NODE_ENV') === 'production'
     });
 
     await app.listen(port);
