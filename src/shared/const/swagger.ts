@@ -271,6 +271,10 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
     .addTag('Admin — Parámetros', 'Parámetros de configuración y tokens internos')
     .addTag('Admin — Contracargos', 'Disputas de pago iniciadas por el comprador ante su banco')
     .addTag('Admin — Costo de servicio', 'Tope del costo de servicio e informe por entrada para la productora')
+    .addTag(
+      'Admin — Tope de compra',
+      'Umbral de precio y topes por defecto de compra por comprador (maxPerBuyer)'
+    )
     .addBearerAuth(
       {
         type: 'http',

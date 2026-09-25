@@ -36,6 +36,7 @@ import { RefundController } from './refunds/controllers/refund.controller';
 import { EventMpAccountController } from './event-cash/controllers/event-mp-account.controller';
 import { FavoriteController } from './favorites/controllers/favorite.controller';
 import { ServiceFeeController } from './orders/controllers/service-fee.controller';
+import { MaxPerBuyerController } from './orders/controllers/max-per-buyer.controller';
 import { ChargebackController } from './chargebacks/controllers/chargeback.controller';
 
 @Module({
@@ -72,6 +73,7 @@ import { ChargebackController } from './chargebacks/controllers/chargeback.contr
     EventMpAccountController,
     OrderController,
     ServiceFeeController,
+    MaxPerBuyerController,
     ChargebackController,
     PaymentController,
     CheckInController,

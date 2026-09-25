@@ -52,6 +52,7 @@ import { SalesExportService } from './reporting/services/implementation/sales-ex
 import { FavoriteService } from './favorites/services/implementation/favorite.service';
 import { ChargebackService } from './chargebacks/services/implementation/chargeback.service';
 import { ServiceFeeConfigService } from './orders/services/implementation/service-fee-config.service';
+import { MaxPerBuyerConfigService } from './orders/services/implementation/max-per-buyer-config.service';
 import { ServiceFeeReportService } from './reporting/services/implementation/service-fee-report.service';
 
 @Module({
@@ -106,6 +107,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     SectorOccupancyService,
     FeeSummaryService,
     ServiceFeeConfigService,
+    MaxPerBuyerConfigService,
     ChargebackService,
     ServiceFeeReportService,
     EmailService,
@@ -154,6 +156,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     SectorOccupancyService,
     FeeSummaryService,
     ServiceFeeConfigService,
+    MaxPerBuyerConfigService,
     ChargebackService,
     ServiceFeeReportService,
     EmailService,

@@ -68,8 +68,9 @@ export class CreateTicketTypeRequest {
   @Min(1)
   @ApiProperty({
     description:
-      'Tope acumulado de entradas por comprador entre TODAS sus órdenes (pagadas + la pendiente ' +
-      'actual). Distinto de maxPerOrder, que solo limita una orden puntual. Sin valor: sin tope.',
+      'Tope acumulado de entradas por comprador entre TODAS sus órdenes pagadas. Distinto de ' +
+      'maxPerOrder, que solo limita una orden puntual. Sin valor: usa el default del sistema según ' +
+      'el precio de la entrada (configurable por Admin en Configuración → Tope de compra).',
     required: false,
     nullable: true
   })

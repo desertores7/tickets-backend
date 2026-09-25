@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { createHash } from 'crypto';
 import { DataSource, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { DBRepository } from '@config/db/db.repository';
@@ -47,6 +48,8 @@ import {
 } from '@modules/event/services/core/ticket-sales-policy';
 import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
 import { ServiceFeeConfigService } from './service-fee-config.service';
+import { resolveDefaultMaxPerBuyer } from '../core/max-per-buyer';
+import { MaxPerBuyerConfigService } from './max-per-buyer-config.service';
 import { SectorHoldRequest, SectorOccupancyService } from './sector-occupancy.service';
 import { UnitSaleLine, UnitSaleSector, resolveUnitSaleLine } from '../core/sector-unit-sale';
 
@@ -58,6 +61,9 @@ const MAX_TICKET_TYPES_PER_ORDER = 5;
 const MAX_TICKETS_PER_ORDER = 20;
 
 const IDEMPOTENCY_TTL_SECONDS = 86400;
+
+/** Cuánto espera GET_LOCK antes de rendirse (ver `createOrderLocked`). */
+const ORDER_CREATE_LOCK_TIMEOUT_SECONDS = 10;
 
 @Injectable()
 export class OrderService implements IOrderService {
@@ -79,6 +85,7 @@ export class OrderService implements IOrderService {
     @Inject('ICouponService')
     private readonly couponService: ICouponService,
     private readonly serviceFeeConfig: ServiceFeeConfigService,
+    private readonly maxPerBuyerConfig: MaxPerBuyerConfigService,
     private readonly sectorOccupancy: SectorOccupancyService
   ) {}
 
@@ -137,6 +144,63 @@ export class OrderService implements IOrderService {
       throw new UnprocessableEntityException(salesBlock);
     }
 
+    return this.createOrderLocked(userId, dto);
+  }
+
+  /**
+   * Serializa intentos concurrentes del MISMO comprador para el MISMO evento
+   * (dos pestañas, dos dispositivos, un bot con varias sesiones) antes de
+   * tocar la reserva pendiente anterior o crear la nueva.
+   *
+   * Sin esto, dos requests casi simultáneas podían pasar las dos la
+   * búsqueda de "reserva pendiente anterior" (`createOrderCore`) antes de
+   * que ninguna hubiera insertado la suya, y terminar con dos órdenes vivas
+   * al mismo tiempo — bypaseando tanto el cupo de una mesa/palco numerado
+   * como `maxPerBuyer` (que solo cuenta lo ya pagado, no lo pendiente).
+   *
+   * `GET_LOCK`/`RELEASE_LOCK` de MySQL sirven porque son a nivel de
+   * servidor, no de conexión: la segunda llamada espera a que la primera
+   * termine y confirme su transacción antes de arrancar, sin importar qué
+   * conexión use cada una para el resto del trabajo. Necesitan SU PROPIA
+   * conexión (no `this.dbRepository`, que usa el pool) porque adquirir y
+   * liberar el lock tienen que correr sobre la misma sesión de MySQL.
+   */
+  private async createOrderLocked(userId: string, dto: ICreateOrder): Promise<Order> {
+    const lockName = this.buyerEventLockName(userId, dto.eventUuid);
+    const lockRunner = this.dataSource.createQueryRunner();
+    await lockRunner.connect();
+
+    let acquired = 0;
+    try {
+      const rows = await lockRunner.query('SELECT GET_LOCK(?, ?) AS acquired', [
+        lockName,
+        ORDER_CREATE_LOCK_TIMEOUT_SECONDS
+      ]);
+      acquired = Number(rows[0]?.acquired);
+    } catch (err) {
+      await lockRunner.release();
+      throw err;
+    }
+
+    if (acquired !== 1) {
+      await lockRunner.release();
+      throw new UnprocessableEntityException(
+        'Ya hay una compra en curso para este evento. Esperá un momento e intentá de nuevo.'
+      );
+    }
+
+    return this.createOrderCore(userId, dto).finally(async () => {
+      await lockRunner.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => undefined);
+      await lockRunner.release();
+    });
+  }
+
+  /** Nombre del lock: hasheado porque MySQL limita `GET_LOCK` a 64 caracteres. */
+  private buyerEventLockName(userId: string, eventUuid: string): string {
+    return 'order_create:' + createHash('sha1').update(`${userId}:${eventUuid}`).digest('hex');
+  }
+
+  private async createOrderCore(userId: string, dto: ICreateOrder): Promise<Order> {
     // Cancela cualquier reserva pendiente anterior de este comprador para
     // este evento antes de crear una nueva. Sin esto, alguien que abre una
     // pestaña nueva (o vuelve más tarde) pierde la referencia a la orden
@@ -168,6 +232,7 @@ export class OrderService implements IOrderService {
       dto.eventUuid,
       ticketTypes.filter(ticket => ticket !== null)
     );
+    const maxPerBuyerCfg = await this.maxPerBuyerConfig.getConfig();
 
     for (let i = 0; i < dto.items.length; i++) {
       const item = dto.items[i];
@@ -242,23 +307,25 @@ export class OrderService implements IOrderService {
         );
       }
 
-      // Tope acumulado por comprador (`maxPerBuyer`), distinto de
-      // `maxPerOrder`: sin esto alguien junta el tope de varias órdenes
-      // pagadas (o varias pestañas/navegadores en paralelo) y lo supera
-      // igual. Solo cuenta lo ya PAGADO: la reserva pendiente que pudiera
-      // quedar de este mismo comprador para este evento ya se canceló más
-      // arriba, así que no hay una segunda orden viva que sumar acá.
-      if (ticketType.maxPerBuyer != null) {
-        const alreadyPaid = await this.sumPaidQuantityForBuyer(userId, ticketType.uuid);
-        if (alreadyPaid + item.quantity > ticketType.maxPerBuyer) {
-          const restantes = Math.max(0, ticketType.maxPerBuyer - alreadyPaid);
-          throw new UnprocessableEntityException(
-            `Ya compraste ${alreadyPaid} de "${ticketType.name}" (máximo ${ticketType.maxPerBuyer} por persona). ` +
-              (restantes > 0
-                ? `Podés comprar hasta ${restantes} más.`
-                : 'Llegaste al máximo permitido.')
-          );
-        }
+      // Tope acumulado por comprador, distinto de `maxPerOrder`: sin esto
+      // alguien junta el tope de varias órdenes pagadas (o varias
+      // pestañas/navegadores en paralelo) y lo supera igual. Un
+      // `ticket_type.maxPerBuyer` explícito pisa el default; si no hay
+      // override, el default lo decide el precio de la entrada frente al
+      // umbral configurado por el Administrador (entradas caras, tope más
+      // chico — facilitan la reventa/especulación). Solo cuenta lo ya
+      // PAGADO: la reserva pendiente que pudiera quedar de este mismo
+      // comprador para este evento ya se canceló más arriba, así que no hay
+      // una segunda orden viva que sumar acá.
+      const maxPerBuyer =
+        ticketType.maxPerBuyer ?? resolveDefaultMaxPerBuyer(ticketType.price, maxPerBuyerCfg);
+      const alreadyPaid = await this.sumPaidQuantityForBuyer(userId, ticketType.uuid);
+      if (alreadyPaid + item.quantity > maxPerBuyer) {
+        const restantes = Math.max(0, maxPerBuyer - alreadyPaid);
+        throw new UnprocessableEntityException(
+          `Ya compraste ${alreadyPaid} de "${ticketType.name}" (máximo ${maxPerBuyer} por persona). ` +
+            (restantes > 0 ? `Podés comprar hasta ${restantes} más.` : 'Llegaste al máximo permitido.')
+        );
       }
     }
 
