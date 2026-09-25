@@ -16,7 +16,12 @@ export class TicketTypeResponse {
   @ApiProperty() availableQuantity: number;
   @ApiProperty() minPerOrder: number;
   @ApiProperty() maxPerOrder: number;
-  @ApiProperty({ nullable: true, description: 'Tope acumulado por comprador entre todas sus órdenes. null = sin tope.' })
+  @ApiProperty({
+    nullable: true,
+    description:
+      'Tope acumulado por comprador entre todas sus órdenes pagadas. null = usa el default del ' +
+      'sistema según el precio (GET /max-per-buyer/config), no un valor propio.'
+  })
   maxPerBuyer: number | null;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
   @ApiProperty({ nullable: true }) saleEndDate: Date | null;

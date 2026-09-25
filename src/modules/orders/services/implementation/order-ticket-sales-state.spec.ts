@@ -57,6 +57,7 @@ describe('OrderService ticket sales state', () => {
       {} as never,
       {} as never,
       {} as never,
+      { getConfig: jest.fn().mockResolvedValue({ priceThreshold: 1_000_000, highPriceLimit: 1, lowPriceLimit: 5 }) } as never,
       {} as never
     );
 

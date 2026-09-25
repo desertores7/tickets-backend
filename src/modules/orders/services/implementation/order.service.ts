@@ -47,6 +47,8 @@ import {
 } from '@modules/event/services/core/ticket-sales-policy';
 import { allocateOrderServiceFees, splitEvenly } from '../core/service-fee';
 import { ServiceFeeConfigService } from './service-fee-config.service';
+import { resolveDefaultMaxPerBuyer } from '../core/max-per-buyer';
+import { MaxPerBuyerConfigService } from './max-per-buyer-config.service';
 import { SectorHoldRequest, SectorOccupancyService } from './sector-occupancy.service';
 import { UnitSaleLine, UnitSaleSector, resolveUnitSaleLine } from '../core/sector-unit-sale';
 
@@ -79,6 +81,7 @@ export class OrderService implements IOrderService {
     @Inject('ICouponService')
     private readonly couponService: ICouponService,
     private readonly serviceFeeConfig: ServiceFeeConfigService,
+    private readonly maxPerBuyerConfig: MaxPerBuyerConfigService,
     private readonly sectorOccupancy: SectorOccupancyService
   ) {}
 
@@ -168,6 +171,7 @@ export class OrderService implements IOrderService {
       dto.eventUuid,
       ticketTypes.filter(ticket => ticket !== null)
     );
+    const maxPerBuyerCfg = await this.maxPerBuyerConfig.getConfig();
 
     for (let i = 0; i < dto.items.length; i++) {
       const item = dto.items[i];
@@ -242,23 +246,25 @@ export class OrderService implements IOrderService {
         );
       }
 
-      // Tope acumulado por comprador (`maxPerBuyer`), distinto de
-      // `maxPerOrder`: sin esto alguien junta el tope de varias órdenes
-      // pagadas (o varias pestañas/navegadores en paralelo) y lo supera
-      // igual. Solo cuenta lo ya PAGADO: la reserva pendiente que pudiera
-      // quedar de este mismo comprador para este evento ya se canceló más
-      // arriba, así que no hay una segunda orden viva que sumar acá.
-      if (ticketType.maxPerBuyer != null) {
-        const alreadyPaid = await this.sumPaidQuantityForBuyer(userId, ticketType.uuid);
-        if (alreadyPaid + item.quantity > ticketType.maxPerBuyer) {
-          const restantes = Math.max(0, ticketType.maxPerBuyer - alreadyPaid);
-          throw new UnprocessableEntityException(
-            `Ya compraste ${alreadyPaid} de "${ticketType.name}" (máximo ${ticketType.maxPerBuyer} por persona). ` +
-              (restantes > 0
-                ? `Podés comprar hasta ${restantes} más.`
-                : 'Llegaste al máximo permitido.')
-          );
-        }
+      // Tope acumulado por comprador, distinto de `maxPerOrder`: sin esto
+      // alguien junta el tope de varias órdenes pagadas (o varias
+      // pestañas/navegadores en paralelo) y lo supera igual. Un
+      // `ticket_type.maxPerBuyer` explícito pisa el default; si no hay
+      // override, el default lo decide el precio de la entrada frente al
+      // umbral configurado por el Administrador (entradas caras, tope más
+      // chico — facilitan la reventa/especulación). Solo cuenta lo ya
+      // PAGADO: la reserva pendiente que pudiera quedar de este mismo
+      // comprador para este evento ya se canceló más arriba, así que no hay
+      // una segunda orden viva que sumar acá.
+      const maxPerBuyer =
+        ticketType.maxPerBuyer ?? resolveDefaultMaxPerBuyer(ticketType.price, maxPerBuyerCfg);
+      const alreadyPaid = await this.sumPaidQuantityForBuyer(userId, ticketType.uuid);
+      if (alreadyPaid + item.quantity > maxPerBuyer) {
+        const restantes = Math.max(0, maxPerBuyer - alreadyPaid);
+        throw new UnprocessableEntityException(
+          `Ya compraste ${alreadyPaid} de "${ticketType.name}" (máximo ${maxPerBuyer} por persona). ` +
+            (restantes > 0 ? `Podés comprar hasta ${restantes} más.` : 'Llegaste al máximo permitido.')
+        );
       }
     }
 

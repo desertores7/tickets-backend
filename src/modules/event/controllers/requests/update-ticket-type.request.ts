@@ -70,7 +70,8 @@ export class UpdateTicketTypeRequest {
   @Min(1)
   @ApiProperty({
     description:
-      'Tope acumulado de entradas por comprador entre TODAS sus órdenes. Mandar null lo saca.',
+      'Tope acumulado de entradas por comprador entre TODAS sus órdenes pagadas. Mandar null usa el ' +
+      'default del sistema según el precio de la entrada en vez de un valor propio.',
     required: false,
     nullable: true
   })
