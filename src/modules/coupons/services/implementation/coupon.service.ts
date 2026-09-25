@@ -477,7 +477,8 @@ export class CouponService implements ICouponService {
     eventUuid: string,
     code: string,
     lines: ICouponLine[],
-    userUuid: string
+    userUuid: string,
+    opts?: { excludeOrderUuid?: string }
   ): Promise<ICouponApplication> {
     const normalized = this.normalizeCode(code);
 
@@ -502,12 +503,38 @@ export class CouponService implements ICouponService {
       throw new BadRequestException('Este cupón alcanzó su límite de usos');
     }
 
+    // El uso se cuenta al pagar, pero una orden pendiente con el cupón ya
+    // "reserva" uno: sin esto, varias compras en curso podían aplicar el
+    // mismo cupón y pasarse del límite al pagarse todas. Solo cuentan las
+    // pendientes vigentes; la orden a la que se le está aplicando no.
+    const reserved = (await this.dataSource.query(
+      `SELECT COUNT(*) AS total,
+              COALESCE(SUM(userUuid = ?), 0) AS mine
+       FROM orders
+       WHERE couponUuid = ?
+         AND status = 'pending_payment'
+         AND expiresAt > NOW()
+         AND uuid <> ?`,
+      [userUuid, coupon.uuid, opts?.excludeOrderUuid ?? '']
+    )) as Array<{ total: number | string; mine: number | string }>;
+    const reservedTotal = Number(reserved[0]?.total ?? 0);
+    const reservedMine = Number(reserved[0]?.mine ?? 0);
+
+    if (coupon.maxUses !== null && Number(coupon.usedCount) + reservedTotal >= coupon.maxUses) {
+      throw new BadRequestException(
+        'Este cupón alcanzó su límite de usos. Si alguna compra en curso no se completa, puede volver a estar disponible.'
+      );
+    }
+
     if (coupon.oncePerUser) {
       const previous = await this.dbRepository.findOne({
         entity: 'coupon_redemption',
         where: { couponUuid: coupon.uuid, userUuid } as never
       });
       if (previous) throw new BadRequestException('Ya usaste este cupón');
+      if (reservedMine > 0) {
+        throw new BadRequestException('Ya tenés otra compra en curso con este cupón');
+      }
     }
 
     const subtotal = Math.round(lines.reduce((sum, l) => sum + l.subtotal, 0) * 100) / 100;
