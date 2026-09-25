@@ -71,6 +71,41 @@ async function bootstrap() {
       isProduction: envService.get('NODE_ENV') === 'production'
     });
 
+    // `app.init()` monta las rutas/interceptors de Nest en la instancia de
+    // Express. Lo llamamos explícito ANTES de agregar este middleware para
+    // que quede último en la pila y funcione como red de contención: errores
+    // de multer/busboy en uploads multipart (ej. el cliente corta la
+    // conexión a mitad de un POST con archivo) a veces disparan un evento de
+    // error en el stream que nunca pasa por el pipeline de Nest ni por el
+    // `HttpExceptionFilter` — caen directo en el manejador default de
+    // Express, que responde "Internal Server Error" en texto plano sin
+    // loguear nada. Esto lo deja logueado y con el mismo formato de
+    // respuesta que el resto de los 500 de la API.
+    await app.init();
+    expressInstance.use(
+      (err: unknown, req: { method: string; originalUrl: string }, res: any, next: (err?: unknown) => void) => {
+        if (res.headersSent) return next(err);
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error(`[Express fallback] ${req.method} ${req.originalUrl}`, error);
+        sendToDiscordFromEnv({
+          title: 'Error fuera del pipeline de Nest (fallback de Express)',
+          description: error.message,
+          color: 0xe74c3c,
+          fields: [
+            { name: 'Método', value: req.method, inline: true },
+            { name: 'Ruta', value: req.originalUrl, inline: true },
+            ...(error.stack ? [{ name: 'Stack', value: error.stack.slice(0, 1024), inline: false }] : [])
+          ]
+        }).catch(() => {});
+        res.status(500).json({
+          statusCode: 500,
+          timestamp: new Date().toISOString(),
+          path: req.originalUrl,
+          message: envService.get('NODE_ENV') === 'production' ? 'Internal server error' : error.message
+        });
+      }
+    );
+
     await app.listen(port);
     console.log(`Server is running on port ${port}`);
     console.log(`Swagger: http://localhost:${port}${SWAGGER_URL}`);
