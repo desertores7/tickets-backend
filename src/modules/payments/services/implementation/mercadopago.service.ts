@@ -6,7 +6,12 @@ import { PaymentStatus } from '@config/db/entities/tickets/payment.entity';
 import { MercadoPagoWebhookRequest } from '@modules/payments/controllers/dtos/webhook/mercadopago-webhook.request';
 import { IOrderItem, Order } from '@modules/orders/services/core/order';
 import { User } from '@modules/user/services/core/user';
-import { describeApiError } from '../core/card-rejection';
+import { extractApiErrorCode } from '../core/card-rejection';
+
+/** Prefijo del `statusDetail` sintético para un rechazo en la CREACIÓN del
+ * pago (código numérico de MP, ej. `4390`) — para distinguirlo de un
+ * `status_detail` real de rechazo bancario (`cc_rejected_*`). */
+export const API_ERROR_STATUS_PREFIX = 'api_error_';
 
 export type MPOrderItem = IOrderItem & { title: string };
 export type OrderForMP = Omit<Order, 'items'> & {
@@ -325,10 +330,26 @@ export class MercadoPagoService {
       if (detail) this.logger.error(JSON.stringify(detail));
 
       // Un 4xx de MP es un problema del intento (token vencido, datos que no
-      // cierran), no una falla nuestra: devolverlo como 500 le dice al
-      // comprador que se rompió el sistema cuando puede corregir y reintentar.
+      // cierran, o un control antifraude de MP sobre el comprador), no una
+      // falla nuestra. Antes se cortaba acá con un 400 y el intento se
+      // perdía sin dejar rastro (nunca llegaba a `persistCardPayment`); ahora
+      // se devuelve como un rechazo más, con su propio `payment` guardado,
+      // para poder ver en la base cuántas veces pasa y a quién.
       if (status !== null && status >= 400 && status < 500) {
-        throw new BadRequestException(describeApiError(message));
+        const code = extractApiErrorCode(message);
+        return {
+          mpPaymentId: '',
+          status: PaymentStatus.REJECTED,
+          mpStatus: 'rejected',
+          statusDetail: `${API_ERROR_STATUS_PREFIX}${code ?? 'unknown'}`,
+          amount: Number(order.total),
+          currency: order.currency,
+          paymentMethod: card.paymentMethodId,
+          paymentType: null,
+          installments: card.installments,
+          paidAt: null,
+          rawResponse: { message, status, cause: detail } as unknown as Record<string, unknown>
+        };
       }
 
       throw error;

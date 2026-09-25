@@ -74,7 +74,10 @@ export class PaymentController {
       'la orden se confirma en esta misma request y salen los tickets. El webhook llega ' +
       'después con el mismo `payment_id` y se descarta por idempotencia.\n\n' +
       'Un rechazo **no cancela la orden**: mientras la reserva siga viva, el comprador puede ' +
-      'reintentar con otra tarjeta. `retryable` dice si conviene reintentar con la misma.'
+      'reintentar con otra tarjeta. `retryable` dice si conviene reintentar con la misma.\n\n' +
+      'Un rechazo puede venir del banco o de un control antifraude propio de Mercado Pago al ' +
+      'crear el pago (ej. código `4390`): en los dos casos la respuesta es 200 con ' +
+      '`status: "rejected"` y queda un `payment` guardado con el intento.'
   })
   @ApiParam({ name: 'orderId', description: 'UUID de la orden a pagar.' })
   @ApiResponse({ status: 200, type: CardPaymentResponse })
