@@ -516,6 +516,15 @@ export class OrderService implements IOrderService {
       throw new NotFoundException('Orden no encontrada');
     }
 
+    // Idempotente si ya está en el estado que "cancelar" busca lograr: el
+    // job de liberación de stock (`release-expired-stock`) puede vencerla
+    // sola justo antes de que el comprador la cancele a mano desde el
+    // checkout — las dos carreras al mismo resultado, no un error real. Sin
+    // esto, el frontend mostraba un 422 por algo que ya estaba resuelto.
+    if (order.status === OrderStatus.EXPIRED || order.status === OrderStatus.CANCELLED) {
+      return;
+    }
+
     if (order.status !== OrderStatus.PENDING_PAYMENT) {
       throw new UnprocessableEntityException(
         'Solo se pueden cancelar órdenes pendientes de pago'
