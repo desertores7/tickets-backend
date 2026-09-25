@@ -44,12 +44,18 @@ describe('OrderService ticket sales state', () => {
       findMany: jest.fn().mockResolvedValue([])
     };
     const stockService = { reserveStock: jest.fn() };
+    const fakeQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([{ acquired: 1 }]),
+      release: jest.fn().mockResolvedValue(undefined)
+    };
+    const dataSource = { createQueryRunner: jest.fn(() => fakeQueryRunner) };
     const service = new OrderService(
       dbRepository as never,
       stockService as never,
       {} as never,
       {} as never,
-      {} as never,
+      dataSource as never,
       {} as never,
       {} as never,
       {} as never,
@@ -68,5 +74,63 @@ describe('OrderService ticket sales state', () => {
       })
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(stockService.reserveStock).not.toHaveBeenCalled();
+  });
+
+  it('rechaza si no puede tomar el lock por comprador+evento (otra compra en curso)', async () => {
+    const dbRepository = {
+      findOne: jest.fn(async ({ entity }: { entity: string }) => {
+        if (entity === 'user') {
+          return { uuid: 'user-1', documentType: 'DNI', dni: '12345678' };
+        }
+        if (entity === 'event') {
+          return {
+            uuid: 'event-1',
+            isActive: true,
+            isPublished: true,
+            endDate: new Date(Date.now() + 86_400_000),
+            saleStartDate: null,
+            saleEndDate: null,
+            salesClosedAt: null,
+            cancelledAt: null,
+            organization: { active: 1 }
+          };
+        }
+        return null;
+      }),
+      findMany: jest.fn().mockResolvedValue([])
+    };
+    const stockService = { reserveStock: jest.fn() };
+    // GET_LOCK devuelve 0: otra request ya tiene el lock de este comprador+evento.
+    const fakeQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue([{ acquired: 0 }]),
+      release: jest.fn().mockResolvedValue(undefined)
+    };
+    const dataSource = { createQueryRunner: jest.fn(() => fakeQueryRunner) };
+    const service = new OrderService(
+      dbRepository as never,
+      stockService as never,
+      {} as never,
+      {} as never,
+      dataSource as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+
+    await expect(
+      service.createOrder('user-1', {
+        eventUuid: 'event-1',
+        items: [{ ticketTypeUuid: 'ticket-1', quantity: 1 }]
+      })
+    ).rejects.toThrow(/compra en curso/);
+    expect(stockService.reserveStock).not.toHaveBeenCalled();
+    expect(fakeQueryRunner.release).toHaveBeenCalled();
   });
 });
