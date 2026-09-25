@@ -20,6 +20,7 @@ import { USER_ORDER_LIST_COLUMNS } from '../const/user-order-list.const';
 import { IOrderService } from '../services/contracts/iorder.service';
 import { OrderStatus } from '../services/core/order';
 import { CreateOrderRequest } from './dtos/create-order/create-order.request';
+import { ApplyOrderCouponRequest } from './dtos/apply-coupon/apply-coupon.request';
 import { GetOrderResponse } from './dtos/get-order/get-order.response';
 import { GetUserOrdersResponse, OrderSummaryResponse } from './dtos/get-user-orders/get-user-orders.response';
 
@@ -129,6 +130,54 @@ export class OrderController {
   @Get(':orderId')
   async getOrderById(@Param('orderId') orderId: string, @User() userId: string): Promise<GetOrderResponse> {
     const order = await this._orderService.getOrderById(orderId, userId);
+    return new GetOrderResponse(order);
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/orders/:orderId/coupon
+  // ---------------------------------------------------------------------------
+
+  @UserAuth(ApplyOrderCouponRequest, GetOrderResponse)
+  @ApiOperation({
+    summary: 'Aplicar cupón a la orden',
+    description:
+      'Valida el código contra el evento de la orden (vigencia, límite de usos, una vez por usuario, ' +
+      'tandas alcanzadas) y recalcula descuento, costo de servicio y total (BR-COUPON-008). ' +
+      'Solo en órdenes pendientes de pago. El uso se registra recién al confirmarse el pago.'
+  })
+  @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, type: GetOrderResponse, description: 'Orden con el cupón aplicado y los importes recalculados.' })
+  @ApiResponse({ status: 400, description: 'Cupón inválido, vencido, agotado, ya usado o que no aplica a estas entradas.' })
+  @ApiResponse({ status: 404, description: 'Orden no encontrada o de otro usuario.' })
+  @ApiResponse({ status: 422, description: 'La orden ya no está pendiente de pago o venció.' })
+  @HttpCode(200)
+  @Post(':orderId/coupon')
+  async applyCoupon(
+    @Param('orderId') orderId: string,
+    @Body() body: ApplyOrderCouponRequest,
+    @User() userId: string
+  ): Promise<GetOrderResponse> {
+    const order = await this._orderService.applyCoupon(orderId, userId, body.code);
+    return new GetOrderResponse(order);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DELETE /api/orders/:orderId/coupon
+  // ---------------------------------------------------------------------------
+
+  @UserAuth(null, GetOrderResponse)
+  @ApiOperation({
+    summary: 'Quitar cupón de la orden',
+    description: 'Vuelve la orden pendiente a su precio sin descuento y recalcula el costo de servicio.'
+  })
+  @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, type: GetOrderResponse })
+  @ApiResponse({ status: 404, description: 'Orden no encontrada o de otro usuario.' })
+  @ApiResponse({ status: 422, description: 'La orden ya no está pendiente de pago o venció.' })
+  @HttpCode(200)
+  @Delete(':orderId/coupon')
+  async removeCoupon(@Param('orderId') orderId: string, @User() userId: string): Promise<GetOrderResponse> {
+    const order = await this._orderService.applyCoupon(orderId, userId, null);
     return new GetOrderResponse(order);
   }
 

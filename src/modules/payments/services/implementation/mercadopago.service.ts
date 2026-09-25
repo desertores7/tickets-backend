@@ -160,21 +160,40 @@ export class MercadoPagoService {
     const toCents = (value: number) => Math.round(Number(value) * 100);
 
     // 1. Un ítem por order_item con el precio BASE de la entrada (sin fee).
-    const ticketItems = order.items.map(item => ({
-      id: item.ticketTypeUuid,
-      title: `${order.eventName} - ${item.title}`,
-      description: 'Entrada',
-      quantity: item.quantity,
-      unit_price: Number(item.unitPrice),
-      currency_id: order.currency
-    }));
+    //
+    // Con cupón (BR-COUPON-008) la línea va con su precio YA descontado. Mercado
+    // Pago no acepta ítems negativos, así que el descuento no puede ir como un
+    // ítem aparte; y repartirlo por unidad deja centavos sueltos, por eso la
+    // línea descontada viaja como un solo ítem con el importe de toda la línea.
+    const ticketItems = order.items.map(item => {
+      const discountCents = toCents(item.discountAmount ?? 0);
+      if (discountCents <= 0) {
+        return {
+          id: item.ticketTypeUuid,
+          title: `${order.eventName} - ${item.title}`,
+          description: 'Entrada',
+          quantity: item.quantity,
+          unit_price: Number(item.unitPrice),
+          currency_id: order.currency
+        };
+      }
+      const lineCents = Math.max(0, toCents(item.unitPrice) * item.quantity - discountCents);
+      return {
+        id: item.ticketTypeUuid,
+        title: `${order.eventName} - ${item.title}${item.quantity > 1 ? ` (x${item.quantity})` : ''}`,
+        description: 'Entrada con cupón de descuento',
+        quantity: 1,
+        unit_price: lineCents / 100,
+        currency_id: order.currency
+      };
+    });
 
     // 2. Ítem de costo de servicio. Se calcula como la diferencia entre el total
-    // de la orden y la suma de las entradas base, de modo que el fee absorba
+    // de la orden y la suma de las entradas, de modo que el fee absorba
     // cualquier resto de centavos y Σ(unit_price * quantity) === order.total exacto
     // (MercadoPago valida que el total de la preferencia cierre con los ítems).
-    const itemsBaseCents = order.items.reduce(
-      (sum, item) => sum + toCents(item.unitPrice) * item.quantity,
+    const itemsBaseCents = ticketItems.reduce(
+      (sum, item) => sum + toCents(item.unit_price) * item.quantity,
       0
     );
     const serviceFeeCents = toCents(order.total) - itemsBaseCents;

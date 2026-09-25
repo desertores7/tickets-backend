@@ -24,6 +24,9 @@ export interface IOrderService {
     }
   ): Promise<PaginatedResult<Order>>;
 
+  /** Aplica o quita (`couponCode` null) el cupón de una orden pendiente de pago. */
+  applyCoupon(orderId: string, userId: string, couponCode: string | null): Promise<Order>;
+
   cancelOrder(orderId: string, userId: string): Promise<void>;
 
   confirmPayment(orderId: string, paymentData: PaymentConfirmationData): Promise<Order>;
