@@ -55,7 +55,8 @@ modules/<nombre>/
 - DTOs con `class-validator` / `class-transformer`
 - Decoradores compartidos existentes: `@PaginationQuery`, `@FilterQuery`, `@SearchQuery`, `@OrderQuery`, `@User()`
 - Guards existentes: `role.guard`, `internal-token.guard` + decoradores de auth (`@UserAuth`, `@AdminAuth`, `@ValidatorAuth`)
-- **Roles reales en la DB (seeds)**: `Administrador`, `Operador`, `Validador` — los decoradores deben usar EXACTAMENTE estos nombres (`RoleGuard` compara contra `role.name`; un nombre inexistente produce 403 para todos)
+- **Roles reales en la DB (seeds)**: `Administrador`, `Productor`, `Validador`, `Caja`, `Cliente` — los decoradores deben usar EXACTAMENTE estos nombres (`RoleGuard` compara contra `role.name`; un nombre inexistente produce 403 para todos). `Operador` fue eliminado (`RemoveOperadorRole`, sus usuarios se reasignaron a `Cliente`: ningún guard/decorador/consulta lo usaba)
+- Decoradores de auth reales: `@UserAuth`, `@AdminAuth`, `@ValidatorAuth`, `@BackofficeAuth`, `@ClientAuth`
 - Logging con `Logger` de NestJS; exception filter global en `shared/middlewares/exception-filter.filter.ts`
 - Documentar todos los endpoints con Swagger siguiendo el patrón de `shared/const/swagger.ts` y `shared/decorators/swagger.decorator.ts`
 - Skill de referencia: `.agents/skills/nestjs-best-practices/` — respetar sus reglas (evitar dependencias circulares, repository pattern, transacciones, etc.)
@@ -165,7 +166,7 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
 - **Eliminar evento con ventas** (`BR-EVENT-021`): solo Administrador. La productora recibe 409 y el mensaje la manda a cancelar el evento (reembolsos). Sin ventas, la baja lógica sigue igual
 - **Mapa de evento publicado** (`BR-EVENT-020`): los sectores se mueven y se agregan, no se borran. `PUT /events/:uuid/map` da 409 si faltan sectores guardados y `PATCH` si trae `sectors.remove` (`core/published-map-guard.ts`)
 - **Modo de venta por tanda** (`BR-SALE-010`, `ticket_type.saleMode`): `general` (default, por cantidad), `per_person` (lugares dentro de una mesa/palco) o `whole_unit` (unidad completa: el precio es el de la mesa entera y genera `admissionsPerUnit` entradas). Regla en `event/services/core/ticket-type-sale-mode.ts`; no se cambia con ventas. La compra registra la unidad: `POST /orders` recibe `items[].sectorUuid` (una línea por unidad), la reserva en `sector_occupancy` con un UPDATE condicional dentro de la transacción de la orden (`SectorOccupancyService`; `sector_hold` guarda qué orden tomó qué, y liberar es idempotente), y se libera al vencer o cancelar — **no al reembolsar**, para no vender dos veces la misma mesa. `order_item`/`ticket` guardan `sectorUuid` y `unitLabel` congelado ("Mesa VIP · 8"), que sale en PDF, email, Mis entradas, check-in, ventas, reembolsos e informe de fee. En unidad completa, todo lo que es "por entrada" (fee, reembolso, precio mostrado, informe) usa `unitPrice / admissionsPerUnit`. El mapa público informa `seatsTaken` y `unitAvailable` por sector
-- **Reembolsos (pendiente de implementar)**: la política distinguirá motivo — cancelación de evento (reembolso íntegro recomendado) vs arrepentimiento fuera de plazo legal (se retiene el service fee). Referencia: prácticas de Passline y All Access investigadas.
+- **Reembolsos (implementado)**: módulo `refunds` (`refund.controller.ts`, entidades `refund_request` / `refund_request_ticket`). Ventana de reembolso por defecto = inicio del evento; extensible solo por Admin (`event.refundWindowExtendedTo` / `refundWindowReason`, ver `BR-REFUND-010`).
 
 ## Estado de los módulos
 
@@ -183,13 +184,23 @@ completa de tags en `src/shared/const/swagger.ts` y el detalle del criterio en
 - Scanner web para validadores: página autocontenida en `public/scanner/index.html`, servida en `/scanner` (ServeStatic). Login staff → selección de evento → escaneo continuo con jsQR → `POST /check-in/validate`. Timeout de 10s por request para señal baja.
 - Cleanup de assets: job diario 04:00 (queue `maintenance`) que borra QR/PDF de eventos finalizados hace +30 días; conserva ticket, `qrCode` y `check_in_log` (regenerable vía endpoint admin).
 - **Validación fiscal productora (FP01 / BR-PROD-002, 011, 014):** wizard bloqueante hasta aprobación Admin; campos banco/CBU/alias separados; identidad fiscal + docs bloqueados post-aprobación; cambio de cuenta vía `POST /organizations/me/bank-change-request` + approve/reject Admin (productora sigue operando). Migración `1784250000000-OrganizationBankFieldsAndChangeRequest`. Specs en `tickets-frontend/docs/` (Actualización 28).
+- **Refunds**: `src/modules/refunds/` — `refund_request` / `refund_request_ticket`. Ventana de reembolso extensible solo por Admin (`BR-REFUND-010`).
+- **Reporting**: `src/modules/reporting/` (`backoffice-dashboard.controller.ts`, `event-dashboard.controller.ts`, `producer-sales.controller.ts`) + módulo `dashboard/` separado.
+- **Chargebacks**: `src/modules/chargebacks/`, entidad `chargeback` — contracargos de Mercado Pago.
+- **Coupons**: `src/modules/coupons/` — cupones/promociones, entidades `coupon` / `coupon_redemption` / `coupon_ticket_type`.
+- **Mapa de venue con sectores**: más allá de `BR-EVENT-020` (mover/agregar sectores sin borrar), hay grid layout, family label, nivel de sector y análisis con IA del flyer (`event_map`, `event_map_sector`, `event_map_sector_ticket_type`, `event_ai_map_run`).
+- **Caja / gastos e ingresos**: `event-cash` (caja de evento, `user_event_cashier`), `event_expense`, `event_income` / `event_income_product` — plata que entra y sale por evento.
+- **Cuentas y movimientos de Mercado Pago por organización**: `org-mp`, `event-mp-account`, `mp-movement`, `org-catalog` — entidades `org_mp_account`, `event_mp_account`, `mp_catalog_item`, `mp_movement`, `org_manual_item`.
+- **Payouts**: `src/modules/payouts/` — liquidaciones a productoras.
+- **Favoritos de usuario**: `favorites`, entidad `user_event_favorite`.
+- **Soporte**: `support`, entidad `support_request` (formulario de contacto, bandeja manual).
+- **Alertas de stock / admin**: `stock-alerts`, `admin-alerts`.
+- **Parámetros de sistema y archivos de usuario**: `system-parameter` (fee rate, tope, etc.), `user-file`.
 
-### Pendientes (en orden)
+### Pendientes
 1. Waiting Room (módulo completo — la base ya está en RedisService)
-2. Refunds (con lógica de retención de fee según motivo)
-3. Reporting (dashboard organizadores: ventas, asistencia, export CSV)
-4. Testing (unit + e2e del flujo de compra)
-5. Admin Panel (conciliación, override de estados)
+2. Testing (unit + e2e del flujo de compra)
+3. Admin Panel dedicado (hay bastante ya cubierto por `admin-alerts`, `stock-alerts`, `system-parameter`, `chargebacks`, `payouts`, `org-mp`; falta conciliación/override de estados como feature propia)
 
 ## Variables de entorno del proyecto
 

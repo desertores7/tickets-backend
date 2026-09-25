@@ -9,6 +9,10 @@ export const SWAGGER_URL = `/${SWAGGER_PATH}`;
 type SwaggerSetupOptions = {
   port?: number;
   baseUrl?: string;
+  /** Basic auth. Sin las dos, en producción Swagger no se levanta. */
+  swaggerUser?: string;
+  swaggerPassword?: string;
+  isProduction?: boolean;
 };
 
 /** Corrige schemas que Nest genera como `{ type: 'object' }` sin properties y rompen Swagger UI 5. */
@@ -168,7 +172,19 @@ function sortOperations(document: OpenAPIObject): OpenAPIObject {
 }
 
 export function setupSwagger(app: INestApplication, options: SwaggerSetupOptions = {}) {
-  const { port = 3005, baseUrl } = options;
+  const { port = 3005, baseUrl, swaggerUser, swaggerPassword, isProduction } = options;
+  const hasSwaggerCredentials = Boolean(swaggerUser && swaggerPassword);
+
+  // `/api/tickets/doc` quedaba público: cualquiera veía el mapa completo de la
+  // API (rutas, DTOs, hasta los ejemplos de auth). Sin credenciales, en
+  // producción directamente no se levanta — mejor una 404 que dejarlo abierto
+  // por un `.env` que alguien se olvidó de completar.
+  if (isProduction && !hasSwaggerCredentials) {
+    console.warn(
+      'SWAGGER_USER/SWAGGER_PASSWORD no configurados: Swagger queda desactivado (NODE_ENV=production).'
+    );
+    return;
+  }
 
   const configBuilder = new DocumentBuilder()
     .setTitle('Tickets API')
@@ -279,6 +295,16 @@ La mayoría de los endpoints requieren el header Authorization: Bearer <jwt>.
   const expressApp = app.getHttpAdapter().getInstance();
   const expressLib = require('express');
   expressApp.use('/api/multimedia', expressLib.static(join(process.cwd(), 'multimedia')));
+
+  if (hasSwaggerCredentials) {
+    const basicAuth = require('express-basic-auth');
+    const auth = basicAuth({ users: { [swaggerUser!]: swaggerPassword! }, challenge: true });
+    // Dos rutas: la UI (`SWAGGER_URL`, con sus assets estáticos debajo) y el
+    // JSON crudo (`doc-json`), que si no se protege aparte deja ver todo el
+    // schema sin pasar por la UI.
+    expressApp.use(SWAGGER_URL, auth);
+    expressApp.use('/api/tickets/doc-json', auth);
+  }
 
   SwaggerModule.setup(SWAGGER_PATH, app, document, {
     useGlobalPrefix: false,

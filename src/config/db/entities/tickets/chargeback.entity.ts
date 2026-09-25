@@ -79,6 +79,13 @@ export class ChargebackEntity {
   @Column({ type: 'text', nullable: true, default: null })
   internalNotes: string | null;
 
+  /**
+   * Historial de envíos de evidencia a MP (`POST /v1/chargebacks/:id/documentation`).
+   * Cada entrada: `{ submittedAt, submittedBy, files: [{ type, uuid, url, description }] }`.
+   */
+  @Column({ type: 'json', nullable: true, default: null })
+  evidenceSubmissions: Record<string, unknown>[] | null;
+
   /** Cuándo llegó el primer aviso y cuándo MP lo dio por terminado. */
   @Column({ type: 'timestamp', nullable: true, default: null })
   receivedAt: Date | null;

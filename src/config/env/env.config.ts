@@ -87,6 +87,14 @@ export const envSchema = z.object({
    */
   LOAD_TEST_BYPASS_TOKEN: z.string().optional(),
 
+  /**
+   * Basic auth para Swagger (`/api/tickets/doc`), que hoy queda público y
+   * expone el mapa completo de la API. Sin estas dos, en `NODE_ENV=production`
+   * Swagger se desactiva del todo en vez de quedar abierto por defecto.
+   */
+  SWAGGER_USER: z.string().optional(),
+  SWAGGER_PASSWORD: z.string().optional(),
+
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   // Credenciales de la *aplicacion* MP, distintas del access token del checkout:
