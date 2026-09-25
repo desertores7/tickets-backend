@@ -92,4 +92,6 @@ export interface AnalyzeMapJobData {
   imageName: string;
   imageMime: string;
   imageSize: number;
+  /** Si se conoce, para contabilizar el límite de 3 generaciones por evento cada 24hs. */
+  eventUuid?: string | null;
 }

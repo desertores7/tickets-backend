@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Body,
-  ConflictException,
   Controller,
   Delete,
   Get,
@@ -23,6 +22,9 @@ import type { Response } from 'express';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
+import { QUEUE_NAMES } from '@config/redis/bull-jobs.types';
 import { UserAuth } from '@root/shared/auth/decorator/user-auth.decorator';
 import { AdminAuth } from '@root/shared/auth/decorator/admin-auth.decorator';
 import { OptionalUserAuth } from '@root/shared/auth/decorator/optional-user-auth.decorator';
@@ -90,7 +92,7 @@ import { GetFeeSummaryResponse } from './dtos/get-fee-summary/get-fee-summary.re
 import { EventMediaResponse } from './responses/event-media.response';
 import { AnalyzeFlyersResponse } from './responses/analyze-flyers.response';
 import { AnalyzeFromMapResponse } from './responses/analyze-from-map.response';
-import { MapAnalysisStatusResponse } from './responses/map-analysis-job.response';
+import { MapAnalysisQueuedResponse, MapAnalysisStatusResponse } from './responses/map-analysis-job.response';
 import { EventMapResponse, TicketTypeMapSectorsResponse } from './responses/event-map.response';
 import { SuggestMapSectorsResponse } from './responses/suggest-map-sectors.response';
 import { MapAiQuotaResponse } from './responses/map-ai-quota.response';
@@ -114,7 +116,8 @@ export class EventController {
     @Inject('IEventService') private readonly _eventService: IEventService,
     @Inject('IEventAiService') private readonly _eventAiService: IEventAiService,
     private readonly _mapJobStore: MapAnalysisJobStore,
-    private readonly _publicCache: PublicResponseCache
+    private readonly _publicCache: PublicResponseCache,
+    @InjectQueue(QUEUE_NAMES.EVENT_AI) private readonly _eventAiQueue: Queue
   ) {}
 
   @UserAuth(CreateEventRequest, null)
@@ -179,16 +182,18 @@ export class EventController {
     return new AnalyzeFlyersResponse(result);
   }
 
-  @UserAuth(null, AnalyzeFromMapResponse, 'multipart/form-data')
+  @UserAuth(null, MapAnalysisQueuedResponse, 'multipart/form-data')
   @ApiOperation({
     summary: 'Analizar mapa de sala desde imagen (IA)',
     description:
-      'Accepts 1 sales map image (multipart field `mapImage`) and runs the analysis **synchronously**. ' +
-      'Returns the full grid layout when done (typically ~20–40s). One request — no polling.\n\n' +
-      'Pipeline: vision → deterministic verification → targeted repair when needed → 24×24 rasterize. ' +
+      'Accepts 1 sales map image (multipart field `mapImage`) and QUEUES the analysis. ' +
+      'Returns `{ jobId, status }` immediately (202); poll `GET /events/ai/from-map/{jobId}` for the result.\n\n' +
+      'Pipeline: vision → deterministic verification → targeted repair when needed → 24×24 rasterize, ' +
+      'typically ~20–40s — well past what the frontend\'s Next.js proxy (`rewrites()`) keeps a request ' +
+      'open, so this runs as a background job instead of a synchronous response. ' +
       'Uses EVENT_AI_MAP_MODEL exclusively (never EVENT_AI_EXTRACT_MODEL) with optional ' +
       'EVENT_AI_MAP_REASONING_EFFORT for GPT-5 family. Requires OPENIA_API_KEY. Max 8MB. ' +
-      'One analysis at a time per user (409 if another is already running).'
+      'One analysis at a time per user; a second upload returns the one already running.'
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -209,9 +214,8 @@ export class EventController {
       required: ['mapImage']
     }
   })
-  @ApiResponse({ status: 200, type: AnalyzeFromMapResponse })
+  @ApiResponse({ status: 202, type: MapAnalysisQueuedResponse })
   @ApiResponse({ status: 400, description: 'Missing/invalid file.' })
-  @ApiResponse({ status: 409, description: 'Another map analysis is already running for this user.' })
   @ApiResponse({ status: 429, description: 'Hourly AI quota or daily per-event map quota exceeded.' })
   @ApiResponse({ status: 503, description: 'OPENIA_API_KEY missing.' })
   @UseInterceptors(
@@ -219,40 +223,64 @@ export class EventController {
       limits: { fileSize: 8 * 1024 * 1024 }
     })
   )
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiTags('Productora — Eventos')
   @Post('ai/from-map')
   async analyzeFromMap(
     @UploadedFile() file: Express.Multer.File,
     @Body('eventUuid') eventUuid: string | undefined,
     @User() loggedUser: string
-  ): Promise<AnalyzeFromMapResponse> {
+  ): Promise<MapAnalysisQueuedResponse> {
+    // La imagen y la cuota se validan acá, en el request: un archivo inválido
+    // tiene que fallar al instante y no medio minuto después dentro del job.
     const mapFile = this._eventAiService.validateMapRequest(file);
     await this._eventAiService.assertMapQuota(loggedUser, eventUuid);
 
-    const lockId = randomUUID();
-    const acquired = await this._mapJobStore.acquireUserLock(loggedUser, lockId);
+    const jobId = randomUUID();
+    const acquired = await this._mapJobStore.acquireUserLock(loggedUser, jobId);
+
+    // Un doble clic, o el productor que sube otra imagen sin esperar: en vez de
+    // lanzar un segundo análisis se devuelve el que ya está corriendo.
     if (!acquired) {
-      throw new ConflictException(
-        'Ya hay un análisis de mapa en curso. Esperá a que termine o reintentá en un momento.'
-      );
+      const runningId = await this._mapJobStore.currentJobId(loggedUser);
+      if (runningId) {
+        return new MapAnalysisQueuedResponse({
+          jobId: runningId,
+          status: 'processing',
+          alreadyRunning: true
+        });
+      }
+      // El lock existe pero perdimos el id: se libera y se sigue de largo.
+      await this._mapJobStore.releaseUserLock(loggedUser);
+      await this._mapJobStore.acquireUserLock(loggedUser, jobId);
     }
 
-    try {
-      const result = await this._eventAiService.analyzeFromMapImage(mapFile, loggedUser, eventUuid);
-      return new AnalyzeFromMapResponse(result);
-    } finally {
-      await this._mapJobStore.releaseUserLock(loggedUser);
-    }
+    await this._mapJobStore.save({
+      jobId,
+      userId: loggedUser,
+      status: 'processing',
+      startedAt: new Date().toISOString()
+    });
+
+    await this._eventAiQueue.add('analyze-map', {
+      jobId,
+      userId: loggedUser,
+      imageBase64: mapFile.buffer.toString('base64'),
+      imageName: mapFile.originalname,
+      imageMime: mapFile.mimetype,
+      imageSize: mapFile.size,
+      eventUuid
+    });
+
+    return new MapAnalysisQueuedResponse({ jobId, status: 'processing', alreadyRunning: false });
   }
 
   @UserAuth(null, MapAnalysisStatusResponse)
   @ApiOperation({
-    summary: 'Estado del análisis de mapa (IA) — deprecado',
-    deprecated: true,
+    summary: 'Estado del análisis de mapa (IA)',
     description:
-      'Deprecado: `POST /events/ai/from-map` ahora responde con el resultado completo. ' +
-      'Se mantiene solo por compatibilidad con jobs viejos en Redis.'
+      'Consulta el estado de un análisis encolado por `POST /events/ai/from-map`. ' +
+      'Se usa con polling (cada 2-3s) hasta `status: "done"` o `"failed"`.'
   })
   @ApiResponse({ status: 200, type: MapAnalysisStatusResponse })
   @ApiResponse({ status: 404, description: 'El análisis no existe o ya venció.' })
@@ -781,6 +809,28 @@ export class EventController {
   ): Promise<EventMapResponse> {
     const map = await this._eventService.uploadMapBaseImage(eventUuid, file, loggedUser);
     return new EventMapResponse(map);
+  }
+
+  @UserAuth(null, null)
+  @ApiOperation({
+    summary: 'Eliminar mapa del evento',
+    description:
+      'Deletes the whole map row (sectors, analysis and stage layout). Distinct from ' +
+      '`PUT .../map` with an empty sector list, which keeps the row (and its stage) around — ' +
+      'this is the one that makes `GET .../map` report `uuid: null` again so the frontend goes ' +
+      'back to offering templates. 409 if the event is published and the map still has sellable ' +
+      'sectors (BR-EVENT-020) — same guard as the PUT.'
+  })
+  @ApiResponse({ status: 204, description: 'Deleted (or there was nothing to delete).' })
+  @ApiResponse({ status: 409, description: 'Published event with sectors still on the map.' })
+  @HttpCode(204)
+  @ApiTags('Productora — Mapa')
+  @Delete(':eventUuid/map')
+  async deleteEventMap(
+    @Param('eventUuid') eventUuid: string,
+    @User() loggedUser: string
+  ): Promise<void> {
+    await this._eventService.deleteEventMap(eventUuid, loggedUser);
   }
 
   @UserAuth(null, EventMapResponse)
