@@ -73,7 +73,10 @@ export class OrderController {
     summary: 'Listar mis órdenes',
     description:
       'Devuelve el listado paginado de órdenes del usuario autenticado. ' +
-      'Permite filtrar por estado, buscar por evento o número de orden, y ordenar por fecha o monto.'
+      'Permite filtrar por estado, buscar por evento o número de orden, y ordenar por fecha o monto.\n\n' +
+      'Solo devuelve órdenes `paid` o `refunded`: una `pending_payment`/`cancelled`/`expired` no es ' +
+      'una compra del comprador, es un intento que no llegó a nada (se resuelve solo en 10 min) — ' +
+      'mostrarla acá confunde, sobre todo al lado de una recién pagada.'
   })
   @ApiResponse({ status: 200, type: GetUserOrdersResponse, description: 'Paginated list of orders.' })
   @ApiResponse({ status: 400, description: 'Invalid pagination parameters.' })
@@ -85,8 +88,8 @@ export class OrderController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: OrderStatus,
-    description: 'Filtra por estado de la orden. Sin valor devuelve todas.'
+    enum: [OrderStatus.PAID, OrderStatus.REFUNDED],
+    description: 'Filtra por estado. Sin valor devuelve pagadas y reembolsadas juntas.'
   })
   @Get()
   async getUserOrders(
@@ -96,8 +99,9 @@ export class OrderController {
     @SearchParams() search?: ISearchParams,
     @OrderParams() order?: IOrderParams<typeof USER_ORDER_LIST_COLUMNS>
   ): Promise<GetUserOrdersResponse> {
-    if (status && !Object.values(OrderStatus).includes(status as OrderStatus)) {
-      throw new BadRequestException(`status debe ser uno de: ${Object.values(OrderStatus).join(', ')}`);
+    const VISIBLE_STATUSES = [OrderStatus.PAID, OrderStatus.REFUNDED];
+    if (status && !VISIBLE_STATUSES.includes(status as OrderStatus)) {
+      throw new BadRequestException(`status debe ser uno de: ${VISIBLE_STATUSES.join(', ')}`);
     }
 
     const result = await this._orderService.getUserOrders(userId, pagination, {
@@ -190,13 +194,16 @@ export class OrderController {
     summary: 'Cancelar orden',
     description:
       'Cancels an order that is still in `pending_payment` status and immediately releases ' +
-      'the reserved stock back to the Redis pool so other buyers can purchase those tickets.'
+      'the reserved stock back to the Redis pool so other buyers can purchase those tickets.\n\n' +
+      'Idempotent if the order already expired on its own (the `release-expired-stock` job can ' +
+      'win the race against the buyer cancelling from checkout): returns 200 as a no-op instead ' +
+      'of 422, since the end state — stock released — is already what cancelling would achieve.'
   })
   @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
-  @ApiResponse({ status: 200, description: 'Order cancelled and reserved stock released.' })
+  @ApiResponse({ status: 200, description: 'Order cancelled (or already expired/cancelled) and reserved stock released.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 404, description: 'Order not found or does not belong to the authenticated user.' })
-  @ApiResponse({ status: 422, description: 'Order is not in `pending_payment` status and cannot be cancelled.' })
+  @ApiResponse({ status: 422, description: 'Order is `paid` or `refunded` and cannot be cancelled.' })
   @HttpCode(200)
   @Delete(':orderId')
   async cancelOrder(@Param('orderId') orderId: string, @User() userId: string): Promise<void> {

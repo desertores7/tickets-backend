@@ -15,6 +15,7 @@ import { PaymentProvider, PaymentStatus } from '@config/db/entities/tickets/paym
 import { OrderStatus } from '@modules/orders/services/core/order';
 import { IOrderService } from '@modules/orders/services/contracts/iorder.service';
 import {
+  API_ERROR_STATUS_PREFIX,
   CardPaymentInput,
   CardPaymentResult,
   MercadoPagoService,
@@ -23,7 +24,20 @@ import {
 } from './mercadopago.service';
 import { IPaymentService } from '../contracts/ipayment.service';
 import { CardPaymentOutcome, Payment, PaymentInitResponse } from '../core/payment';
-import { describeCardRejection, describeInProcess } from '../core/card-rejection';
+import { describeApiRejection, describeCardRejection, describeInProcess } from '../core/card-rejection';
+
+/**
+ * Un rechazo puede venir del banco (`status_detail` tipo `cc_rejected_*`) o
+ * de la creación misma del pago (código numérico de MP, ej. `4390` — ver
+ * `API_ERROR_STATUS_PREFIX` en `mercadopago.service.ts`). Mismo shape de
+ * salida para los dos, así el resto del código no necesita saber cuál es.
+ */
+function describeRejection(statusDetail: string | null): { message: string; retryable: boolean } {
+  if (statusDetail?.startsWith(API_ERROR_STATUS_PREFIX)) {
+    return describeApiRejection(statusDetail.slice(API_ERROR_STATUS_PREFIX.length));
+  }
+  return describeCardRejection(statusDetail);
+}
 import { MercadoPagoWebhookRequest } from '../../controllers/dtos/webhook/mercadopago-webhook.request';
 
 const WEBHOOK_IDEMPOTENCY_TTL = 86400;
@@ -270,7 +284,7 @@ export class PaymentService implements IPaymentService {
       message: this.describeOutcome(result),
       retryable:
         result.status === PaymentStatus.REJECTED
-          ? describeCardRejection(result.statusDetail).retryable
+          ? describeRejection(result.statusDetail).retryable
           : false,
       installments: result.installments,
       paymentMethod: result.paymentMethod
@@ -284,7 +298,7 @@ export class PaymentService implements IPaymentService {
     if (result.status === PaymentStatus.IN_PROCESS || result.status === PaymentStatus.PENDING) {
       return describeInProcess(result.statusDetail);
     }
-    return describeCardRejection(result.statusDetail).message;
+    return describeRejection(result.statusDetail).message;
   }
 
   /**

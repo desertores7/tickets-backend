@@ -108,29 +108,52 @@ export function describeInProcess(statusDetail: string | null | undefined): stri
  *
  * Casi todos son de integración o de datos, y sus textos vienen en inglés con
  * códigos internos. Al comprador se le dice qué puede hacer; el código crudo
- * queda en el log, que es donde sirve.
+ * queda en el log (y ahora también en `payment.rawResponse`, ver
+ * `mercadopago.service.ts`), que es donde sirve para diagnosticar.
  */
-const API_ERRORS: Record<string, string> = {
-  // El comprador está usando el mismo email que la cuenta que cobra.
-  '4390': 'No podés pagar con la misma cuenta de Mercado Pago que recibe el pago.',
+const API_ERRORS: Record<string, CardRejection> = {
+  // MP describe esto como "Payer email forbidden". Antes decíamos que era
+  // siempre "estás pagando con la misma cuenta que cobra", pero un caso real
+  // (2026-09-25) mostró que también salta por control antifraude propio de MP
+  // ante actividad repetida/sospechosa del email del comprador — no solo por
+  // ser colaborador de la cuenta receptora. El mensaje no asume la causa.
+  '4390': {
+    message:
+      'Mercado Pago no aprobó este intento por un control de seguridad de la cuenta del ' +
+      'comprador. Probá con otro medio de pago o esperá unos minutos y volvé a intentar.',
+    retryable: false
+  },
   // Token de tarjeta vencido o ya usado: se genera uno nuevo al reintentar.
-  '2062': 'La operación tardó demasiado. Volvé a cargar la tarjeta e intentá otra vez.',
-  '3001': 'Faltan datos de la tarjeta. Revisá el formulario e intentá de nuevo.',
-  '3003': 'Los datos de la tarjeta no son válidos.',
-  '3034': 'Los datos de la tarjeta no son válidos.',
-  '2002': 'No encontramos esa tarjeta. Cargala de nuevo.',
-  '4037': 'El importe no es válido.',
-  '4050': 'Falta el email del comprador.'
+  '2062': {
+    message: 'La operación tardó demasiado. Volvé a cargar la tarjeta e intentá otra vez.',
+    retryable: true
+  },
+  '3001': {
+    message: 'Faltan datos de la tarjeta. Revisá el formulario e intentá de nuevo.',
+    retryable: true
+  },
+  '3003': { message: 'Los datos de la tarjeta no son válidos.', retryable: true },
+  '3034': { message: 'Los datos de la tarjeta no son válidos.', retryable: true },
+  '2002': { message: 'No encontramos esa tarjeta. Cargala de nuevo.', retryable: true },
+  '4037': { message: 'El importe no es válido.', retryable: false },
+  '4050': { message: 'Falta el email del comprador.', retryable: true }
+};
+
+const DEFAULT_API_ERROR: CardRejection = {
+  message: 'No pudimos procesar el pago. Probá con otra tarjeta o pagá con Mercado Pago.',
+  retryable: false
 };
 
 /**
- * Traduce el error de creación. `raw` es el texto que devolvió MP, del que se
- * extrae el código numérico si viene.
+ * Traduce un error de la API al **crear** el pago (código numérico de MP,
+ * ej. `4390`), distinto de un rechazo del banco (`status_detail` tipo
+ * `cc_rejected_*`, ver `describeCardRejection`).
  */
-export function describeApiError(raw: string): string {
-  const code = raw.match(/\b(\d{4})\b/)?.[1];
-  return (
-    (code ? API_ERRORS[code] : undefined) ??
-    'No pudimos procesar el pago. Probá con otra tarjeta o pagá con Mercado Pago.'
-  );
+export function describeApiRejection(code: string | null | undefined): CardRejection {
+  return (code ? API_ERRORS[code] : undefined) ?? DEFAULT_API_ERROR;
+}
+
+/** Extrae el código numérico de 4 dígitos del texto crudo que devuelve MP. */
+export function extractApiErrorCode(raw: string): string | null {
+  return raw.match(/\b(\d{4})\b/)?.[1] ?? null;
 }

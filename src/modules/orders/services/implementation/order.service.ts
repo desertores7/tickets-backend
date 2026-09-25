@@ -426,7 +426,16 @@ export class OrderService implements IOrderService {
       .getRepository(OrderEntity)
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.event', 'event')
-      .where('o.userUuid = :userId', { userId });
+      .where('o.userUuid = :userId', { userId })
+      // "Mis compras" es para el comprador, no para depurar el checkout: una
+      // orden pending/cancelled/expired no es una compra suya, es un intento
+      // que no llegó a nada. Mostrarlas mezcladas con las pagadas confunde
+      // (una por vencer al lado de una recién pagada, viéndose "duplicada").
+      // El vencimiento de una pending se resuelve solo en 10 min; no hace
+      // falta que el comprador la vea ni la gestione desde acá.
+      .andWhere('o.status IN (:...visibleStatuses)', {
+        visibleStatuses: [OrderStatus.PAID, OrderStatus.REFUNDED]
+      });
 
     if (opts?.status) {
       qb.andWhere('o.status = :status', { status: opts.status });
@@ -615,6 +624,15 @@ export class OrderService implements IOrderService {
 
     if (!order) {
       throw new NotFoundException('Orden no encontrada');
+    }
+
+    // Idempotente si ya está en el estado que "cancelar" busca lograr: el
+    // job de liberación de stock (`release-expired-stock`) puede vencerla
+    // sola justo antes de que el comprador la cancele a mano desde el
+    // checkout — las dos carreras al mismo resultado, no un error real. Sin
+    // esto, el frontend mostraba un 422 por algo que ya estaba resuelto.
+    if (order.status === OrderStatus.EXPIRED || order.status === OrderStatus.CANCELLED) {
+      return;
     }
 
     if (order.status !== OrderStatus.PENDING_PAYMENT) {
