@@ -16,6 +16,7 @@ import { OrderController } from './orders/controllers/order.controller';
 import { PaymentController } from './payments/controllers/payment.controller';
 import { CheckInController } from './check-in/controllers/checkin.controller';
 import { UserNotificationController } from './notifications/controllers/user-notification.controller';
+import { EmailPreviewController } from './notifications/controllers/email-preview.controller';
 import { SupportController } from './support/controllers/support.controller';
 import { DashboardController } from './dashboard/controllers/dashboard.controller';
 import { ProducerSalesController } from './reporting/controllers/producer-sales.controller';
@@ -75,6 +76,7 @@ import { ChargebackController } from './chargebacks/controllers/chargeback.contr
     PaymentController,
     CheckInController,
     UserNotificationController,
+    EmailPreviewController,
     FavoriteController,
     SupportController
   ]
