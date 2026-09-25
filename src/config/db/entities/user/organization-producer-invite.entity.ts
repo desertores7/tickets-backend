@@ -34,6 +34,13 @@ export class OrganizationProducerInviteEntity {
   @Column({ type: 'varchar', length: 20, default: 'producer' })
   staffRole: 'producer' | 'validator' | 'cashier';
 
+  /**
+   * Evento al que queda asignado al aceptar. Solo para Validador o Caja
+   * invitados desde el equipo de un evento; null en invitaciones generales.
+   */
+  @Column({ type: 'varchar', length: 36, nullable: true, default: null })
+  eventUuid: string | null;
+
   @Column({ type: 'timestamp' })
   expiresAt: Date;
 

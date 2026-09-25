@@ -289,10 +289,19 @@ export class OrganizationStaffService {
   async inviteProducer(
     callerUuid: string,
     emailRaw: string,
-    role: 'producer' | 'validator' | 'cashier' = 'producer'
+    role: 'producer' | 'validator' | 'cashier' = 'producer',
+    eventUuid: string | null = null
   ): Promise<StaffMemberResponse> {
     const org = await this.assertProducerContext(callerUuid);
     const email = emailRaw.trim().toLowerCase();
+
+    // Invitación desde el equipo de un evento: al aceptar queda asignado ahí.
+    if (eventUuid) {
+      if (role === 'producer') {
+        throw new BadRequestException('Solo se puede invitar a un evento como Validador o Caja.');
+      }
+      await this.assertEventsBelongToOrg([eventUuid], org.uuid);
+    }
 
     const existingUser = await this.dbRepository.findOne({
       entity: 'user',
@@ -348,6 +357,7 @@ export class OrganizationStaffService {
     invite.token = uuidv4();
     invite.invitedByUuid = callerUuid;
     invite.staffRole = role;
+    invite.eventUuid = eventUuid;
     invite.expiresAt = new Date(Date.now() + PRODUCER_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
     invite.isUsed = false;
 
