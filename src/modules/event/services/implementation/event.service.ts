@@ -854,6 +854,7 @@ export class EventService implements IEventService {
     ticketType.availableQuantity = data.quantity;
     ticketType.minPerOrder = data.minPerOrder ?? 1;
     ticketType.maxPerOrder = data.maxPerOrder ?? 10;
+    ticketType.maxPerBuyer = data.maxPerBuyer ?? null;
     const saleMode = this.resolveSaleModeOrThrow(null, data);
     ticketType.saleMode = saleMode.saleMode;
     ticketType.admissionsPerUnit = saleMode.admissionsPerUnit;
@@ -998,6 +999,7 @@ export class EventService implements IEventService {
     if (data.description !== undefined) patch.description = data.description;
     if (data.minPerOrder !== undefined) patch.minPerOrder = data.minPerOrder;
     if (data.maxPerOrder !== undefined) patch.maxPerOrder = data.maxPerOrder;
+    if (data.maxPerBuyer !== undefined) patch.maxPerBuyer = data.maxPerBuyer;
     if (data.saleStartDate !== undefined) patch.saleStartDate = data.saleStartDate;
     if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
     if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;
@@ -1071,6 +1073,7 @@ export class EventService implements IEventService {
     if (data.description !== undefined) patch.description = data.description;
     if (data.minPerOrder !== undefined) patch.minPerOrder = data.minPerOrder;
     if (data.maxPerOrder !== undefined) patch.maxPerOrder = data.maxPerOrder;
+    if (data.maxPerBuyer !== undefined) patch.maxPerBuyer = data.maxPerBuyer;
     if (data.saleStartDate !== undefined) patch.saleStartDate = data.saleStartDate;
     if (data.saleEndDate !== undefined) patch.saleEndDate = data.saleEndDate;
     if (data.sortOrder !== undefined) patch.sortOrder = data.sortOrder;

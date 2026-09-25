@@ -16,6 +16,8 @@ export class TicketTypeResponse {
   @ApiProperty() availableQuantity: number;
   @ApiProperty() minPerOrder: number;
   @ApiProperty() maxPerOrder: number;
+  @ApiProperty({ nullable: true, description: 'Tope acumulado por comprador entre todas sus órdenes. null = sin tope.' })
+  maxPerBuyer: number | null;
   @ApiProperty({ nullable: true }) saleStartDate: Date | null;
   @ApiProperty({ nullable: true }) saleEndDate: Date | null;
   @ApiProperty({ enum: ['general', 'per_person', 'whole_unit'] }) saleMode: 'general' | 'per_person' | 'whole_unit';
@@ -44,6 +46,7 @@ export class TicketTypeResponse {
     this.availableQuantity = data.availableQuantity;
     this.minPerOrder = data.minPerOrder;
     this.maxPerOrder = data.maxPerOrder;
+    this.maxPerBuyer = data.maxPerBuyer ?? null;
     this.saleStartDate = data.saleStartDate;
     this.saleEndDate = data.saleEndDate;
     this.saleMode = data.saleMode ?? 'general';

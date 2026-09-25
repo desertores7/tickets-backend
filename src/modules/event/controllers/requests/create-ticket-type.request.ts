@@ -64,6 +64,18 @@ export class CreateTicketTypeRequest {
   maxPerOrder?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @ApiProperty({
+    description:
+      'Tope acumulado de entradas por comprador entre TODAS sus órdenes (pagadas + la pendiente ' +
+      'actual). Distinto de maxPerOrder, que solo limita una orden puntual. Sin valor: sin tope.',
+    required: false,
+    nullable: true
+  })
+  maxPerBuyer?: number | null;
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
   @IsUUID('all', { each: true })

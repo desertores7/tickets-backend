@@ -65,6 +65,18 @@ export class UpdateTicketTypeRequest {
   maxPerOrder?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @ApiProperty({
+    description:
+      'Tope acumulado de entradas por comprador entre TODAS sus órdenes. Mandar null lo saca.',
+    required: false,
+    nullable: true
+  })
+  maxPerBuyer?: number | null;
+
+  @IsOptional()
   @IsIn(TICKET_TYPE_SALE_MODES)
   @ApiProperty({
     description:

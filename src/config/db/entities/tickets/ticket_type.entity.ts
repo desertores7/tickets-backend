@@ -44,6 +44,15 @@ export class TicketTypeEntity {
   @Column({ type: 'int', default: 10 })
   maxPerOrder: number;
 
+  /**
+   * Tope acumulado por comprador (todas sus órdenes, no solo una). `null` =
+   * sin tope. Distinto de `maxPerOrder`: ese solo limita una orden puntual —
+   * sin esto, alguien puede juntar varias órdenes pagadas (o varias pestañas
+   * con reservas pendientes en paralelo) para superarlo igual.
+   */
+  @Column({ type: 'int', nullable: true, default: null })
+  maxPerBuyer: number | null;
+
   /** Cómo se vende (`BR-SALE-010`). Ver `event/services/core/ticket-type-sale-mode.ts`. */
   @Column({ type: 'enum', enum: ['general', 'per_person', 'whole_unit'], default: 'general' })
   saleMode: 'general' | 'per_person' | 'whole_unit';
