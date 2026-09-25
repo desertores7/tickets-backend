@@ -141,13 +141,16 @@ export class OrderController {
     summary: 'Cancelar orden',
     description:
       'Cancels an order that is still in `pending_payment` status and immediately releases ' +
-      'the reserved stock back to the Redis pool so other buyers can purchase those tickets.'
+      'the reserved stock back to the Redis pool so other buyers can purchase those tickets.\n\n' +
+      'Idempotent if the order already expired on its own (the `release-expired-stock` job can ' +
+      'win the race against the buyer cancelling from checkout): returns 200 as a no-op instead ' +
+      'of 422, since the end state — stock released — is already what cancelling would achieve.'
   })
   @ApiParam({ name: 'orderId', description: 'Order UUID.', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
-  @ApiResponse({ status: 200, description: 'Order cancelled and reserved stock released.' })
+  @ApiResponse({ status: 200, description: 'Order cancelled (or already expired/cancelled) and reserved stock released.' })
   @ApiResponse({ status: 401, description: 'JWT token missing, invalid or expired.' })
   @ApiResponse({ status: 404, description: 'Order not found or does not belong to the authenticated user.' })
-  @ApiResponse({ status: 422, description: 'Order is not in `pending_payment` status and cannot be cancelled.' })
+  @ApiResponse({ status: 422, description: 'Order is `paid` or `refunded` and cannot be cancelled.' })
   @HttpCode(200)
   @Delete(':orderId')
   async cancelOrder(@Param('orderId') orderId: string, @User() userId: string): Promise<void> {
