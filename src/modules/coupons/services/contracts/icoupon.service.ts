@@ -114,7 +114,9 @@ export interface ICouponService {
     eventUuid: string,
     code: string,
     lines: ICouponLine[],
-    userUuid: string
+    userUuid: string,
+    /** Orden a la que se le aplica: sus propios usos reservados no cuentan contra el límite. */
+    opts?: { excludeOrderUuid?: string }
   ): Promise<ICouponApplication>;
 
   /** Registra el uso al confirmarse el pago, no al crear la orden. */

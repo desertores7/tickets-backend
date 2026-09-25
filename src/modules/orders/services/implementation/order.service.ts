@@ -553,7 +553,8 @@ export class OrderService implements IOrderService {
             ticketTypeUuid: item.ticketTypeUuid,
             subtotal: Number(item.subtotal)
           })),
-          userId
+          userId,
+          { excludeOrderUuid: order.uuid }
         )
       : null;
 
@@ -764,6 +765,29 @@ export class OrderService implements IOrderService {
         currency: order.currency,
         queryRunner
       });
+
+      // 6b. Uso del cupón (BR-COUPON-002/003). Se registra acá, con el pago
+      // confirmado y en la MISMA transacción: si algo falla, la orden no queda
+      // pagada sin su uso, ni el uso contado sin la venta. Una orden que nunca
+      // se paga no consume el cupón.
+      //
+      // El índice único por orden (`UQ_coupon_redemption_order`) hace el alta
+      // idempotente: si ya estaba registrado, `affectedRows` da 0 y el contador
+      // no se vuelve a sumar. El incremento es en SQL, no leer-sumar-escribir
+      // desde Node: dos pagos simultáneos dejarían el contador corto.
+      if (order.couponUuid) {
+        const redemption = await queryRunner.query(
+          `INSERT INTO coupon_redemption (uuid, couponUuid, orderUuid, userUuid, discountAmount)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE orderUuid = orderUuid`,
+          [uuidv4(), order.couponUuid, order.uuid, order.userUuid, Number(order.discountAmount ?? 0)]
+        );
+        if (redemption?.affectedRows === 1) {
+          await queryRunner.query('UPDATE coupon SET usedCount = usedCount + 1 WHERE uuid = ?', [
+            order.couponUuid
+          ]);
+        }
+      }
 
       // 7. Commit and release in finally
       await queryRunner.commitTransaction();
