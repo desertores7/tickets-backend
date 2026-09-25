@@ -392,6 +392,9 @@ export interface IEventService {
 
   upsertEventMap(eventUuid: string, data: TUpsertEventMap, loggedUser: string): Promise<TEventMap>;
 
+  /** Borra la fila `event_map` entera (sectores y escenario incluidos). 409 si está publicado con sectores vendibles. */
+  deleteEventMap(eventUuid: string, loggedUser: string): Promise<void>;
+
   /** Aplica solo lo que cambió. Requiere un mapa ya creado (si no, 400). */
   patchEventMap(eventUuid: string, data: TPatchEventMap, loggedUser: string): Promise<TEventMap>;
 

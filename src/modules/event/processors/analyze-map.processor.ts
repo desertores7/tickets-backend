@@ -6,11 +6,14 @@ import { IEventAiService } from '../services/contracts/ievent-ai.service';
 import { MapAnalysisJobStore } from '../services/implementation/map-analysis-job.store';
 
 /**
- * Worker legacy del análisis de mapas (cola EVENT_AI).
+ * Worker del análisis de mapas (cola EVENT_AI).
  *
- * `POST /events/ai/from-map` ahora corre el análisis en el request (síncrono).
- * Este processor queda por si quedó un job viejo en Redis; no se encolan jobs
- * nuevos desde el controller.
+ * `POST /events/ai/from-map` encola acá y responde 202 al toque: el análisis
+ * (vision → verificación → reparación) tarda 30-60s, bastante más de lo que
+ * el proxy server-side de Next.js (`rewrites()` en `next.config.ts`) banca
+ * una conexión abierta — cortaba la request con "socket hang up" antes de
+ * que el backend llegara a responder. El frontend consulta el resultado con
+ * `GET /events/ai/from-map/:jobId` (polling).
  */
 @Processor(QUEUE_NAMES.EVENT_AI)
 export class AnalyzeMapProcessor extends WorkerHost {
@@ -26,7 +29,7 @@ export class AnalyzeMapProcessor extends WorkerHost {
   async process(job: Job<AnalyzeMapJobData>): Promise<void> {
     if (job.name !== 'analyze-map') return;
 
-    const { jobId, userId, imageBase64, imageName, imageMime, imageSize } = job.data;
+    const { jobId, userId, imageBase64, imageName, imageMime, imageSize, eventUuid } = job.data;
     const startedAt = new Date().toISOString();
 
     try {
@@ -42,7 +45,7 @@ export class AnalyzeMapProcessor extends WorkerHost {
         originalname: imageName
       } as unknown as Express.Multer.File;
 
-      const result = await this.eventAiService.analyzeFromMapImage(file, userId);
+      const result = await this.eventAiService.analyzeFromMapImage(file, userId, eventUuid ?? undefined);
 
       await this.jobStore.save({
         jobId,

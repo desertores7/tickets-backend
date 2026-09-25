@@ -2211,6 +2211,64 @@ export class EventService implements IEventService {
    * Borra el plano subido. Los sectores ya dibujados se conservan: el plano es
    * la referencia visual, no el mapa en si.
    */
+  /**
+   * Borra el mapa entero: fila `event_map`, sus `event_map_sector` y el
+   * escenario con ellos.
+   *
+   * Distinto de `upsertEventMap(..., { analysis: null, sectors: [] })`: ese
+   * PUT vacía sectores y análisis pero, si no viene `stageLayout` explícito
+   * (`resolveMapGrid`), reusa el de la fila existente — la fila sigue
+   * existiendo con el escenario viejo. El productor que "elimina el mapa"
+   * espera arrancar de cero (plantillas), no quedarse con un escenario
+   * huérfano que además hace que `GET .../map` siga devolviendo `uuid` no
+   * nulo, y el frontend interprete "hay mapa" y no ofrezca las plantillas.
+   */
+  async deleteEventMap(eventUuid: string, loggedUser: string): Promise<void> {
+    const event = await this.assertOwnership(eventUuid, loggedUser);
+
+    const existing = await this.dbRepository.findOne({
+      entity: 'event_map',
+      where: { eventUuid: event.uuid }
+    });
+    if (!existing) return;
+
+    // Mismo guard que el PUT (BR-EVENT-020): publicado y con sectores
+    // vendibles, no se borra — se le pide cancelar el evento o mover/quitar
+    // sectores a mano primero.
+    await this.assertPublishedMapKeepsSectors(event, existing.uuid, new Set());
+
+    const queryRunner = this.dbRepository.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Igual que en `replaceMapSectors`: explícito y no por cascada, así el
+      // orden y el resultado no dependen de cómo esté armada la FK.
+      await this.dbRepository.delete({
+        entity: 'event_map_sector',
+        where: { mapUuid: existing.uuid } as any,
+        queryRunner
+      });
+      await this.dbRepository.delete({
+        entity: 'event_map',
+        where: { uuid: existing.uuid } as any,
+        queryRunner
+      });
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    if (existing.baseImageUrl) {
+      await this.removeStoredMapBase(event.uuid, existing.baseImageUrl).catch(() => {
+        // El archivo huérfano no bloquea el borrado del mapa; queda para el
+        // cleanup de assets.
+      });
+    }
+  }
+
   async removeMapBaseImage(eventUuid: string, loggedUser: string): Promise<TEventMap | null> {
     const event = await this.assertOwnership(eventUuid, loggedUser);
 
@@ -2542,7 +2600,7 @@ export class EventService implements IEventService {
     })) as Array<{ uuid: string; name: string }>;
     const ticketUuidByName = new Map<string, string | null>();
     for (const tt of activeTicketTypes) {
-      const key = tt.name.trim().toLowerCase().replace(/\s+/g, ' ');
+      const key = normalizeTicketMatchName(tt.name);
       // Nombre repetido entre tandas: no hay forma de saber cual es la
       // correcta, así que ese nombre no resuelve ninguna (null = ambiguo).
       ticketUuidByName.set(key, ticketUuidByName.has(key) ? null : tt.uuid);
@@ -2582,8 +2640,16 @@ export class EventService implements IEventService {
       sector.capacity = src.capacity ?? null;
       newSectors.push(sector);
 
-      const matchName = (sector.familyLabel || sector.name).trim().toLowerCase().replace(/\s+/g, ' ');
-      const ticketUuid = matchName ? ticketUuidByName.get(matchName) : undefined;
+      // Primero la tanda de ESTA unidad ("Box VIP 17" para la unidad 17 de la
+      // categoria "Box VIP"): es como nacen las tandas de un sector con varias
+      // unidades, una por unidad. Si no existe, la tanda de toda la categoria.
+      const unitName = unitTicketNameForSector(sector.familyLabel, sector.name);
+      const unitTicketUuid = unitName
+        ? ticketUuidByName.get(normalizeTicketMatchName(unitName))
+        : undefined;
+      const matchName = normalizeTicketMatchName(sector.familyLabel || sector.name);
+      const ticketUuid =
+        unitTicketUuid ?? (matchName ? ticketUuidByName.get(matchName) : undefined);
       if (ticketUuid) {
         const link = new EventMapSectorTicketTypeEntity();
         link.uuid = uuidv4();
@@ -3605,4 +3671,25 @@ export class EventService implements IEventService {
     if (!expense) throw new BadRequestException('Gasto no encontrado');
     return expense as unknown as TEventExpense;
   }
+}
+
+/** Nombre comparable entre sector y tanda: sin mayusculas ni espacios de mas. */
+function normalizeTicketMatchName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Nombre de la tanda propia de una unidad del mapa, con la misma regla que usa
+ * el frontend al crearlas (`unitTicketName`): la categoria mas el numero de la
+ * unidad ("Box VIP" + "M17" -> "Box VIP 17"). Si la unidad ya empieza con la
+ * categoria, es su propio nombre. Null si el sector no tiene categoria.
+ */
+function unitTicketNameForSector(familyLabel: string | null, sectorName: string): string | null {
+  const family = familyLabel?.trim();
+  const unit = sectorName.trim();
+  if (!family || !unit) return null;
+  const number = unit.match(/(\d+)\s*$/);
+  if (number) return `${family} ${Number(number[1])}`;
+  if (unit.toLowerCase().startsWith(family.toLowerCase())) return unit;
+  return `${family} ${unit}`;
 }
