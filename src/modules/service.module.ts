@@ -35,6 +35,7 @@ import { CheckInService } from './check-in/services/implementation/checkin.servi
 import { QrGenerationModule } from './qr-generation/qr-generation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { UserNotificationService } from './notifications/services/implementation/user-notification.service';
+import { EmailPreviewService } from './notifications/services/implementation/email-preview.service';
 import { SupportService } from './support/services/implementation/support.service';
 import { DashboardService } from './dashboard/services/implementation/dashboard.service';
 import { OrgMpService } from './org-mp/services/implementation/org-mp.service';
@@ -108,6 +109,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     ChargebackService,
     ServiceFeeReportService,
     EmailService,
+    EmailPreviewService,
     ImageCompressionService,
     AuthService,
     GoogleOAuthService,
@@ -155,6 +157,7 @@ import { ServiceFeeReportService } from './reporting/services/implementation/ser
     ChargebackService,
     ServiceFeeReportService,
     EmailService,
+    EmailPreviewService,
     ImageCompressionService,
     AuthService,
     GoogleOAuthService,
