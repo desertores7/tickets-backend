@@ -29,7 +29,7 @@
  * La escala es exacta (×2) a propósito: cada celda del modelo son cuatro de la
  * grilla, sin redondeo.
  */
-export const MAP_GRID_SIZE = 48;
+export const MAP_GRID_SIZE = 24;
 
 /** Grilla en la que razona el modelo. `MAP_GRID_SIZE` es un múltiplo de esta. */
 export const MODEL_GRID_SIZE = 24;
