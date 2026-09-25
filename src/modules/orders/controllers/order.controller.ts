@@ -73,7 +73,10 @@ export class OrderController {
     summary: 'Listar mis órdenes',
     description:
       'Devuelve el listado paginado de órdenes del usuario autenticado. ' +
-      'Permite filtrar por estado, buscar por evento o número de orden, y ordenar por fecha o monto.'
+      'Permite filtrar por estado, buscar por evento o número de orden, y ordenar por fecha o monto.\n\n' +
+      'Solo devuelve órdenes `paid` o `refunded`: una `pending_payment`/`cancelled`/`expired` no es ' +
+      'una compra del comprador, es un intento que no llegó a nada (se resuelve solo en 10 min) — ' +
+      'mostrarla acá confunde, sobre todo al lado de una recién pagada.'
   })
   @ApiResponse({ status: 200, type: GetUserOrdersResponse, description: 'Paginated list of orders.' })
   @ApiResponse({ status: 400, description: 'Invalid pagination parameters.' })
@@ -85,8 +88,8 @@ export class OrderController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: OrderStatus,
-    description: 'Filtra por estado de la orden. Sin valor devuelve todas.'
+    enum: [OrderStatus.PAID, OrderStatus.REFUNDED],
+    description: 'Filtra por estado. Sin valor devuelve pagadas y reembolsadas juntas.'
   })
   @Get()
   async getUserOrders(
@@ -96,8 +99,9 @@ export class OrderController {
     @SearchParams() search?: ISearchParams,
     @OrderParams() order?: IOrderParams<typeof USER_ORDER_LIST_COLUMNS>
   ): Promise<GetUserOrdersResponse> {
-    if (status && !Object.values(OrderStatus).includes(status as OrderStatus)) {
-      throw new BadRequestException(`status debe ser uno de: ${Object.values(OrderStatus).join(', ')}`);
+    const VISIBLE_STATUSES = [OrderStatus.PAID, OrderStatus.REFUNDED];
+    if (status && !VISIBLE_STATUSES.includes(status as OrderStatus)) {
+      throw new BadRequestException(`status debe ser uno de: ${VISIBLE_STATUSES.join(', ')}`);
     }
 
     const result = await this._orderService.getUserOrders(userId, pagination, {
