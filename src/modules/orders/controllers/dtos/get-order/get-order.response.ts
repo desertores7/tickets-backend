@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IOrderItem, IOrderTicket, Order, OrderStatus, TicketStatus } from '@modules/orders/services/core/order';
+import { IOrderCoupon, IOrderItem, IOrderTicket, Order, OrderStatus, TicketStatus } from '@modules/orders/services/core/order';
 
 export class OrderTicketResponse {
   @ApiProperty() uuid: string;
@@ -32,6 +32,7 @@ export class OrderItemResponse {
   @ApiProperty({ description: 'Entradas por unidad (>1 solo en unidad completa)' }) admissionsPerUnit: number;
   @ApiProperty() unitPrice: number;
   @ApiProperty() subtotal: number;
+  @ApiProperty({ description: 'Descuento del cupón que le toca a esta línea' }) discountAmount: number;
   @ApiProperty({ type: [OrderTicketResponse] }) tickets: OrderTicketResponse[];
 
   constructor(data: IOrderItem) {
@@ -43,7 +44,18 @@ export class OrderItemResponse {
     this.admissionsPerUnit = data.admissionsPerUnit ?? 1;
     this.unitPrice = Number(data.unitPrice);
     this.subtotal = Number(data.subtotal);
+    this.discountAmount = Number(data.discountAmount ?? 0);
     this.tickets = data.tickets.map(t => new OrderTicketResponse(t));
+  }
+}
+
+export class OrderCouponResponse {
+  @ApiProperty({ example: 'SHOWPASS10' }) code: string;
+  @ApiProperty({ example: 'Preventa amigos' }) name: string;
+
+  constructor(data: IOrderCoupon) {
+    this.code = data.code;
+    this.name = data.name;
   }
 }
 
@@ -54,6 +66,10 @@ export class GetOrderResponse {
   @ApiProperty() eventUuid: string;
   @ApiProperty({ enum: OrderStatus }) status: OrderStatus;
   @ApiProperty() subtotal: number;
+  @ApiProperty({ description: 'Descuento del cupón sobre el subtotal (BR-COUPON-008). 0 sin cupón.' })
+  discountAmount: number;
+  @ApiProperty({ type: OrderCouponResponse, nullable: true, description: 'Cupón aplicado' })
+  coupon: OrderCouponResponse | null;
   @ApiProperty() serviceFee: number;
   @ApiProperty() total: number;
   @ApiProperty() currency: string;
@@ -74,6 +90,8 @@ export class GetOrderResponse {
     this.eventUuid = data.eventUuid;
     this.status = data.status;
     this.subtotal = Number(data.subtotal);
+    this.discountAmount = Number(data.discountAmount ?? 0);
+    this.coupon = data.coupon ? new OrderCouponResponse(data.coupon) : null;
     this.serviceFee = Number(data.serviceFee);
     this.total = Number(data.total);
     this.currency = data.currency;

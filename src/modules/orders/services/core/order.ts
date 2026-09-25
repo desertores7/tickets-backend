@@ -36,7 +36,15 @@ export interface IOrderItem {
   admissionsPerUnit?: number;
   unitPrice: number;
   subtotal: number;
+  /** Parte del descuento del cupón que le toca a esta línea (BR-COUPON-009). */
+  discountAmount?: number;
   tickets: IOrderTicket[];
+}
+
+/** Cupón aplicado a la orden (BR-COUPON-008). */
+export interface IOrderCoupon {
+  code: string;
+  name: string;
 }
 
 export interface IOrder {
@@ -79,6 +87,10 @@ export class Order implements IOrder {
   createdAt: Date;
   updatedAt: Date;
   items: IOrderItem[];
+  /** Descuento del cupón sobre el subtotal. 0 sin cupón. */
+  discountAmount?: number;
+  /** Cupón aplicado. Null sin cupón. */
+  coupon?: IOrderCoupon | null;
   /** Solo en el listado: evita un fetch del evento por fila. */
   eventName?: string | null;
   eventStartDate?: Date | null;

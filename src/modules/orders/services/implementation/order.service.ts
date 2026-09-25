@@ -408,7 +408,7 @@ export class OrderService implements IOrderService {
       throw new NotFoundException('Orden no encontrada');
     }
 
-    return this.mapToOrder(order);
+    return this.withCoupon(this.mapToOrder(order), order.couponUuid);
   }
 
   async getUserOrders(
@@ -503,6 +503,106 @@ export class OrderService implements IOrderService {
         limit: pagination.limit
       })
     };
+  }
+
+  /**
+   * Aplica (o quita, con `couponCode` null) un cupón a una orden pendiente.
+   *
+   * La orden se crea al entrar al pago, antes de que el comprador escriba el
+   * código: por eso el cupón se aplica sobre la orden ya creada, sin volver a
+   * reservar stock ni la mesa. Se recalcula igual que al crearla
+   * (`BR-COUPON-008`): subtotal -> cupón -> fee sobre el precio descontado,
+   * con el porcentaje y el tope congelados en la orden.
+   *
+   * El uso del cupón NO se cuenta acá: se registra al confirmarse el pago.
+   */
+  async applyCoupon(orderId: string, userId: string, couponCode: string | null): Promise<Order> {
+    const order = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { uuid: orderId, userUuid: userId },
+      relations: { items: true }
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden no encontrada');
+    }
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new UnprocessableEntityException('Esta compra ya no admite cambios');
+    }
+    if (order.expiresAt && new Date(order.expiresAt).getTime() <= Date.now()) {
+      throw new UnprocessableEntityException('Se venció el tiempo para completar la compra');
+    }
+
+    const items = (order.items as any[]) ?? [];
+    const code = couponCode?.trim() || null;
+
+    const coupon = code
+      ? await this.couponService.applyToSubtotal(
+          order.eventUuid,
+          code,
+          items.map(item => ({
+            ticketTypeUuid: item.ticketTypeUuid,
+            subtotal: Number(item.subtotal)
+          })),
+          userId
+        )
+      : null;
+
+    const subtotal = Number(order.subtotal);
+    const discountAmount = coupon?.discountAmount ?? 0;
+    const discountedSubtotal = coupon?.discountedSubtotal ?? subtotal;
+
+    // La regla del fee es la que quedó congelada al crear la orden: aplicar un
+    // cupón no puede cambiarle el porcentaje ni el tope.
+    const currentFee =
+      order.serviceFeeRate == null || order.serviceFeeCap == null
+        ? await this.serviceFeeConfig.getConfig()
+        : null;
+    const rate = order.serviceFeeRate != null ? Number(order.serviceFeeRate) : currentFee!.rate;
+    const cap = order.serviceFeeCap != null ? Number(order.serviceFeeCap) : currentFee!.cap;
+
+    const fees = allocateOrderServiceFees(
+      items.map(item => ({
+        ticketTypeUuid: item.ticketTypeUuid,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        admissionsPerUnit: Number(item.admissionsPerUnit ?? 1)
+      })),
+      discountAmount,
+      coupon ? coupon.eligibleTicketTypeUuids : null,
+      rate,
+      cap
+    );
+    const total = Math.round((discountedSubtotal + fees.serviceFee) * 100) / 100;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Condicionado al estado: si el pago se confirmó en el medio, no se toca.
+      const result = await queryRunner.query(
+        `UPDATE orders SET couponUuid = ?, discountAmount = ?, serviceFee = ?, total = ?
+         WHERE uuid = ? AND status = ?`,
+        [coupon?.couponUuid ?? null, discountAmount, fees.serviceFee, total, order.uuid, OrderStatus.PENDING_PAYMENT]
+      );
+      if (!result?.affectedRows) {
+        throw new UnprocessableEntityException('Esta compra ya no admite cambios');
+      }
+      for (let i = 0; i < items.length; i++) {
+        await queryRunner.query(
+          'UPDATE order_item SET discountAmount = ?, serviceFee = ? WHERE uuid = ?',
+          [fees.lines[i].discountAmount, fees.lines[i].serviceFee, items[i].uuid]
+        );
+      }
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    return this.fetchOrderInternal(order.uuid);
   }
 
   async cancelOrder(orderId: string, userId: string): Promise<void> {
@@ -825,7 +925,21 @@ export class OrderService implements IOrderService {
       throw new NotFoundException('Orden no encontrada');
     }
 
-    return this.mapToOrder(order);
+    return this.withCoupon(this.mapToOrder(order), order.couponUuid);
+  }
+
+  /** Suma el código y el nombre del cupón aplicado, para mostrarlo en el checkout. */
+  private async withCoupon(order: Order, couponUuid: string | null | undefined): Promise<Order> {
+    if (!couponUuid) {
+      order.coupon = null;
+      return order;
+    }
+    const coupon = (await this.dbRepository.findOne({
+      entity: 'coupon',
+      where: { uuid: couponUuid }
+    })) as { code: string; name: string } | null;
+    order.coupon = coupon ? { code: coupon.code, name: coupon.name } : null;
+    return order;
   }
 
   /**
@@ -961,6 +1075,7 @@ export class OrderService implements IOrderService {
     order.eventUuid = entity.eventUuid;
     order.status = entity.status;
     order.subtotal = Number(entity.subtotal);
+    order.discountAmount = Number(entity.discountAmount ?? 0);
     order.serviceFee = Number(entity.serviceFee);
     order.total = Number(entity.total);
     order.currency = entity.currency;
@@ -982,6 +1097,7 @@ export class OrderService implements IOrderService {
         admissionsPerUnit: Number(item.admissionsPerUnit ?? 1),
         unitPrice: Number(item.unitPrice),
         subtotal: Number(item.subtotal),
+        discountAmount: Number(item.discountAmount ?? 0),
         tickets: ((item.tickets as any[]) ?? []).map(
           (ticket: any): IOrderTicket => ({
             uuid: ticket.uuid,

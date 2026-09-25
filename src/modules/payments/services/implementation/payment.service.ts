@@ -110,6 +110,8 @@ export class PaymentService implements IPaymentService {
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
+      // Parte del cupón de esta línea: la preferencia cobra la entrada ya descontada.
+      discountAmount: Number(item.discountAmount ?? 0),
       tickets: item.tickets ?? [],
       // "Mesa VIP · Mesa VIP · 8": el comprador ve en Mercado Pago qué unidad paga (BR-SALE-010).
       title: ticketDisplayName(ticketTypes[i]?.name ?? 'Entrada', item.unitLabel)
