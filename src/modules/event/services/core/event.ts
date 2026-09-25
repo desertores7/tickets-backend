@@ -54,6 +54,7 @@ export interface ITicketTypeUpdate {
   quantity?: number;
   minPerOrder?: number;
   maxPerOrder?: number;
+  maxPerBuyer?: number | null;
   saleMode?: TicketTypeSaleMode;
   admissionsPerUnit?: number | null;
   saleStartDate?: Date | null;
@@ -74,6 +75,7 @@ export interface ITicketTypeCreate {
   quantity: number;
   minPerOrder?: number;
   maxPerOrder?: number;
+  maxPerBuyer?: number | null;
   saleMode?: TicketTypeSaleMode;
   admissionsPerUnit?: number | null;
   saleStartDate?: Date | null;

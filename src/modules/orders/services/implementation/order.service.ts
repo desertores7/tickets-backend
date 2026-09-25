@@ -137,6 +137,22 @@ export class OrderService implements IOrderService {
       throw new UnprocessableEntityException(salesBlock);
     }
 
+    // Cancela cualquier reserva pendiente anterior de este comprador para
+    // este evento antes de crear una nueva. Sin esto, alguien que abre una
+    // pestaña nueva (o vuelve más tarde) pierde la referencia a la orden
+    // vieja del lado del frontend, pero esta sigue viva reteniendo stock —
+    // o una mesa/palco numerado entero — hasta que vence sola a los 10
+    // minutos. Yendo y viniendo puede terminar reteniendo varias unidades
+    // sin poder pagar ninguna. Se cancela ANTES de reservar la nueva para
+    // que el stock liberado esté disponible si la nueva compra lo necesita.
+    const stalePending = await this.dbRepository.findOne({
+      entity: 'orders',
+      where: { userUuid: userId, eventUuid: dto.eventUuid, status: OrderStatus.PENDING_PAYMENT }
+    });
+    if (stalePending) {
+      await this.cancelOrder((stalePending as { uuid: string }).uuid, userId);
+    }
+
     const now = new Date();
 
     // 2. Validate each ticket type
@@ -224,6 +240,25 @@ export class OrderService implements IOrderService {
         throw new UnprocessableEntityException(
           `La cantidad máxima por orden para "${ticketType.name}" es ${ticketType.maxPerOrder}`
         );
+      }
+
+      // Tope acumulado por comprador (`maxPerBuyer`), distinto de
+      // `maxPerOrder`: sin esto alguien junta el tope de varias órdenes
+      // pagadas (o varias pestañas/navegadores en paralelo) y lo supera
+      // igual. Solo cuenta lo ya PAGADO: la reserva pendiente que pudiera
+      // quedar de este mismo comprador para este evento ya se canceló más
+      // arriba, así que no hay una segunda orden viva que sumar acá.
+      if (ticketType.maxPerBuyer != null) {
+        const alreadyPaid = await this.sumPaidQuantityForBuyer(userId, ticketType.uuid);
+        if (alreadyPaid + item.quantity > ticketType.maxPerBuyer) {
+          const restantes = Math.max(0, ticketType.maxPerBuyer - alreadyPaid);
+          throw new UnprocessableEntityException(
+            `Ya compraste ${alreadyPaid} de "${ticketType.name}" (máximo ${ticketType.maxPerBuyer} por persona). ` +
+              (restantes > 0
+                ? `Podés comprar hasta ${restantes} más.`
+                : 'Llegaste al máximo permitido.')
+          );
+        }
       }
     }
 
@@ -1176,6 +1211,27 @@ export class OrderService implements IOrderService {
         'Tenés que verificar tu correo antes de comprar. Revisá tu bandeja de entrada.'
       );
     }
+  }
+
+  /**
+   * Suma la cantidad ya comprada (órdenes `paid`) por este usuario para una
+   * tanda puntual — usado para el tope `maxPerBuyer`. Solo cuenta órdenes
+   * pagadas: no resta reembolsos parciales ni cuenta `refunded` (simplificación
+   * deliberada). La reserva pendiente que pudiera quedar de este mismo
+   * comprador para este evento ya se cancela antes de llegar acá.
+   */
+  private async sumPaidQuantityForBuyer(userId: string, ticketTypeUuid: string): Promise<number> {
+    const row = await this.dataSource
+      .getRepository(OrderItemEntity)
+      .createQueryBuilder('i')
+      .innerJoin('orders', 'o', 'o.uuid = i.orderUuid')
+      .select('COALESCE(SUM(i.quantity), 0)', 'qty')
+      .where('o.userUuid = :userId', { userId })
+      .andWhere('i.ticketTypeUuid = :ticketTypeUuid', { ticketTypeUuid })
+      .andWhere('o.status = :status', { status: OrderStatus.PAID })
+      .getRawOne<{ qty: string }>();
+
+    return Number(row?.qty) || 0;
   }
 }
 
