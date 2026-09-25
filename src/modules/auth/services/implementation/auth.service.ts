@@ -29,6 +29,9 @@ import { UserEntity } from '@config/db/entities/user/user.entity';
 import { OrganizationEntity } from '@config/db/entities/user/organization.entity';
 import { UserOrganizationEntity } from '@config/db/entities/user/user_organization.entity';
 import { OrganizationProducerInviteEntity } from '@config/db/entities/user/organization-producer-invite.entity';
+import { EventEntity } from '@config/db/entities/tickets/event.entity';
+import { EventValidatorEntity } from '@config/db/entities/tickets/event_validator.entity';
+import { UserEventCashierEntity } from '@config/db/entities/tickets/user_event_cashier.entity';
 import { ImageCompressionService } from '@root/shared/services/image-compression.service';
 import { RegisterAuthRequest } from '@modules/auth/controllers/requests/register-auth.request';
 import { resolveActiveRole } from '@root/shared/auth/utils/active-role';
@@ -1432,6 +1435,62 @@ export class AuthService implements IAuthService {
     };
   }
 
+  /**
+   * Asigna al invitado al evento guardado en la invitación. Si el evento ya no
+   * existe o cambió de productora, no se asigna: la cuenta y el rol quedan
+   * igual y el Productor lo puede sumar a mano.
+   */
+  private async assignInvitedEventEmployee(
+    queryRunner: QueryRunner,
+    invite: OrganizationProducerInviteEntity,
+    userUuid: string
+  ): Promise<void> {
+    const eventUuid = invite.eventUuid!;
+    const event = await queryRunner.manager.findOne(EventEntity, {
+      where: { uuid: eventUuid, organizationUuid: invite.organizationUuid } as any
+    });
+    if (!event) return;
+
+    if (invite.staffRole === 'validator') {
+      const existing = await queryRunner.manager.findOne(EventValidatorEntity, {
+        where: { eventUuid, userUuid } as any
+      });
+      if (existing) return;
+
+      const assignment = new EventValidatorEntity();
+      assignment.uuid = uuidv4();
+      assignment.eventUuid = eventUuid;
+      assignment.userUuid = userUuid;
+      assignment.assignedBy = invite.invitedByUuid;
+      await queryRunner.manager.save(EventValidatorEntity, assignment);
+      return;
+    }
+
+    const existing = await queryRunner.manager.findOne(UserEventCashierEntity, {
+      where: { eventUuid, userUuid } as any
+    });
+    if (existing) {
+      if (existing.isDeleted) {
+        await queryRunner.manager.update(
+          UserEventCashierEntity,
+          { uuid: existing.uuid },
+          { isDeleted: null, isHidden: false }
+        );
+      }
+      return;
+    }
+
+    const cashier = new UserEventCashierEntity();
+    cashier.uuid = uuidv4();
+    cashier.userUuid = userUuid;
+    cashier.eventUuid = eventUuid;
+    cashier.organizationUuid = invite.organizationUuid;
+    cashier.isHidden = false;
+    cashier.isDeleted = null;
+    cashier.createdBy = invite.invitedByUuid;
+    await queryRunner.manager.save(UserEventCashierEntity, cashier);
+  }
+
   async acceptProducerInvite(request: {
     token: string;
     password: string;
@@ -1540,6 +1599,11 @@ export class AuthService implements IAuthService {
           { uuid: membership.uuid },
           { isDeleted: null, updatedBy: row.invitedByUuid }
         );
+      }
+
+      // Invitado desde el equipo de un evento: queda asignado a ese evento.
+      if (row.eventUuid && (row.staffRole === 'validator' || row.staffRole === 'cashier')) {
+        await this.assignInvitedEventEmployee(queryRunner, row, user.uuid);
       }
 
       await queryRunner.manager.update(
