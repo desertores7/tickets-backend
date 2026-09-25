@@ -1,5 +1,7 @@
 import {
   MAP_GRID_SIZE,
+  STAGE_BAND_CELLS,
+  STAGE_SPAN_CELLS,
   MapGridError,
   MapSectorLayout,
   assertNoOverlaps,
@@ -12,6 +14,11 @@ import {
 } from './map-grid';
 
 const N = MAP_GRID_SIZE;
+// Calculado a partir de las constantes actuales en vez de hardcodeado: si
+// `MAP_GRID_SIZE` o la escala cambian, este test se ajusta solo en vez de
+// quedar con valores viejos (fue justo lo que pasó acá: la grilla bajó de
+// 48 a 24 y este test se quedó esperando los valores de la grilla vieja).
+const STAGE_OFFSET = Math.round((N - STAGE_SPAN_CELLS) / 2) + 1;
 
 const rect = (col: number, row: number, colSpan: number, rowSpan: number): MapSectorLayout => ({
   kind: 'rect',
@@ -99,9 +106,13 @@ describe('map-grid', () => {
   });
 
   it('stageLayoutFromAnalysis usa stage.layout o el default por posición', () => {
-    // Escenario de medida fija (9×2 celdas del modelo, ×2 en la grilla) y centrado.
-    expect(stageLayoutFromAnalysis(null)).toEqual(rect(16, 1, 18, 4));
-    expect(stageLayoutFromAnalysis({ stage: { position: 'bottom' } })).toEqual(rect(16, N - 3, 18, 4));
+    // Escenario de medida fija (STAGE_SPAN_CELLS × STAGE_BAND_CELLS) y centrado.
+    expect(stageLayoutFromAnalysis(null)).toEqual(
+      rect(STAGE_OFFSET, 1, STAGE_SPAN_CELLS, STAGE_BAND_CELLS)
+    );
+    expect(stageLayoutFromAnalysis({ stage: { position: 'bottom' } })).toEqual(
+      rect(STAGE_OFFSET, N - STAGE_BAND_CELLS + 1, STAGE_SPAN_CELLS, STAGE_BAND_CELLS)
+    );
     expect(stageLayoutFromAnalysis({ stage: { layout: rect(5, 5, 3, 3) } })).toEqual(rect(5, 5, 3, 3));
   });
 });
